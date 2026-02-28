@@ -70,6 +70,8 @@ export default function App() {
   const [dataFinal, setDataFinal] = useState("");
   const [buscaDataAtiva, setBuscaDataAtiva] = useState(false);
 
+  const [mostrarLancamentos, setMostrarLancamentos] = useState(false);
+
   const [descricaoSaida, setDescricaoSaida] = useState("");
   const [valorSaida, setValorSaida] = useState("");
   const [outroValor, setOutroValor] = useState("");
@@ -340,79 +342,138 @@ export default function App() {
     }
   }
 
-  function exportarPDF() {
-    const itens = lancamentosFiltrados.length ? lancamentosFiltrados : lancamentos;
+  async function exportarPDF() {
+    let jsPDFModule;
 
-    const linhas = itens.map((l) => {
-      const descricao = l.embarcacao ? l.embarcacao : l.descricao;
-      return `${formatarDataBR(l.data)} | ${descricao} | ${l.tipo} | ${formatMoney(l.valor, false)}`;
-    });
-
-    const textoLinhas = [
-      "BANCO DO PORTO",
-      `Extrato do mês: ${mesSelecionado}`,
-      "",
-      ...linhas,
-      "",
-      `Saldo do mês (filtro atual): ${formatMoney(saldoMes, false)}`,
-      `Total geral (vida toda): ${formatMoney(totalGeral, false)}`
-    ];
-
-    const normalizeAscii = (value) =>
-      String(value || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\x20-\x7E]/g, " ");
-
-    const escapePdfText = (value) =>
-      normalizeAscii(value)
-        .replace(/\\/g, "\\\\")
-        .replace(/\(/g, "\\(")
-        .replace(/\)/g, "\\)");
-
-    const pdfText = ["BT", "/F1 11 Tf", "40 800 Td"];
-    textoLinhas.forEach((linha, i) => {
-      if (i > 0) pdfText.push("0 -16 Td");
-      pdfText.push(`(${escapePdfText(linha)}) Tj`);
-    });
-    pdfText.push("ET");
-
-    const stream = `${pdfText.join("\n")}\n`;
-
-    const objects = [
-      "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-      "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-      "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n",
-      `4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
-      "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
-    ];
-
-    let pdf = "%PDF-1.4\n";
-    const offsets = [0];
-
-    objects.forEach((obj) => {
-      offsets.push(pdf.length);
-      pdf += obj;
-    });
-
-    const xrefStart = pdf.length;
-    pdf += `xref\n0 ${objects.length + 1}\n`;
-    pdf += "0000000000 65535 f \n";
-    for (let i = 1; i <= objects.length; i++) {
-      pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+    try {
+      jsPDFModule = await import("jspdf");
+    } catch (err) {
+      console.error(err);
+      alert("Biblioteca jsPDF não encontrada. Instale com: npm install jspdf");
+      return;
     }
 
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+    const { jsPDF } = jsPDFModule;
+    const doc = new jsPDF();
 
-    const blob = new Blob([pdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
+    const itensPDF = lancamentosOrdenados;
+    const entradas = itensPDF.filter((l) => l.tipo === "ENTRADA");
+    const saidas = itensPDF.filter((l) => l.tipo === "SAIDA");
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `extrato-${mesSelecionado}.pdf`;
-    a.click();
+    const totalEntradas = entradas.reduce((acc, l) => acc + Number(l.valor || 0), 0);
+    const totalSaidas = saidas.reduce((acc, l) => acc + Number(l.valor || 0), 0);
+    const totalFinal = totalEntradas - totalSaidas;
 
-    URL.revokeObjectURL(url);
+    let y = 20;
+
+    doc.setFontSize(16);
+    doc.setTextColor(20, 20, 20);
+    doc.text("BANCO DO PORTO", 14, y);
+
+    y += 8;
+    doc.setFontSize(11);
+    doc.setTextColor(80, 80, 80);
+    const periodoSelecionado = buscaDataAtiva && dataInicial && dataFinal
+      ? `${formatarDataBR(dataInicial)} até ${formatarDataBR(dataFinal)}`
+      : `Mês ${mesSelecionado}`;
+    doc.text(`Extrato do período: ${periodoSelecionado}`, 14, y);
+
+    y += 10;
+    doc.setFontSize(10);
+    doc.setTextColor(90, 90, 90);
+    doc.text("Data", 14, y);
+    doc.text("Descrição", 45, y);
+    doc.text("Valor", 180, y, { align: "right" });
+
+    y += 4;
+    doc.setDrawColor(210, 210, 210);
+    doc.line(14, y, 196, y);
+
+    y += 6;
+
+    itensPDF.forEach((l) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+
+        doc.setFontSize(10);
+        doc.setTextColor(90, 90, 90);
+        doc.text("Data", 14, y);
+        doc.text("Descrição", 45, y);
+        doc.text("Valor", 180, y, { align: "right" });
+        y += 4;
+        doc.setDrawColor(210, 210, 210);
+        doc.line(14, y, 196, y);
+        y += 6;
+      }
+
+      const data = formatarDataBR(l.data);
+      const descricao = l.embarcacao ? l.embarcacao : (l.descricao || "");
+      const valor = Number(l.valor || 0).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+
+      doc.setFontSize(10);
+      doc.setTextColor(50, 50, 50);
+      doc.text(data, 14, y);
+      doc.text(descricao, 45, y);
+
+      if (l.tipo === "ENTRADA") {
+        doc.setTextColor(22, 101, 52);
+      } else {
+        doc.setTextColor(185, 28, 28);
+      }
+
+      doc.text(valor, 180, y, { align: "right" });
+
+      y += 7;
+    });
+
+    if (y > 260) {
+      doc.addPage();
+      y = 20;
+    }
+
+    y += 4;
+    doc.setDrawColor(210, 210, 210);
+    doc.line(14, y, 196, y);
+
+    y += 8;
+    doc.setFontSize(11);
+
+    doc.setTextColor(22, 101, 52);
+    doc.text("Total de Entradas:", 14, y);
+    doc.text(
+      totalEntradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      180,
+      y,
+      { align: "right" }
+    );
+
+    y += 7;
+    doc.setTextColor(185, 28, 28);
+    doc.text("Total de Saídas:", 14, y);
+    doc.text(
+      totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      180,
+      y,
+      { align: "right" }
+    );
+
+    y += 9;
+    const corTotal = totalFinal >= 0 ? [22, 101, 52] : [185, 28, 28];
+    doc.setTextColor(corTotal[0], corTotal[1], corTotal[2]);
+    doc.setFontSize(12);
+    doc.text("TOTAL FINAL:", 14, y);
+    doc.text(
+      totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      180,
+      y,
+      { align: "right" }
+    );
+
+    doc.save(`extrato-${mesSelecionado}.pdf`);
   }
 
   if (loadingAuth) return <div className="app-container">Carregando...</div>;
@@ -489,7 +550,7 @@ export default function App() {
 
       {/* ENTRADA */}
       <div className="card section">
-        <div className="section-title">Registrar Entrada</div>
+        <div className="section-title">ENTRADA</div>
 
         <select
           className="input"
@@ -519,19 +580,14 @@ export default function App() {
         )}
 
         <div className="button-group">
-          <button className="button button-entrada" onClick={() => registrarEntrada(150)}>
-            +150
-          </button>
           <button className="button button-entrada" onClick={() => registrarEntrada(75)}>
             +75
           </button>
-          <button
-            className="button secondary"
-            onClick={() => {
-              if (outroValor) registrarEntrada(outroValor);
-            }}
-          >
-            OK
+          <button className="button button-entrada" onClick={() => registrarEntrada(150)}>
+            +150
+          </button>
+          <button className="button button-entrada" onClick={() => registrarEntrada(300)}>
+            +300
           </button>
         </div>
 
@@ -542,11 +598,20 @@ export default function App() {
           value={outroValor}
           onChange={(e) => setOutroValor(e.target.value)}
         />
+
+        <button
+          className="button button-entrada"
+          onClick={() => {
+            if (outroValor) registrarEntrada(outroValor);
+          }}
+        >
+          REGISTRAR
+        </button>
       </div>
 
       {/* SAÍDA */}
       <div className="card section">
-        <div className="section-title">Registrar Saída</div>
+        <div className="section-title">SAÍDA</div>
 
         <input
           className="input"
@@ -570,7 +635,7 @@ export default function App() {
 
       {/* EXTRATO */}
       <div className="card section">
-        <div className="section-title">Extrato</div>
+        <div className="section-title">EXTRATO</div>
 
         <div style={{ marginBottom: 10 }}>
           {/* mantém “mês atual” via dropdown/mesSelecionado */}
@@ -610,8 +675,17 @@ export default function App() {
           )}
         </div>
 
-        <div className="extrato-list">
-          {lancamentosOrdenados.map((l) => {
+        <button
+          className="button secondary"
+          onClick={() => setMostrarLancamentos((prev) => !prev)}
+          type="button"
+        >
+          {mostrarLancamentos ? "Ocultar Lançamentos" : "Mostrar Lançamentos"}
+        </button>
+
+        {mostrarLancamentos && (
+          <div className="extrato-list">
+            {lancamentosOrdenados.map((l) => {
             const retro = isRetroativo(l.mes);
 
             return (
@@ -643,8 +717,9 @@ export default function App() {
                 </button>
               </div>
             );
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </div>
 
       {/* LANÇAMENTO RETROATIVO + EXPORTAÇÃO */}

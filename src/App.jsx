@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
 import { observeAuth, login, logout } from "./services/auth";
 import {
   criarLancamento,
@@ -66,8 +67,8 @@ export default function App() {
   const [mesSelecionado, setMesSelecionado] = useState(mesISO());
 
   const [filtroAtivo, setFiltroAtivo] = useState(false);
-  const [dataInicial, setDataInicial] = useState("");
-  const [dataFinal, setDataFinal] = useState("");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
   const [buscaDataAtiva, setBuscaDataAtiva] = useState(false);
 
   const [mostrarLancamentos, setMostrarLancamentos] = useState(false);
@@ -92,8 +93,6 @@ export default function App() {
 
   const [ocultarValores, setOcultarValores] = useState(false);
 
-
-
   // ✅ TOTAL GERAL cache (pra não “sumir” ao abrir)
   const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [totalGeralCache, setTotalGeralCache] = useState(() => {
@@ -111,12 +110,12 @@ export default function App() {
   }, [mesSelecionado, mesDoLancamento]);
 
   const lancamentosFiltrados = useMemo(() => {
-    if (!buscaDataAtiva || !dataInicial || !dataFinal) return lancamentos;
+    if (!buscaDataAtiva || !dataInicio || !dataFim) return lancamentos;
 
-    return todosLancamentos.filter(
-      (l) => l.data >= dataInicial && l.data <= dataFinal
-    );
-  }, [lancamentos, todosLancamentos, buscaDataAtiva, dataInicial, dataFinal]);
+    return todosLancamentos.filter((l) => {
+      return l.data >= dataInicio && l.data <= dataFim;
+    });
+  }, [lancamentos, todosLancamentos, buscaDataAtiva, dataInicio, dataFim]);
 
   const lancamentosOrdenados = useMemo(() => {
     return [...lancamentosFiltrados].sort((a, b) => {
@@ -137,8 +136,8 @@ export default function App() {
       const novo = !prev;
       if (!novo) {
         setBuscaDataAtiva(false);
-        setDataInicial("");
-        setDataFinal("");
+        setDataInicio("");
+        setDataFim("");
         setMesSelecionado(mesISO());
       }
       return novo;
@@ -148,14 +147,14 @@ export default function App() {
   function toggleBuscaData() {
     if (buscaDataAtiva) {
       setBuscaDataAtiva(false);
-      setDataInicial("");
-      setDataFinal("");
+      setDataInicio("");
+      setDataFim("");
       setMesSelecionado(mesISO());
       setFiltroAtivo(false);
       return;
     }
 
-    if (!dataInicial || !dataFinal) {
+    if (!dataInicio || !dataFim) {
       alert("Selecione data inicial e data final para buscar o extrato.");
       return;
     }
@@ -164,15 +163,16 @@ export default function App() {
   }
 
   // AUTH
-  useEffect(() => {
-    const unsub = observeAuth((u) => {
-      setUser(u);
-      setLoadingAuth(false);
-      if (!u) setLancamentos([]);
-      if (!u) setTodosLancamentos([]);
-    });
-    return () => unsub();
-  }, []);
+useEffect(() => {
+  const unsub = observeAuth((u) => {
+    setUser(u);
+    setLoadingAuth(false);
+    if (!u) setLancamentos([]);
+    if (!u) setTodosLancamentos([]);
+  });
+  return () => unsub();
+}, []);
+
 
   // FIRESTORE LISTENER (por mês selecionado no extrato)
   useEffect(() => {
@@ -342,48 +342,48 @@ export default function App() {
     }
   }
 
-  async function exportarPDF() {
-    let jsPDFModule;
-
-    try {
-      jsPDFModule = await import("jspdf");
-    } catch (err) {
-      console.error(err);
-      alert("Biblioteca jsPDF não encontrada. Instale com: npm install jspdf");
-      return;
-    }
-
-    const { jsPDF } = jsPDFModule;
+  function exportarPDF() {
     const doc = new jsPDF();
 
     const itensPDF = lancamentosOrdenados;
-    const entradas = itensPDF.filter((l) => l.tipo === "ENTRADA");
-    const saidas = itensPDF.filter((l) => l.tipo === "SAIDA");
 
-    const totalEntradas = entradas.reduce((acc, l) => acc + Number(l.valor || 0), 0);
-    const totalSaidas = saidas.reduce((acc, l) => acc + Number(l.valor || 0), 0);
+    const totalEntradas = lancamentosFiltrados
+      .filter((l) => l.tipo === "ENTRADA")
+      .reduce((acc, l) => acc + Number(l.valor), 0);
+
+    const totalSaidas = lancamentosFiltrados
+      .filter((l) => l.tipo === "SAIDA")
+      .reduce((acc, l) => acc + Number(l.valor), 0);
+
     const totalFinal = totalEntradas - totalSaidas;
 
     let y = 20;
 
     doc.setFontSize(16);
     doc.setTextColor(20, 20, 20);
-    doc.text("BANCO DO PORTO", 14, y);
+    doc.text("AMAZONAT GESTÃO FINANCEIRA", 14, y);
 
     y += 8;
     doc.setFontSize(11);
     doc.setTextColor(80, 80, 80);
-    const periodoSelecionado = buscaDataAtiva && dataInicial && dataFinal
-      ? `${formatarDataBR(dataInicial)} até ${formatarDataBR(dataFinal)}`
-      : `Mês ${mesSelecionado}`;
-    doc.text(`Extrato do período: ${periodoSelecionado}`, 14, y);
+    let periodoTexto;
+
+    if (buscaDataAtiva && dataInicio && dataFim) {
+      periodoTexto = `Período: ${formatarDataBR(dataInicio)} até ${formatarDataBR(dataFim)}`;
+    } else {
+      periodoTexto = `Período: Mês ${mesSelecionado}`;
+    }
+
+    doc.text(periodoTexto, 14, y);
 
     y += 10;
     doc.setFontSize(10);
     doc.setTextColor(90, 90, 90);
     doc.text("Data", 14, y);
-    doc.text("Descrição", 45, y);
-    doc.text("Valor", 180, y, { align: "right" });
+    doc.text("Descrição", 42, y);
+    doc.text("Entrada", 140, y, { align: "right" });
+    doc.text("Saída", 166, y, { align: "right" });
+    doc.text("Valor", 195, y, { align: "right" });
 
     y += 4;
     doc.setDrawColor(210, 210, 210);
@@ -399,8 +399,10 @@ export default function App() {
         doc.setFontSize(10);
         doc.setTextColor(90, 90, 90);
         doc.text("Data", 14, y);
-        doc.text("Descrição", 45, y);
-        doc.text("Valor", 180, y, { align: "right" });
+        doc.text("Descrição", 42, y);
+        doc.text("Entrada", 140, y, { align: "right" });
+        doc.text("Saída", 166, y, { align: "right" });
+        doc.text("Valor", 195, y, { align: "right" });
         y += 4;
         doc.setDrawColor(210, 210, 210);
         doc.line(14, y, 196, y);
@@ -409,15 +411,25 @@ export default function App() {
 
       const data = formatarDataBR(l.data);
       const descricao = l.embarcacao ? l.embarcacao : (l.descricao || "");
-      const valor = Number(l.valor || 0).toLocaleString("pt-BR", {
+      const valorNumerico = Number(l.valor || 0);
+      const valor = valorNumerico.toLocaleString("pt-BR", {
         style: "currency",
         currency: "BRL",
       });
+      const entradaValor = l.tipo === "ENTRADA" ? valor : "-";
+      const saidaValor = l.tipo === "SAIDA" ? valor : "-";
+      const valorFinal = `${l.tipo === "ENTRADA" ? "+" : "-"} ${valor}`;
 
       doc.setFontSize(10);
       doc.setTextColor(50, 50, 50);
       doc.text(data, 14, y);
-      doc.text(descricao, 45, y);
+      doc.text(descricao, 42, y);
+
+      doc.setTextColor(22, 101, 52);
+      doc.text(entradaValor, 140, y, { align: "right" });
+
+      doc.setTextColor(185, 28, 28);
+      doc.text(saidaValor, 166, y, { align: "right" });
 
       if (l.tipo === "ENTRADA") {
         doc.setTextColor(22, 101, 52);
@@ -425,7 +437,7 @@ export default function App() {
         doc.setTextColor(185, 28, 28);
       }
 
-      doc.text(valor, 180, y, { align: "right" });
+      doc.text(valorFinal, 195, y, { align: "right" });
 
       y += 7;
     });
@@ -512,7 +524,7 @@ export default function App() {
     <div className="app-container">
       {/* HEADER com data atual fixa (BR) */}
       <div className="header">
-        Banco do Porto
+        AMAZONAT GESTÃO FINANCEIRA
         <div className="header-date">{formatarDataBR(hojeISO())}</div>
       </div>
 
@@ -558,11 +570,12 @@ export default function App() {
           onChange={(e) => setEmbarcacao(e.target.value)}
         >
           <option value="">Selecione a embarcação</option>
+          <option value="COSTA I">COSTA I</option>
           <option value="CAMPEÃO 6">CAMPEÃO 6</option>
           <option value="CLICIA XIII">CLICIA XIII</option>
-          <option value="ERICK FABIAN IV">AERICK FABIAN IV</option>
-          <option value="EXPRESSO A. ORCA III (SAMUELLY VIII)">
-            EXPRESSO A. ORCA III (SAMUELLY VIII)
+          <option value="ERICK FABIAN IV">ERICK FABIAN IV</option>
+          <option value="EXPRESSO A. ORCA III">
+            EXPRESSO A. ORCA III
           </option>
           <option value="EXPRESSO MARUSA">EXPRESSO MARUSA</option>
           <option value="LUZ DA AURORA III">LUZ DA AURORA III</option>
@@ -652,14 +665,14 @@ export default function App() {
               <input
                 className="input"
                 type="date"
-                value={dataInicial}
-                onChange={(e) => setDataInicial(e.target.value)}
+                value={dataInicio}
+                onChange={(e) => setDataInicio(e.target.value)}
               />
               <input
                 className="input"
                 type="date"
-                value={dataFinal}
-                onChange={(e) => setDataFinal(e.target.value)}
+                value={dataFim}
+                onChange={(e) => setDataFim(e.target.value)}
                 style={{ marginTop: 6 }}
               />
 
@@ -686,37 +699,37 @@ export default function App() {
         {mostrarLancamentos && (
           <div className="extrato-list">
             {lancamentosOrdenados.map((l) => {
-            const retro = isRetroativo(l.mes);
+              const retro = isRetroativo(l.mes);
 
-            return (
-              <div
-                key={l.id}
-                className={`extrato-item ${
-                  l.tipo === "ENTRADA" ? "entrada" : "saida"
-                }`}
-              >
-                <div className="extrato-left">
-                  <span className="descricao">
-                    {l.embarcacao ? l.embarcacao : l.descricao}
-                    {retro && <span className="badge-retroativo">Retroativo</span>}
-                  </span>
-                  <small>{formatarDataBR(l.data)}</small>
-                </div>
-
-                <span className="valor">
-                  {formatMoney(l.valor, ocultarValores)}
-                </span>
-
-                <button
-                  className="delete-icon"
-                  onClick={() => handleApagarLancamento(l)}
-                  title="Apagar lançamento"
-                  type="button"
+              return (
+                <div
+                  key={l.id}
+                  className={`extrato-item ${
+                    l.tipo === "ENTRADA" ? "entrada" : "saida"
+                  }`}
                 >
-                  🗑
-                </button>
-              </div>
-            );
+                  <div className="extrato-left">
+                    <span className="descricao">
+                      {l.embarcacao ? l.embarcacao : l.descricao}
+                      {retro && <span className="badge-retroativo">Retroativo</span>}
+                    </span>
+                    <small>{formatarDataBR(l.data)}</small>
+                  </div>
+
+                  <span className="valor">
+                    {formatMoney(l.valor, ocultarValores)}
+                  </span>
+
+                  <button
+                    className="delete-icon"
+                    onClick={() => handleApagarLancamento(l)}
+                    title="Apagar lançamento"
+                    type="button"
+                  >
+                    🗑
+                  </button>
+                </div>
+              );
             })}
           </div>
         )}

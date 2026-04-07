@@ -25,11 +25,19 @@ function produtosQuery() {
 }
 
 export async function addProduto(uid, produto) {
+  const precoCusto = Number(produto?.precoCusto || 0);
+  const precoFinalBase = produto?.precoFinal ?? produto?.preco ?? 0;
+  const precoFinal = Number(precoFinalBase);
+
   return addDoc(produtosRef, {
     uid: uid || null,
     nome: String(produto?.nome || "").trim(),
-    preco: Number(produto?.preco || 0),
+    imagem: String(produto?.imagem || "").trim(),
+    preco: precoFinal,
+    precoCusto,
+    precoFinal,
     estoque: Number(produto?.estoque || 0),
+    notaFiscal: String(produto?.notaFiscal || "").trim(),
     ativo: produto?.ativo ?? true,
     criadoEm: serverTimestamp(),
   });
@@ -43,8 +51,23 @@ export async function updateProduto(id, dados) {
     cleanData({
       ...dados,
       nome: dados?.nome !== undefined ? String(dados.nome).trim() : undefined,
-      preco: dados?.preco !== undefined ? Number(dados.preco) : undefined,
+      imagem: dados?.imagem !== undefined ? String(dados.imagem).trim() : undefined,
+      preco:
+        dados?.precoFinal !== undefined
+          ? Number(dados.precoFinal)
+          : dados?.preco !== undefined
+            ? Number(dados.preco)
+            : undefined,
+      precoCusto: dados?.precoCusto !== undefined ? Number(dados.precoCusto) : undefined,
+      precoFinal:
+        dados?.precoFinal !== undefined
+          ? Number(dados.precoFinal)
+          : dados?.preco !== undefined
+            ? Number(dados.preco)
+            : undefined,
       estoque: dados?.estoque !== undefined ? Number(dados.estoque) : undefined,
+      notaFiscal:
+        dados?.notaFiscal !== undefined ? String(dados.notaFiscal).trim() : undefined,
     })
   );
 }

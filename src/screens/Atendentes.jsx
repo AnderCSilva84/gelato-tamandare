@@ -18,6 +18,7 @@ export default function Atendentes({ uid }) {
   const [loading, setLoading] = useState(true);
   const [nome, setNome] = useState("");
   const [meta, setMeta] = useState("");
+  const [senha, setSenha] = useState("");
   const [editandoId, setEditandoId] = useState("");
 
   useEffect(() => {
@@ -33,7 +34,11 @@ export default function Atendentes({ uid }) {
     e.preventDefault();
     if (!nome.trim()) return;
 
-    const payload = { nome, meta: Number(meta || 0) };
+    const payload = {
+      nome,
+      meta: Number(meta || 0),
+      senha,
+    };
 
     if (editandoId) {
       await updateAtendente(editandoId, payload);
@@ -43,6 +48,7 @@ export default function Atendentes({ uid }) {
 
     setNome("");
     setMeta("");
+    setSenha("");
     setEditandoId("");
   }
 
@@ -55,7 +61,7 @@ export default function Atendentes({ uid }) {
       <div className="screen-heading">
         <div>
           <h1 className="screen-title">Atendentes</h1>
-          <p className="screen-description">Cadastro, ativacao e metas da equipe.</p>
+          <p className="screen-description">Cadastro, ativacao, senha e metas da equipe.</p>
         </div>
       </div>
 
@@ -80,6 +86,13 @@ export default function Atendentes({ uid }) {
               onChange={(e) => setMeta(e.target.value)}
               placeholder="Meta de vendas"
             />
+            <input
+              className="input"
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="Senha do atendente"
+            />
             <button className="action-btn action-btn-primary" type="submit">
               {editandoId ? "Atualizar atendente" : "Cadastrar atendente"}
             </button>
@@ -89,7 +102,9 @@ export default function Atendentes({ uid }) {
         <div className="section-card">
           <div className="section-header">
             <div className="section-title">Equipe</div>
-            <span className="section-subtitle">{loading ? "Carregando..." : `${atendentes.length} itens`}</span>
+            <span className="section-subtitle">
+              {loading ? "Carregando..." : `${atendentes.length} itens`}
+            </span>
           </div>
           <div className="scroll-list">
             {atendentes.map((atendente) => (
@@ -97,8 +112,10 @@ export default function Atendentes({ uid }) {
                 <div>
                   <strong>{atendente.nome}</strong>
                   <small>
-                    {atendente.ativo === false ? "Inativo" : "Ativo"} • Meta {formatMoney(atendente.meta || 0)}
+                    {atendente.ativo === false ? "Inativo" : "Ativo"} - Meta{" "}
+                    {formatMoney(atendente.meta || 0)}
                   </small>
+                  <small>{atendente.senha ? "Senha cadastrada" : "Sem senha cadastrada"}</small>
                 </div>
                 <div className="list-row-actions">
                   <button
@@ -108,6 +125,7 @@ export default function Atendentes({ uid }) {
                       setEditandoId(atendente.id);
                       setNome(atendente.nome || "");
                       setMeta(String(atendente.meta ?? ""));
+                      setSenha(atendente.senha || "");
                     }}
                   >
                     Editar
@@ -115,7 +133,11 @@ export default function Atendentes({ uid }) {
                   <button className="mini-btn" type="button" onClick={() => alternar(atendente)}>
                     {atendente.ativo === false ? "Ativar" : "Desativar"}
                   </button>
-                  <button className="mini-btn danger" type="button" onClick={() => deleteAtendente(atendente.id)}>
+                  <button
+                    className="mini-btn danger"
+                    type="button"
+                    onClick={() => deleteAtendente(atendente.id)}
+                  >
                     Excluir
                   </button>
                 </div>

@@ -9,8 +9,11 @@ import {
 function initialForm() {
   return {
     nome: "",
-    preco: "",
+    imagem: "",
+    precoCusto: "",
+    precoFinal: "",
     estoque: "",
+    notaFiscal: "",
     ativo: true,
   };
 }
@@ -20,6 +23,19 @@ function formatMoney(valor) {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function getProdutoImagem(produto) {
+  return (
+    produto?.imagem ||
+    produto?.imagemUrl ||
+    produto?.image ||
+    produto?.imageUrl ||
+    produto?.foto ||
+    produto?.fotoUrl ||
+    produto?.urlImagem ||
+    ""
+  );
 }
 
 export default function Estoque({ uid }) {
@@ -60,8 +76,11 @@ export default function Estoque({ uid }) {
 
     const payload = {
       nome: form.nome,
-      preco: Number(form.preco || 0),
+      imagem: form.imagem,
+      precoCusto: Number(form.precoCusto || 0),
+      precoFinal: Number(form.precoFinal || 0),
       estoque: Number(form.estoque || 0),
+      notaFiscal: form.notaFiscal,
       ativo: form.ativo,
     };
 
@@ -79,8 +98,11 @@ export default function Estoque({ uid }) {
     setEditandoId(produto.id);
     setForm({
       nome: produto.nome || "",
-      preco: String(produto.preco ?? ""),
+      imagem: produto.imagem || "",
+      precoCusto: String(produto.precoCusto ?? ""),
+      precoFinal: String(produto.precoFinal ?? produto.preco ?? ""),
       estoque: String(produto.estoque ?? ""),
+      notaFiscal: produto.notaFiscal || "",
       ativo: produto.ativo !== false,
     });
   }
@@ -129,12 +151,36 @@ export default function Estoque({ uid }) {
             />
             <input
               className="input"
+              value={form.imagem}
+              onChange={(e) => setForm((prev) => ({ ...prev, imagem: e.target.value }))}
+              placeholder="Imagem do produto (URL ou caminho /produtos/arquivo.jpg)"
+            />
+            {form.imagem ? (
+              <div className="produto-preview">
+                <img className="produto-preview-image" src={form.imagem} alt={form.nome || "Preview do produto"} />
+                <div className="produto-preview-info">
+                  <strong>{form.nome || "Preview da imagem"}</strong>
+                  <small>{form.imagem}</small>
+                </div>
+              </div>
+            ) : null}
+            <input
+              className="input"
               type="number"
               min="0"
               step="0.01"
-              value={form.preco}
-              onChange={(e) => setForm((prev) => ({ ...prev, preco: e.target.value }))}
-              placeholder="Preço"
+              value={form.precoCusto}
+              onChange={(e) => setForm((prev) => ({ ...prev, precoCusto: e.target.value }))}
+              placeholder="Preço de custo"
+            />
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.precoFinal}
+              onChange={(e) => setForm((prev) => ({ ...prev, precoFinal: e.target.value }))}
+              placeholder="Preço final"
             />
             <input
               className="input"
@@ -143,6 +189,12 @@ export default function Estoque({ uid }) {
               value={form.estoque}
               onChange={(e) => setForm((prev) => ({ ...prev, estoque: e.target.value }))}
               placeholder="Estoque"
+            />
+            <input
+              className="input"
+              value={form.notaFiscal}
+              onChange={(e) => setForm((prev) => ({ ...prev, notaFiscal: e.target.value }))}
+              placeholder="Número da nota fiscal"
             />
             <label className="checkbox-row">
               <input
@@ -172,10 +224,20 @@ export default function Estoque({ uid }) {
                 <div className={`list-row ${estoqueBaixo ? "stock-low" : ""}`} key={produto.id}>
                   <div>
                     <strong>{produto.nome}</strong>
+                    {getProdutoImagem(produto) ? (
+                      <div className="estoque-thumb-row">
+                        <img
+                          className="estoque-thumb"
+                          src={getProdutoImagem(produto)}
+                          alt={produto.nome}
+                        />
+                      </div>
+                    ) : null}
                     <small>
-                      {formatMoney(produto.preco)} • estoque {produto.estoque} •{" "}
+                      custo {formatMoney(produto.precoCusto || 0)} • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)} • estoque {produto.estoque} •{" "}
                       {produto.ativo === false ? "inativo" : "ativo"}
                     </small>
+                    {produto.notaFiscal ? <small>NF: {produto.notaFiscal}</small> : null}
                     {estoqueBaixo && (
                       <small className="stock-alert">
                         Restam apenas {estoque} unidade{estoque === 1 ? "" : "s"}.

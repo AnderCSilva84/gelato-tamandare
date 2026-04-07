@@ -29,6 +29,7 @@ export async function addAtendente(uid, dados) {
     uid: uid || null,
     nome: String(dados?.nome || "").trim(),
     meta: Number(dados?.meta || 0),
+    senha: String(dados?.senha || "").trim(),
     ativo: dados?.ativo ?? true,
     criadoEm: serverTimestamp(),
   });
@@ -43,6 +44,7 @@ export async function updateAtendente(id, dados) {
       ...dados,
       nome: dados?.nome !== undefined ? String(dados.nome).trim() : undefined,
       meta: dados?.meta !== undefined ? Number(dados.meta) : undefined,
+      senha: dados?.senha !== undefined ? String(dados.senha).trim() : undefined,
     })
   );
 }

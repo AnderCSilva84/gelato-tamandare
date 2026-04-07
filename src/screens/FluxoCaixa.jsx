@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addDespesa,
   deleteDespesa,
   getDespesas,
   getVendas,
+  subscribeResumoDiario,
   updateDespesa,
 } from "../services/vendas";
 
@@ -27,6 +28,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
   const [despesas, setDespesas] = useState([]);
+  const [resumo, setResumo] = useState(null);
   const [form, setForm] = useState(() => initialForm(dataHoje));
   const [editandoId, setEditandoId] = useState("");
 
@@ -55,15 +57,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     };
   }, [uid, dataFiltro]);
 
-  const totalVendas = useMemo(
-    () => vendas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [vendas]
-  );
-  const totalDespesas = useMemo(
-    () => despesas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [despesas]
-  );
-  const saldo = totalVendas - totalDespesas;
+  useEffect(() => {
+    const unsub = subscribeResumoDiario(dataFiltro, setResumo);
+    return () => unsub();
+  }, [dataFiltro]);
+
+  const totalVendas = Number(resumo?.totalVendas || 0);
+  const totalDespesas = Number(resumo?.totalDespesas || 0);
+  const saldo = Number(resumo?.lucro || 0);
 
   async function salvarDespesa(e) {
     e.preventDefault();
@@ -222,7 +223,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               <div>
                 <strong>{item.produto}</strong>
                 <small>
-                  {item.quantidade} un. • {item.atendente}
+                  {item.quantidade} un. • {item.atendenteNome || item.atendente}
                 </small>
               </div>
               <strong className="positive">{formatMoney(item.valor)}</strong>

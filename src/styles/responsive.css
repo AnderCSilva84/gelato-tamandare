@@ -1,0 +1,104 @@
+/* ============================= */
+/* CONTAINER GLOBAL */
+/* ============================= */
+
+.app-container {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* ============================= */
+/* DESKTOP */
+/* ============================= */
+
+@media (min-width: 768px) {
+
+  .app-container {
+    max-width: 900px;
+    padding: 24px;
+  }
+
+  /* layout em grid */
+
+  .grid-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  /* saldo ocupa linha inteira */
+
+  .total-card {
+    grid-column: span 2;
+  }
+}
+
+/* ============================= */
+/* TELAS GRANDES */
+/* ============================= */
+
+@media (min-width: 1200px) {
+
+  .app-container {
+    max-width: 1100px;
+  }
+
+}
+
+/* ============================= */
+/* CARDS */
+/* ============================= */
+
+.card {
+  width: 100%;
+}
+
+/* ============================= */
+/* INPUTS */
+/* ============================= */
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ============================= */
+/* BOTÕES */
+/* ============================= */
+
+button {
+  width: 100%;
+}
+
+/* ============================= */
+/* AJUSTES MOBILE */
+/* ============================= */
+
+@media (max-width: 480px) {
+
+  .app-container {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+}
+
+/* ============================= */
+/* TIPOGRAFIA */
+/* ============================= */
+
+h1 {
+  font-size: 20px;
+}
+
+@media (min-width: 768px) {
+  h1 {
+    font-size: 24px;
+  }
+}

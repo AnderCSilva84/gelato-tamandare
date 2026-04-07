@@ -1,106 +1,56 @@
 import {
-  collection,
   addDoc,
+  collection,
+  deleteDoc,
+  doc,
   onSnapshot,
   query,
-  where,
-  orderBy,
   serverTimestamp,
-  doc,
-  deleteDoc,
+  where,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
-
-
-// =======================================
-// CRIAR LANÇAMENTO
-// =======================================
-
 export async function criarLancamento(dados) {
-  const docData = {
+  return addDoc(collection(db, "lancamentos"), {
     ...dados,
+    uid: dados?.uid || null,
     criadoEm: serverTimestamp(),
-  };
-
-  return addDoc(collection(db, "lancamentos"), docData);
+  });
 }
-
-// =======================================
-// ESCUTAR LANÇAMENTOS DO MÊS
-// =======================================
-// assinatura: (uid, mes, callback)
 
 export function escutarLancamentosMes(uid, mes, callback) {
-  // proteção contra query inválida
-  if (!uid || !mes) {
+  if (!mes) {
     callback([]);
     return () => {};
   }
 
-  const ref = collection(db, "lancamentos");
-
-  const q = query(
-    ref,
-    where("uid", "==", uid),
-    where("mes", "==", mes),
-    orderBy("criadoEm", "desc")
-  );
+  const q = query(collection(db, "lancamentos"), where("mes", "==", mes));
 
   return onSnapshot(q, (snapshot) => {
-    const lista = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    }));
+    const lista = snapshot.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const dataA = String(a?.data || "");
+        const dataB = String(b?.data || "");
+        const byDate = dataB.localeCompare(dataA);
+        if (byDate !== 0) return byDate;
+        return String(b?.id || "").localeCompare(String(a?.id || ""));
+      });
 
     callback(lista);
   });
 }
-
-// =======================================
-// ESCUTAR TODOS LANÇAMENTOS (TOTAL GERAL)
-// =======================================
-// assinatura: (uid, callback)
-// ✅ IMPORTANTE: sem orderBy pra não falhar em docs antigos sem criadoEm
 
 export function escutarTodosLancamentos(uid, callback) {
-  if (!uid) {
-    callback([]);
-    return () => {};
-  }
-
-  const ref = collection(db, "lancamentos");
-
-  const q = query(
-    ref,
-    where("uid", "==", uid)
-  );
-
-  return onSnapshot(q, (snapshot) => {
-    const lista = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    }));
-
-    callback(lista);
+  return onSnapshot(collection(db, "lancamentos"), (snapshot) => {
+    callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
 
-// =======================================
-// APAGAR LANÇAMENTO
-// =======================================
-// assinatura: (uid, id)
-// uid fica aqui pra futuras validações, mas o doc é apagado pelo id.
-
 export async function apagarLancamento(uid, id) {
-  if (!uid || !id) return;
-  const ref = doc(db, "lancamentos", id);
-  return deleteDoc(ref);
+  if (!id) return;
+  return deleteDoc(doc(db, "lancamentos", id));
 }
-
-// =======================================
-// UTIL DATA
-// =======================================
 
 export function hojeISO() {
   const hoje = new Date();

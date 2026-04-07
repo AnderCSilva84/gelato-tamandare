@@ -1,15 +1,77 @@
 import { useEffect, useMemo, useState } from "react";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
-import { observeAuth, login, logout } from "./services/auth";
 import {
+  apagarLancamento,
   criarLancamento,
   escutarLancamentosMes,
   escutarTodosLancamentos,
   hojeISO,
   mesISO,
-  apagarLancamento, // ✅ NOVO
 } from "./services/lancamentos";
+import TelaAtendentes from "./screens/Atendentes";
+import TelaCaixa from "./screens/Caixa";
+import TelaEstoque from "./screens/Estoque";
+import TelaFluxoCaixa from "./screens/FluxoCaixa";
+import TelaRelatorio from "./screens/Relatorio";
+import logoGelato from "./assets/gelatoimg.jpeg";
+import "./styles/glass.css";
 import "./styles.css";
+import "./styles/responsive.css";
+
+const TEMP_USER = { uid: "gelato-local" };
+
+const FilterIcon = (
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    width="18"
+    height="18"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4 6h16" />
+    <path d="M6 12h12" />
+    <path d="M10 18h4" />
+  </svg>
+);
+
+const HistoryIcon = (
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    width="18"
+    height="18"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 3" />
+  </svg>
+);
+
+const ClockIcon = (
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    width="18"
+    height="18"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5h4" />
+  </svg>
+);
 
 function formatMoney(valor, ocultar) {
   if (ocultar) return "R$ •••••";
@@ -25,111 +87,76 @@ function formatarDataBR(dataISO) {
   return `${dia}/${mes}/${ano}`;
 }
 
+function formatarDataHeader(dataISO) {
+  if (!dataISO) return "";
+  const [ano, mes, dia] = dataISO.split("-");
+  const data = new Date(Number(ano), Number(mes) - 1, Number(dia));
+  const texto = data
+    .toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
+    .replace(".", "");
+  const [d, m, a] = texto.split(" ");
+  const mesFormatado = m ? m[0].toUpperCase() + m.slice(1) : m;
+  return `${d} ${mesFormatado} ${a}`;
+}
+
 function getMonthFromDate(dateStr) {
-  return String(dateStr || "").slice(0, 7); // "YYYY-MM"
+  return String(dateStr || "").slice(0, 7);
 }
 
 function isRetroativo(mesLancamento) {
   return mesLancamento !== mesISO();
 }
 
-function getLastNMonths(n = 3) {
-  const meses = [];
-  const base = new Date();
-  for (let i = 0; i < n; i++) {
-    const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    meses.push(`${y}-${m}`);
-  }
-  return meses;
-}
-
-// garante que o mês selecionado e o mês do retroativo apareçam no dropdown
-function buildMonthsOptions({ mesSelecionado, mesDoLancamento }) {
-  const set = new Set(getLastNMonths(3));
-  if (mesSelecionado) set.add(mesSelecionado);
-  if (mesDoLancamento) set.add(mesDoLancamento);
-
-  // ordena desc (YYYY-MM é lexicográfico ok)
-  return Array.from(set).sort((a, b) => (a < b ? 1 : -1));
-}
-
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [erroLogin, setErroLogin] = useState("");
-
+  const [user] = useState(TEMP_USER);
+  const [tela, setTela] = useState("pdv");
   const [lancamentos, setLancamentos] = useState([]);
+  const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [mesSelecionado, setMesSelecionado] = useState(mesISO());
-
   const [filtroAtivo, setFiltroAtivo] = useState(false);
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [buscaDataAtiva, setBuscaDataAtiva] = useState(false);
-
-  const [mostrarLancamentos, setMostrarLancamentos] = useState(false);
-
-  const [descricaoSaida, setDescricaoSaida] = useState("");
-  const [valorSaida, setValorSaida] = useState("");
-  const [outroValor, setOutroValor] = useState("");
-
-  // Data usada para criar lançamentos (pode ser retroativa)
   const [dataLancamento, setDataLancamento] = useState(hojeISO());
-
-  // ✅ data temporária com botão OK
   const [dataTemp, setDataTemp] = useState(hojeISO());
-  const [mostrarLancamentoRetroativo, setMostrarLancamentoRetroativo] = useState(false);
-  function confirmarData() {
-    setDataLancamento(dataTemp);
-  }
+  const [retroDescricao, setRetroDescricao] = useState("");
+  const [retroValor, setRetroValor] = useState("");
+  const [retroTipo, setRetroTipo] = useState("SAIDA");
 
-  // Embarcação
-  const [embarcacao, setEmbarcacao] = useState("");
-  const [embarcacaoOutra, setEmbarcacaoOutra] = useState("");
+  const navigate = useNavigate();
 
-  const [ocultarValores, setOcultarValores] = useState(false);
+  useEffect(() => {
+    const unsub = escutarLancamentosMes(user.uid, mesSelecionado, setLancamentos);
+    return () => unsub && unsub();
+  }, [user.uid, mesSelecionado]);
 
-  // ✅ TOTAL GERAL cache (pra não “sumir” ao abrir)
-  const [todosLancamentos, setTodosLancamentos] = useState([]);
-  const [totalGeralCache, setTotalGeralCache] = useState(() => {
-    const v = localStorage.getItem("TOTAL_GERAL_CACHE");
-    return v ? Number(v) : 0;
-  });
-
-  const mesDoLancamento = useMemo(
-    () => getMonthFromDate(dataLancamento),
-    [dataLancamento]
-  );
-
-  const mesesDropdown = useMemo(() => {
-    return buildMonthsOptions({ mesSelecionado, mesDoLancamento });
-  }, [mesSelecionado, mesDoLancamento]);
+  useEffect(() => {
+    const unsub = escutarTodosLancamentos(user.uid, setTodosLancamentos);
+    return () => unsub && unsub();
+  }, [user.uid]);
 
   const lancamentosFiltrados = useMemo(() => {
     if (!buscaDataAtiva || !dataInicio || !dataFim) return lancamentos;
-
-    return todosLancamentos.filter((l) => {
-      return l.data >= dataInicio && l.data <= dataFim;
-    });
-  }, [lancamentos, todosLancamentos, buscaDataAtiva, dataInicio, dataFim]);
+    return todosLancamentos.filter((l) => l.data >= dataInicio && l.data <= dataFim);
+  }, [buscaDataAtiva, dataFim, dataInicio, lancamentos, todosLancamentos]);
 
   const lancamentosOrdenados = useMemo(() => {
     return [...lancamentosFiltrados].sort((a, b) => {
       const dataA = String(a?.data || "");
       const dataB = String(b?.data || "");
-
       const byDate = dataB.localeCompare(dataA);
       if (byDate !== 0) return byDate;
-
-      const idA = String(a?.id || "");
-      const idB = String(b?.id || "");
-      return idB.localeCompare(idA);
+      return String(b?.id || "").localeCompare(String(a?.id || ""));
     });
   }, [lancamentosFiltrados]);
+
+  function voltarExtrato() {
+    navigate("/");
+  }
+
+  function abrirRetroativo() {
+    navigate("/retroativo");
+  }
 
   function toggleFiltro() {
     setFiltroAtivo((prev) => {
@@ -162,180 +189,47 @@ export default function App() {
     setBuscaDataAtiva(true);
   }
 
-  // AUTH
-useEffect(() => {
-  const unsub = observeAuth((u) => {
-    setUser(u);
-    setLoadingAuth(false);
-    if (!u) setLancamentos([]);
-    if (!u) setTodosLancamentos([]);
-  });
-  return () => unsub();
-}, []);
-
-
-  // FIRESTORE LISTENER (por mês selecionado no extrato)
-  useEffect(() => {
-    if (!user) return;
-
-    const unsub = escutarLancamentosMes(
-      user.uid,
-      mesSelecionado,
-      (itens) => setLancamentos(itens)
-    );
-    return () => unsub && unsub();
-  }, [user, mesSelecionado]);
-
-  // ✅ LISTENER GLOBAL (TOTAL GERAL DA VIDA)
-  useEffect(() => {
-    if (!user) return;
-
-    const unsub = escutarTodosLancamentos(user.uid, (itens) => {
-      setTodosLancamentos(itens);
-    });
-
-    return () => unsub && unsub();
-  }, [user]);
-
-  // ✅ TOTAL GERAL (vida toda, incluindo retroativos)
-  const totalGeral = useMemo(() => {
-    return todosLancamentos.reduce((acc, l) => {
-      return l.tipo === "ENTRADA"
-        ? acc + Number(l.valor)
-        : acc - Number(l.valor);
-    }, 0);
-  }, [todosLancamentos]);
-
-  // ✅ atualiza cache do total no localStorage
-  useEffect(() => {
-    if (Number.isFinite(totalGeral)) {
-      setTotalGeralCache(totalGeral);
-      localStorage.setItem("TOTAL_GERAL_CACHE", String(totalGeral));
-    }
-  }, [totalGeral]);
-
-  const totalExibido =
-    Number.isFinite(totalGeral) && totalGeral !== 0 ? totalGeral : totalGeralCache;
-
-  function toggleLancamentoRetroativo() {
-    setMostrarLancamentoRetroativo((prev) => {
-      const novo = !prev;
-      if (!novo) {
-        const hoje = hojeISO();
-        setDataTemp(hoje);
-        setDataLancamento(hoje);
-      }
-      return novo;
-    });
+  function confirmarData() {
+    setDataLancamento(dataTemp);
   }
 
-  // SALDOS (mantive teu saldoMes/saldoDia intacto, mas agora você usa Total Geral)
-  const saldoMes = useMemo(() => {
-    return lancamentos.reduce((acc, l) => {
-      return l.tipo === "ENTRADA"
-        ? acc + Number(l.valor)
-        : acc - Number(l.valor);
-    }, 0);
-  }, [lancamentos]);
-
-  const saldoDia = useMemo(() => {
-    const hoje = hojeISO();
-    return lancamentos
-      .filter((l) => l.data === hoje)
-      .reduce((acc, l) => {
-        return l.tipo === "ENTRADA"
-          ? acc + Number(l.valor)
-          : acc - Number(l.valor);
-      }, 0);
-  }, [lancamentos]);
-
-  async function handleLogin(e) {
-    e.preventDefault();
-    setErroLogin("");
-    try {
-      await login(email, senha);
-    } catch {
-      setErroLogin("Email ou senha inválidos.");
-    }
-  }
-
-  function getEmbarcacaoFinal() {
-    if (embarcacao === "OUTRA") return (embarcacaoOutra || "").trim();
-    return (embarcacao || "").trim();
-  }
-
-  async function registrarEntrada(valor) {
-    if (!user) return;
-
-    const v = Number(valor);
+  async function registrarRetroativo() {
+    const v = Number(retroValor);
     if (!Number.isFinite(v) || v <= 0) return;
 
     const data = dataLancamento || hojeISO();
     const mes = getMonthFromDate(data);
-
-    const embarcacaoFinal = getEmbarcacaoFinal();
-    if (!embarcacaoFinal) {
-      alert("Selecione a embarcação antes de registrar a entrada.");
-      return;
-    }
+    const descricao = (retroDescricao || "Lançamento Retroativo").trim();
+    const tipo = retroTipo === "ENTRADA" ? "ENTRADA" : "SAIDA";
 
     await criarLancamento({
       uid: user.uid,
-      tipo: "ENTRADA",
+      tipo,
       valor: v,
       data,
       mes,
-      descricao: embarcacaoFinal,
-      embarcacao: embarcacaoFinal,
+      descricao,
     });
 
     if (mes !== mesSelecionado) setMesSelecionado(mes);
 
-    // limpa campos após envio
-    setOutroValor("");
-    setEmbarcacao("");
-    setEmbarcacaoOutra("");
+    setRetroDescricao("");
+    setRetroValor("");
+    setRetroTipo("SAIDA");
   }
 
-  async function registrarSaida() {
-    if (!user) return;
-
-    const v = Number(valorSaida);
-    if (!Number.isFinite(v) || v <= 0) return;
-
-    const data = dataLancamento || hojeISO();
-    const mes = getMonthFromDate(data);
-
-    await criarLancamento({
-      uid: user.uid,
-      tipo: "SAIDA",
-      valor: v,
-      data,
-      mes,
-      descricao: (descricaoSaida || "Saída").trim(),
-    });
-
-    if (mes !== mesSelecionado) setMesSelecionado(mes);
-
-    // limpa campos após envio
-    setDescricaoSaida("");
-    setValorSaida("");
-  }
-
-  // apagar lançamento
-  async function handleApagarLancamento(l) {
-    if (!user) return;
-    if (!l?.id) return;
+  async function handleApagarLancamento(item) {
+    if (!item?.id) return;
 
     const confirma = window.confirm(
-      `Apagar este lançamento?\n\n${formatarDataBR(l.data)} • ${l.descricao}\n${l.tipo} • ${formatMoney(l.valor, false)}`
+      `Apagar este lançamento?\n\n${formatarDataBR(item.data)} • ${item.descricao}\n${item.tipo} • ${formatMoney(item.valor, false)}`
     );
     if (!confirma) return;
 
     try {
-      await apagarLancamento(user.uid, l.id);
-      setLancamentos((prev) => prev.filter((item) => item.id !== l.id));
-      setTodosLancamentos((prev) => prev.filter((item) => item.id !== l.id));
+      await apagarLancamento(user.uid, item.id);
+      setLancamentos((prev) => prev.filter((atual) => atual.id !== item.id));
+      setTodosLancamentos((prev) => prev.filter((atual) => atual.id !== item.id));
     } catch (err) {
       console.error(err);
       alert("Não foi possível apagar. Verifique sua conexão e tente novamente.");
@@ -344,36 +238,28 @@ useEffect(() => {
 
   function exportarPDF() {
     const doc = new jsPDF();
-
     const itensPDF = lancamentosOrdenados;
-
     const totalEntradas = lancamentosFiltrados
       .filter((l) => l.tipo === "ENTRADA")
       .reduce((acc, l) => acc + Number(l.valor), 0);
-
     const totalSaidas = lancamentosFiltrados
       .filter((l) => l.tipo === "SAIDA")
       .reduce((acc, l) => acc + Number(l.valor), 0);
-
     const totalFinal = totalEntradas - totalSaidas;
 
     let y = 20;
 
     doc.setFontSize(16);
     doc.setTextColor(20, 20, 20);
-    doc.text("AMAZONAT GESTÃO FINANCEIRA", 14, y);
+    doc.text("GELATO TAMANDARE", 14, y);
 
     y += 8;
     doc.setFontSize(11);
     doc.setTextColor(80, 80, 80);
-    let periodoTexto;
-
-    if (buscaDataAtiva && dataInicio && dataFim) {
-      periodoTexto = `Período: ${formatarDataBR(dataInicio)} até ${formatarDataBR(dataFim)}`;
-    } else {
-      periodoTexto = `Período: Mês ${mesSelecionado}`;
-    }
-
+    const periodoTexto =
+      buscaDataAtiva && dataInicio && dataFim
+        ? `Período: ${formatarDataBR(dataInicio)} até ${formatarDataBR(dataFim)}`
+        : `Período: Mês ${mesSelecionado}`;
     doc.text(periodoTexto, 14, y);
 
     y += 10;
@@ -388,37 +274,23 @@ useEffect(() => {
     y += 4;
     doc.setDrawColor(210, 210, 210);
     doc.line(14, y, 196, y);
-
     y += 6;
 
-    itensPDF.forEach((l) => {
+    itensPDF.forEach((item) => {
       if (y > 270) {
         doc.addPage();
         y = 20;
-
-        doc.setFontSize(10);
-        doc.setTextColor(90, 90, 90);
-        doc.text("Data", 14, y);
-        doc.text("Descrição", 42, y);
-        doc.text("Entrada", 140, y, { align: "right" });
-        doc.text("Saída", 166, y, { align: "right" });
-        doc.text("Valor", 195, y, { align: "right" });
-        y += 4;
-        doc.setDrawColor(210, 210, 210);
-        doc.line(14, y, 196, y);
-        y += 6;
       }
 
-      const data = formatarDataBR(l.data);
-      const descricao = l.embarcacao ? l.embarcacao : (l.descricao || "");
-      const valorNumerico = Number(l.valor || 0);
-      const valor = valorNumerico.toLocaleString("pt-BR", {
+      const data = formatarDataBR(item.data);
+      const descricao = item.embarcacao ? item.embarcacao : item.descricao || "";
+      const valor = Number(item.valor || 0).toLocaleString("pt-BR", {
         style: "currency",
         currency: "BRL",
       });
-      const entradaValor = l.tipo === "ENTRADA" ? valor : "-";
-      const saidaValor = l.tipo === "SAIDA" ? valor : "-";
-      const valorFinal = `${l.tipo === "ENTRADA" ? "+" : "-"} ${valor}`;
+      const entradaValor = item.tipo === "ENTRADA" ? valor : "-";
+      const saidaValor = item.tipo === "SAIDA" ? valor : "-";
+      const valorFinal = `${item.tipo === "ENTRADA" ? "+" : "-"} ${valor}`;
 
       doc.setFontSize(10);
       doc.setTextColor(50, 50, 50);
@@ -431,14 +303,8 @@ useEffect(() => {
       doc.setTextColor(185, 28, 28);
       doc.text(saidaValor, 166, y, { align: "right" });
 
-      if (l.tipo === "ENTRADA") {
-        doc.setTextColor(22, 101, 52);
-      } else {
-        doc.setTextColor(185, 28, 28);
-      }
-
+      doc.setTextColor(item.tipo === "ENTRADA" ? 22 : 185, item.tipo === "ENTRADA" ? 101 : 28, item.tipo === "ENTRADA" ? 52 : 28);
       doc.text(valorFinal, 195, y, { align: "right" });
-
       y += 7;
     });
 
@@ -453,328 +319,215 @@ useEffect(() => {
 
     y += 8;
     doc.setFontSize(11);
-
     doc.setTextColor(22, 101, 52);
     doc.text("Total de Entradas:", 14, y);
-    doc.text(
-      totalEntradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
-      180,
-      y,
-      { align: "right" }
-    );
+    doc.text(totalEntradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
     y += 7;
     doc.setTextColor(185, 28, 28);
     doc.text("Total de Saídas:", 14, y);
-    doc.text(
-      totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
-      180,
-      y,
-      { align: "right" }
-    );
+    doc.text(totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
     y += 9;
     const corTotal = totalFinal >= 0 ? [22, 101, 52] : [185, 28, 28];
     doc.setTextColor(corTotal[0], corTotal[1], corTotal[2]);
     doc.setFontSize(12);
     doc.text("TOTAL FINAL:", 14, y);
-    doc.text(
-      totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
-      180,
-      y,
-      { align: "right" }
-    );
+    doc.text(totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
     doc.save(`extrato-${mesSelecionado}.pdf`);
   }
 
-  if (loadingAuth) return <div className="app-container">Carregando...</div>;
+  const extratoSection = (
+    <div className="section-card">
+      <div className="section-header section-header-main">
+        <div className="section-title">
+          <span className="section-icon info">{HistoryIcon}</span>
+          Histórico de Lançamentos
+        </div>
+        <span className="section-subtitle">Todos os registros</span>
+      </div>
 
-  if (!user) {
-    return (
-      <div className="app-container">
-        <div className="card">
-          <h2>Login</h2>
-          <form onSubmit={handleLogin}>
-            <input
-              className="input"
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input
-              className="input"
-              type="password"
-              placeholder="Senha"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-            />
-            <button className="button" type="submit">
-              Entrar
+      <div className="filter-area">
+        <button
+          className={`action-btn action-btn-info ${filtroAtivo ? "botao-ativo" : "botao-inativo"}`}
+          onClick={toggleFiltro}
+          type="button"
+        >
+          {FilterIcon}
+          Filtrar por Data
+        </button>
+
+        {filtroAtivo && (
+          <div className="filter-panel">
+            <input className="input" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+            <input className="input" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            <button className="action-btn action-btn-secondary" onClick={toggleBuscaData} type="button">
+              {buscaDataAtiva ? "Voltar para Mês Atual" : "Ativar Busca no Extrato"}
             </button>
-          </form>
-          {erroLogin && <p style={{ color: "red" }}>{erroLogin}</p>}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="app-container">
-      {/* HEADER com data atual fixa (BR) */}
-      <div className="header">
-        AMAZONAT GESTÃO FINANCEIRA
-        <div className="header-date">{formatarDataBR(hojeISO())}</div>
+          </div>
+        )}
       </div>
 
-      {/* CARD do usuário (nome fixo) */}
-      <div className="card data-card">
-        <div className="data-label">Logado como</div>
-        <div className="data-value">
-          <strong>Moises Pinheiro</strong>
-        </div>
-      </div>
+      <div className="extrato-list">
+        {lancamentosOrdenados.map((item) => {
+          const retro = isRetroativo(item.mes);
 
-      {/* TOTAL GERAL */}
-      <div className="saldo-container">
-        <div className="saldo-grid">
-          <div className={`card saldo-card saldo-card-single ${totalExibido >= 0 ? "total-positivo" : "total-negativo"}`}>
-            <div className="saldo-top">
-              <div className="saldo-label">Total Geral</div>
-              <button
-                className="eye-toggle-in"
-                onClick={() => setOcultarValores(!ocultarValores)}
-                type="button"
-                title="Ocultar/mostrar valores"
-              >
-                {ocultarValores ? "🙈" : "👁️"}
+          return (
+            <div key={item.id} className={`extrato-item ${item.tipo === "ENTRADA" ? "entrada" : "saida"}`}>
+              <div className="extrato-left">
+                <span className="descricao">
+                  {item.embarcacao ? item.embarcacao : item.descricao}
+                  {retro && <span className="badge-retroativo">Retroativo</span>}
+                </span>
+                <small>{formatarDataBR(item.data)}</small>
+              </div>
+
+              <span className="valor">{formatMoney(item.valor, false)}</span>
+
+              <button className="icon-btn danger" onClick={() => handleApagarLancamento(item)} title="Apagar lançamento" type="button">
+                🗑️
               </button>
             </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
-            {/* ✅ mostra cache enquanto snapshot não chega */}
-            <div className="saldo-value saldo-value-big">
-              {formatMoney(totalExibido, ocultarValores)}
+  const retroativoPanel = (
+    <div className="retroativo-panel">
+      <div className="field-label">Data do Lançamento</div>
+      <input className="input" type="date" value={dataTemp} onChange={(e) => setDataTemp(e.target.value)} />
+      <button className="action-btn action-btn-secondary" onClick={confirmarData} type="button">
+        Confirmar Data
+      </button>
+      <div className="helper-text">
+        Data ativa: <strong>{formatarDataBR(dataLancamento)}</strong>
+      </div>
+      <div className="field-label">Descrição</div>
+      <input className="input" placeholder="Descrição do lançamento" value={retroDescricao} onChange={(e) => setRetroDescricao(e.target.value)} />
+      <div className="field-label">Tipo</div>
+      <select className="input select" value={retroTipo} onChange={(e) => setRetroTipo(e.target.value)}>
+        <option value="ENTRADA">Entrada</option>
+        <option value="SAIDA">Saída</option>
+      </select>
+      <div className="field-label">Valor</div>
+      <input className="input" type="number" placeholder="Valor" value={retroValor} onChange={(e) => setRetroValor(e.target.value)} />
+      <button className="action-btn action-btn-warning" onClick={registrarRetroativo} type="button">
+        Registrar Retroativo
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="app-shell">
+      <Routes>
+        <Route
+          path="/"
+          element={(
+            <div className="dashboard">
+              <aside className="sidebar">
+                <div className="sidebar-brand">
+                  <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
+                  <div className="sidebar-title">Gelato Tamandaré</div>
+                  <div className="sidebar-subtitle">Painel de gestão</div>
+                </div>
+
+                <div className="sidebar-nav">
+                  <button className={`sidebar-btn ${tela === "pdv" ? "is-active" : ""}`} onClick={() => setTela("pdv")} type="button">
+                    PDV
+                  </button>
+                  <button className={`sidebar-btn ${tela === "fluxo" ? "is-active" : ""}`} onClick={() => setTela("fluxo")} type="button">
+                    Fluxo de Caixa
+                  </button>
+                  <button className={`sidebar-btn ${tela === "estoque" ? "is-active" : ""}`} onClick={() => setTela("estoque")} type="button">
+                    Estoque
+                  </button>
+                  <button className={`sidebar-btn ${tela === "atendentes" ? "is-active" : ""}`} onClick={() => setTela("atendentes")} type="button">
+                    Atendentes
+                  </button>
+                  <button className={`sidebar-btn ${tela === "relatorio" ? "is-active" : ""}`} onClick={() => setTela("relatorio")} type="button">
+                    Relatório
+                  </button>
+                </div>
+              </aside>
+
+              <main className="content">
+                {tela === "pdv" && <TelaCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                {tela === "estoque" && <TelaEstoque uid={user.uid} />}
+                {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
+                {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
+              </main>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ENTRADA */}
-      <div className="card section">
-        <div className="section-title">ENTRADA</div>
-
-        <select
-          className="input"
-          value={embarcacao}
-          onChange={(e) => setEmbarcacao(e.target.value)}
-        >
-          <option value="">Selecione a embarcação</option>
-          <option value="COSTA I">COSTA I</option>
-          <option value="CAMPEÃO 6">CAMPEÃO 6</option>
-          <option value="CLICIA XIII">CLICIA XIII</option>
-          <option value="ERICK FABIAN IV">ERICK FABIAN IV</option>
-          <option value="EXPRESSO A. ORCA III">
-            EXPRESSO A. ORCA III
-          </option>
-          <option value="EXPRESSO MARUSA">EXPRESSO MARUSA</option>
-          <option value="LUZ DA AURORA III">LUZ DA AURORA III</option>
-          <option value="RAQUEL">RAQUEL</option>
-          <option value="JOSYANNE I">JOSYANNE I</option>
-        </select>
-
-        {embarcacao === "OUTRA" && (
-          <input
-            className="input"
-            placeholder="Digite o nome da embarcação"
-            value={embarcacaoOutra}
-            onChange={(e) => setEmbarcacaoOutra(e.target.value)}
-          />
-        )}
-
-        <div className="button-group">
-          <button className="button button-entrada" onClick={() => registrarEntrada(75)}>
-            +75
-          </button>
-          <button className="button button-entrada" onClick={() => registrarEntrada(150)}>
-            +150
-          </button>
-          <button className="button button-entrada" onClick={() => registrarEntrada(300)}>
-            +300
-          </button>
-        </div>
-
-        <input
-          className="input"
-          type="number"
-          placeholder="Digite outro valor"
-          value={outroValor}
-          onChange={(e) => setOutroValor(e.target.value)}
+          )}
         />
-
-        <button
-          className="button button-entrada"
-          onClick={() => {
-            if (outroValor) registrarEntrada(outroValor);
-          }}
-        >
-          REGISTRAR
-        </button>
-      </div>
-
-      {/* SAÍDA */}
-      <div className="card section">
-        <div className="section-title">SAÍDA</div>
-
-        <input
-          className="input"
-          placeholder="Descrição"
-          value={descricaoSaida}
-          onChange={(e) => setDescricaoSaida(e.target.value)}
-        />
-
-        <input
-          className="input"
-          type="number"
-          placeholder="Valor"
-          value={valorSaida}
-          onChange={(e) => setValorSaida(e.target.value)}
-        />
-
-        <button className="button button-saida" onClick={registrarSaida}>
-          REGISTRAR
-        </button>
-      </div>
-
-      {/* EXTRATO */}
-      <div className="card section">
-        <div className="section-title">EXTRATO</div>
-
-        <div style={{ marginBottom: 10 }}>
-          {/* mantém “mês atual” via dropdown/mesSelecionado */}
-          <button
-            className={`button button-filtro ${filtroAtivo ? "botao-ativo" : "botao-inativo"}`}
-            onClick={toggleFiltro}
-            type="button"
-          >
-            Filtrar por Data
-          </button>
-
-          {filtroAtivo && (
-            <div style={{ marginTop: 10 }}>
-              <input
-                className="input"
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-              />
-              <input
-                className="input"
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                style={{ marginTop: 6 }}
-              />
-
-              <button
-                className="button secondary"
-                onClick={toggleBuscaData}
-                type="button"
-                style={{ marginTop: 8 }}
-              >
-                {buscaDataAtiva ? "Voltar para Mês Atual" : "Ativar Busca no Extrato"}
+        <Route
+          path="/extrato"
+          element={(
+            <div className="app-container">
+              <div className="app-header app-header-extrato app-header-route">
+                <div className="route-header-row">
+                  <button className="icon-btn" onClick={voltarExtrato} type="button">
+                    ←
+                  </button>
+                  <div className="header-title-block">
+                    <div className="app-title">Extrato</div>
+                    <div className="app-date">{formatarDataHeader(hojeISO())}</div>
+                  </div>
+                  <div className="header-spacer" />
+                </div>
+              </div>
+              {extratoSection}
+              <div className="section-card secondary-tools">
+                <button className="action-btn action-btn-warning" onClick={abrirRetroativo} type="button">
+                  {ClockIcon}
+                  Lançamento retroativo
+                </button>
+                <button className="action-btn action-btn-danger" onClick={exportarPDF} type="button">
+                  Exportar PDF
+                </button>
+              </div>
+              <button className="action-btn action-btn-secondary" onClick={voltarExtrato} type="button">
+                Voltar
               </button>
             </div>
           )}
-        </div>
-
-        <button
-          className="button secondary"
-          onClick={() => setMostrarLancamentos((prev) => !prev)}
-          type="button"
-        >
-          {mostrarLancamentos ? "Ocultar Lançamentos" : "Mostrar Lançamentos"}
-        </button>
-
-        {mostrarLancamentos && (
-          <div className="extrato-list">
-            {lancamentosOrdenados.map((l) => {
-              const retro = isRetroativo(l.mes);
-
-              return (
-                <div
-                  key={l.id}
-                  className={`extrato-item ${
-                    l.tipo === "ENTRADA" ? "entrada" : "saida"
-                  }`}
-                >
-                  <div className="extrato-left">
-                    <span className="descricao">
-                      {l.embarcacao ? l.embarcacao : l.descricao}
-                      {retro && <span className="badge-retroativo">Retroativo</span>}
-                    </span>
-                    <small>{formatarDataBR(l.data)}</small>
-                  </div>
-
-                  <span className="valor">
-                    {formatMoney(l.valor, ocultarValores)}
-                  </span>
-
-                  <button
-                    className="delete-icon"
-                    onClick={() => handleApagarLancamento(l)}
-                    title="Apagar lançamento"
-                    type="button"
-                  >
-                    🗑
+        />
+        <Route
+          path="/retroativo"
+          element={(
+            <div className="app-container">
+              <div className="app-header app-header-extrato app-header-warning app-header-route">
+                <div className="route-header-row">
+                  <button className="icon-btn" onClick={voltarExtrato} type="button">
+                    ←
                   </button>
+                  <div className="header-title-block">
+                    <div className="app-title">Lançamento Retroativo</div>
+                    <div className="app-date">{formatarDataHeader(hojeISO())}</div>
+                  </div>
+                  <div className="header-spacer" />
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* LANÇAMENTO RETROATIVO + EXPORTAÇÃO */}
-      <div className="card section">
-        <button
-          className={`button button-retroativo ${mostrarLancamentoRetroativo ? "botao-ativo" : "botao-inativo"}`}
-          onClick={toggleLancamentoRetroativo}
-          type="button"
-        >
-          Lançamento retroativo
-        </button>
-
-        {mostrarLancamentoRetroativo && (
-          <>
-            <div className="section-title">Data do Lançamento</div>
-            <input
-              className="input"
-              type="date"
-              value={dataTemp}
-              onChange={(e) => setDataTemp(e.target.value)}
-            />
-            <button className="button secondary" onClick={confirmarData}>
-              Confirmar Data
-            </button>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
-              Data ativa: <strong>{formatarDataBR(dataLancamento)}</strong>
+              </div>
+              <div className="section-card secondary-tools">
+                <div className="section-header section-header-main">
+                  <div className="section-title">
+                    <span className="section-icon warning">{ClockIcon}</span>
+                    Definir Data
+                  </div>
+                  <span className="section-subtitle">Configurar lançamento</span>
+                </div>
+                {retroativoPanel}
+              </div>
+              <button className="action-btn action-btn-secondary" onClick={voltarExtrato} type="button">
+                Voltar
+              </button>
             </div>
-          </>
-        )}
-
-        <button
-          className="button button-exportar"
-          style={{ marginTop: 15 }}
-          onClick={exportarPDF}
-        >
-          Exportar PDF
-        </button>
-      </div>
-
-      <button className="button logout" onClick={logout}>
-        Sair
-      </button>
+          )}
+        />
+      </Routes>
     </div>
   );
 }

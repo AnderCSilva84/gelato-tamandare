@@ -3,12 +3,12 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDMiM09VSJlA5utB7dAOqfsnJingjax760",
-  authDomain: "banco-do-porto.firebaseapp.com",
-  projectId: "banco-do-porto",
-  storageBucket: "banco-do-porto.firebasestorage.app",
-  messagingSenderId: "289636218113",
-  appId: "1:289636218113:web:5fe6f0c597dda2183fd700"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 export const app = initializeApp(firebaseConfig);

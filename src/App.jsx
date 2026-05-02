@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
-import jsPDF from "jspdf";
 import {
   apagarLancamento,
   criarLancamento,
@@ -10,16 +9,17 @@ import {
   mesISO,
 } from "./services/lancamentos";
 import { subscribeAtendentes } from "./services/atendentes";
-import TelaAtendentes from "./screens/Atendentes";
-import TelaCaixa from "./screens/Caixa";
-import TelaEstoque from "./screens/Estoque";
-import TelaFluxoCaixa from "./screens/FluxoCaixa";
-import TelaGerencia from "./screens/Gerencia";
-import TelaRelatorio from "./screens/Relatorio";
 import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
 import "./styles.css";
 import "./styles/responsive.css";
+
+const TelaAtendentes = lazy(() => import("./screens/Atendentes"));
+const TelaCaixa = lazy(() => import("./screens/Caixa"));
+const TelaEstoque = lazy(() => import("./screens/Estoque"));
+const TelaFluxoCaixa = lazy(() => import("./screens/FluxoCaixa"));
+const TelaGerencia = lazy(() => import("./screens/Gerencia"));
+const TelaRelatorio = lazy(() => import("./screens/Relatorio"));
 
 const TEMP_USER = { uid: "gelato-local" };
 const ACCESS_STORAGE_KEY = "gelato-painel-access";
@@ -95,7 +95,7 @@ function formatMoney(valor, ocultar) {
 function formatarDataBR(dataISO) {
   if (!dataISO) return "";
   const [ano, mes, dia] = dataISO.split("-");
-  return `${dia}/${mes}/${ano}`;
+  return `${dia}-${mes}-${ano}`;
 }
 
 function formatarDataHeader(dataISO) {
@@ -142,8 +142,6 @@ function clearAccessSession() {
 export default function App() {
   const [user] = useState(TEMP_USER);
   const [tela, setTela] = useState("pdv");
-  const [pdvCaixaAberto, setPdvCaixaAberto] = useState(false);
-  const [openRetiradaSignal, setOpenRetiradaSignal] = useState(0);
   const [atendentes, setAtendentes] = useState([]);
   const [accessForm, setAccessForm] = useState({ atendenteId: "", senha: "" });
   const [accessUserId, setAccessUserId] = useState(() => readAccessSession()?.id || "");
@@ -323,109 +321,111 @@ export default function App() {
   }
 
   function exportarPDF() {
-    const doc = new jsPDF();
-    const itensPDF = lancamentosOrdenados;
-    const totalEntradas = lancamentosFiltrados
-      .filter((l) => l.tipo === "ENTRADA")
-      .reduce((acc, l) => acc + Number(l.valor), 0);
-    const totalSaidas = lancamentosFiltrados
-      .filter((l) => l.tipo === "SAIDA")
-      .reduce((acc, l) => acc + Number(l.valor), 0);
-    const totalFinal = totalEntradas - totalSaidas;
+    import("jspdf").then(({ default: jsPDF }) => {
+      const doc = new jsPDF();
+      const itensPDF = lancamentosOrdenados;
+      const totalEntradas = lancamentosFiltrados
+        .filter((l) => l.tipo === "ENTRADA")
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const totalSaidas = lancamentosFiltrados
+        .filter((l) => l.tipo === "SAIDA")
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const totalFinal = totalEntradas - totalSaidas;
 
-    let y = 20;
+      let y = 20;
 
-    doc.setFontSize(16);
-    doc.setTextColor(20, 20, 20);
-    doc.text("GELATO TAMANDARE", 14, y);
+      doc.setFontSize(16);
+      doc.setTextColor(20, 20, 20);
+      doc.text("GELATO TAMANDARE", 14, y);
 
-    y += 8;
-    doc.setFontSize(11);
-    doc.setTextColor(80, 80, 80);
-    const periodoTexto =
-      buscaDataAtiva && dataInicio && dataFim
-        ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
-        : `Periodo: Mes ${mesSelecionado}`;
-    doc.text(periodoTexto, 14, y);
+      y += 8;
+      doc.setFontSize(11);
+      doc.setTextColor(80, 80, 80);
+      const periodoTexto =
+        buscaDataAtiva && dataInicio && dataFim
+          ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
+          : `Periodo: Mes ${mesSelecionado}`;
+      doc.text(periodoTexto, 14, y);
 
-    y += 10;
-    doc.setFontSize(10);
-    doc.setTextColor(90, 90, 90);
-    doc.text("Data", 14, y);
-    doc.text("Descricao", 42, y);
-    doc.text("Entrada", 140, y, { align: "right" });
-    doc.text("Saida", 166, y, { align: "right" });
-    doc.text("Valor", 195, y, { align: "right" });
+      y += 10;
+      doc.setFontSize(10);
+      doc.setTextColor(90, 90, 90);
+      doc.text("Data", 14, y);
+      doc.text("Descricao", 42, y);
+      doc.text("Entrada", 140, y, { align: "right" });
+      doc.text("Saida", 166, y, { align: "right" });
+      doc.text("Valor", 195, y, { align: "right" });
 
-    y += 4;
-    doc.setDrawColor(210, 210, 210);
-    doc.line(14, y, 196, y);
-    y += 6;
+      y += 4;
+      doc.setDrawColor(210, 210, 210);
+      doc.line(14, y, 196, y);
+      y += 6;
 
-    itensPDF.forEach((item) => {
-      if (y > 270) {
+      itensPDF.forEach((item) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+
+        const data = formatarDataBR(item.data);
+        const descricao = item.embarcacao ? item.embarcacao : item.descricao || "";
+        const valor = Number(item.valor || 0).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+        const entradaValor = item.tipo === "ENTRADA" ? valor : "-";
+        const saidaValor = item.tipo === "SAIDA" ? valor : "-";
+        const valorFinal = `${item.tipo === "ENTRADA" ? "+" : "-"} ${valor}`;
+
+        doc.setFontSize(10);
+        doc.setTextColor(50, 50, 50);
+        doc.text(data, 14, y);
+        doc.text(descricao, 42, y);
+
+        doc.setTextColor(22, 101, 52);
+        doc.text(entradaValor, 140, y, { align: "right" });
+
+        doc.setTextColor(185, 28, 28);
+        doc.text(saidaValor, 166, y, { align: "right" });
+
+        doc.setTextColor(
+          item.tipo === "ENTRADA" ? 22 : 185,
+          item.tipo === "ENTRADA" ? 101 : 28,
+          item.tipo === "ENTRADA" ? 52 : 28
+        );
+        doc.text(valorFinal, 195, y, { align: "right" });
+        y += 7;
+      });
+
+      if (y > 260) {
         doc.addPage();
         y = 20;
       }
 
-      const data = formatarDataBR(item.data);
-      const descricao = item.embarcacao ? item.embarcacao : item.descricao || "";
-      const valor = Number(item.valor || 0).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-      });
-      const entradaValor = item.tipo === "ENTRADA" ? valor : "-";
-      const saidaValor = item.tipo === "SAIDA" ? valor : "-";
-      const valorFinal = `${item.tipo === "ENTRADA" ? "+" : "-"} ${valor}`;
+      y += 4;
+      doc.setDrawColor(210, 210, 210);
+      doc.line(14, y, 196, y);
 
-      doc.setFontSize(10);
-      doc.setTextColor(50, 50, 50);
-      doc.text(data, 14, y);
-      doc.text(descricao, 42, y);
-
+      y += 8;
+      doc.setFontSize(11);
       doc.setTextColor(22, 101, 52);
-      doc.text(entradaValor, 140, y, { align: "right" });
+      doc.text("Total de Entradas:", 14, y);
+      doc.text(totalEntradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
-      doc.setTextColor(185, 28, 28);
-      doc.text(saidaValor, 166, y, { align: "right" });
-
-      doc.setTextColor(
-        item.tipo === "ENTRADA" ? 22 : 185,
-        item.tipo === "ENTRADA" ? 101 : 28,
-        item.tipo === "ENTRADA" ? 52 : 28
-      );
-      doc.text(valorFinal, 195, y, { align: "right" });
       y += 7;
+      doc.setTextColor(185, 28, 28);
+      doc.text("Total de Saidas:", 14, y);
+      doc.text(totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
+
+      y += 9;
+      const corTotal = totalFinal >= 0 ? [22, 101, 52] : [185, 28, 28];
+      doc.setTextColor(corTotal[0], corTotal[1], corTotal[2]);
+      doc.setFontSize(12);
+      doc.text("TOTAL FINAL:", 14, y);
+      doc.text(totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
+
+      doc.save(`extrato-${mesSelecionado}.pdf`);
     });
-
-    if (y > 260) {
-      doc.addPage();
-      y = 20;
-    }
-
-    y += 4;
-    doc.setDrawColor(210, 210, 210);
-    doc.line(14, y, 196, y);
-
-    y += 8;
-    doc.setFontSize(11);
-    doc.setTextColor(22, 101, 52);
-    doc.text("Total de Entradas:", 14, y);
-    doc.text(totalEntradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
-
-    y += 7;
-    doc.setTextColor(185, 28, 28);
-    doc.text("Total de Saidas:", 14, y);
-    doc.text(totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
-
-    y += 9;
-    const corTotal = totalFinal >= 0 ? [22, 101, 52] : [185, 28, 28];
-    doc.setTextColor(corTotal[0], corTotal[1], corTotal[2]);
-    doc.setFontSize(12);
-    doc.text("TOTAL FINAL:", 14, y);
-    doc.text(totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
-
-    doc.save(`extrato-${mesSelecionado}.pdf`);
   }
 
   function entrarNoPainel(e) {
@@ -578,19 +578,10 @@ export default function App() {
                       Cadastre pelo menos um usuario com role gerencia em Atendentes para ativar o controle de acesso.
                     </p>
                   ) : accessUser ? (
-                    <div className="stack-form">
-                      <button className="action-btn action-btn-secondary" type="button" onClick={sairDoPainel}>
+                    <div className="sidebar-access-actions">
+                      <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
                         Sair do painel
                       </button>
-                      {tela === "pdv" && pdvCaixaAberto ? (
-                        <button
-                          className="action-btn action-btn-warning"
-                          type="button"
-                          onClick={() => setOpenRetiradaSignal((prev) => prev + 1)}
-                        >
-                          Retirada
-                        </button>
-                      ) : null}
                     </div>
                   ) : (
                     <form className="stack-form" onSubmit={entrarNoPainel}>
@@ -642,7 +633,7 @@ export default function App() {
 
               <main className="content">
                 {painelLiberado ? (
-                  <>
+                  <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                     {tela === "gerencia" && (
                       <TelaGerencia uid={user.uid} dataHoje={hojeISO()} onNavigate={setTela} />
                     )}
@@ -651,15 +642,13 @@ export default function App() {
                         uid={user.uid}
                         dataHoje={hojeISO()}
                         accessRole={unrestrictedSetup ? "gerencia" : accessRole}
-                        onCaixaStatusChange={setPdvCaixaAberto}
-                        openRetiradaSignal={openRetiradaSignal}
                       />
                     )}
                     {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
                     {tela === "estoque" && <TelaEstoque uid={user.uid} />}
                     {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
                     {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
-                  </>
+                  </Suspense>
                 ) : (
                   <div className="dashboard-screen">
                     <div className="section-card access-block-card">

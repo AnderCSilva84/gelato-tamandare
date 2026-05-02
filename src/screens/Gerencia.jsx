@@ -2,12 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { getCaixas, subscribeRetiradasDoDia } from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
 import { subscribeDespesasDoDia, subscribeVendasDoDia } from "../services/vendas";
+import { calcularResumoFinanceiro } from "../utils/financeiro";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function formatDateLabel(valor) {
+  if (!valor) return "";
+  const [ano, mes, dia] = String(valor).split("-");
+  if (!ano || !mes || !dia) return String(valor);
+  return `${dia}-${mes}-${ano}`;
 }
 
 export default function Gerencia({ uid, dataHoje, onNavigate }) {
@@ -39,22 +47,19 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
     };
   }, [uid, dataHoje]);
 
-  const totalVendas = useMemo(
-    () => vendasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [vendasHoje]
-  );
-  const totalDespesas = useMemo(
-    () => despesasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [despesasHoje]
-  );
-  const totalRetiradas = useMemo(
-    () => retiradasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [retiradasHoje]
-  );
-  const saldoOperacional = totalVendas - totalDespesas - totalRetiradas;
   const caixasAbertos = useMemo(
     () => caixasHoje.filter((item) => item.status === "aberto"),
     [caixasHoje]
+  );
+  const resumoFinanceiro = useMemo(
+    () =>
+      calcularResumoFinanceiro({
+        vendas: vendasHoje,
+        despesas: despesasHoje,
+        retiradas: retiradasHoje,
+        caixas: caixasAbertos,
+      }),
+    [caixasAbertos, despesasHoje, retiradasHoje, vendasHoje]
   );
   const estoqueBaixo = useMemo(
     () =>
@@ -80,26 +85,26 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
             Visao rapida de vendas, saidas, retiradas e alertas criticos da sorveteria.
           </p>
         </div>
-        <span className="screen-badge">{dataHoje}</span>
+        <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
       </div>
 
       <div className="stats-grid gerencia-stats-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Receitas</span>
-          <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
+          <span className="stat-label">Entradas</span>
+          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Despesas</span>
-          <strong className="stat-value negative">{formatMoney(totalDespesas)}</strong>
+          <span className="stat-label">Gastos</span>
+          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Retiradas</span>
-          <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
+          <span className="stat-label">Em caixa</span>
+          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.emCaixa)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Saldo operacional</span>
-          <strong className={`stat-value ${saldoOperacional >= 0 ? "positive" : "negative"}`}>
-            {formatMoney(saldoOperacional)}
+          <span className="stat-label">Resultado</span>
+          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.resultado)}
           </strong>
         </div>
       </div>
@@ -130,7 +135,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
               <div className="list-row" key={caixa.id}>
                 <div>
                   <strong>{caixa.atendenteNome}</strong>
-                  <small>Fundo {formatMoney(caixa.fundoCaixa || 0)} • {caixa.data}</small>
+                  <small>Fundo {formatMoney(caixa.fundoCaixa || 0)} • {formatDateLabel(caixa.data)}</small>
                 </div>
                 <strong className="positive">Aberto</strong>
               </div>

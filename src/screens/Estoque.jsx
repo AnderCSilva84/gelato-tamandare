@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import {
   addProduto,
   deleteProduto,
@@ -130,6 +128,10 @@ export default function Estoque({ uid }) {
   }
 
   async function createBasePdf(title, subtitle) {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
     const doc = new jsPDF();
     try {
       const logoDataUrl = await getLogoDataUrl();
@@ -144,11 +146,11 @@ export default function Estoque({ uid }) {
     doc.setFontSize(11);
     doc.setTextColor(96, 112, 134);
     doc.text(subtitle, 42, 26);
-    return doc;
+    return { doc, autoTable };
   }
 
   async function exportarInventarioPDF() {
-    const doc = await createBasePdf(
+    const { doc, autoTable } = await createBasePdf(
       "Inventario de Estoque",
       `Produtos cadastrados: ${produtos.length}`
     );
@@ -179,12 +181,11 @@ export default function Estoque({ uid }) {
       },
     });
 
-    const pdfBlobUrl = doc.output("bloburl");
-    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+    doc.save("inventario-estoque.pdf");
   }
 
   async function exportarMovimentacaoPDF() {
-    const doc = await createBasePdf(
+    const { doc, autoTable } = await createBasePdf(
       "Movimentacao de Estoque",
       "Relatorio operacional do estoque atual"
     );
@@ -229,8 +230,7 @@ export default function Estoque({ uid }) {
       },
     });
 
-    const pdfBlobUrl = doc.output("bloburl");
-    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+    doc.save("movimentacao-estoque.pdf");
   }
 
   return (

@@ -1,18 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
+import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addDespesa,
   deleteDespesa,
   getDespesas,
   getVendas,
-  subscribeResumoDiario,
   updateDespesa,
 } from "../services/vendas";
+import { calcularResumoFinanceiro } from "../utils/financeiro";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function formatDateLabel(valor) {
+  if (!valor) return "";
+  const [ano, mes, dia] = String(valor).split("-");
+  if (!ano || !mes || !dia) return String(valor);
+  return `${dia}-${mes}-${ano}`;
 }
 
 function initialForm(data) {
@@ -28,7 +36,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
   const [despesas, setDespesas] = useState([]);
-  const [resumo, setResumo] = useState(null);
+  const [retiradas, setRetiradas] = useState([]);
+  const [caixas, setCaixas] = useState([]);
   const [form, setForm] = useState(() => initialForm(dataHoje));
   const [editandoId, setEditandoId] = useState("");
 
@@ -39,14 +48,18 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       if (!uid || !dataFiltro) return;
 
       setLoading(true);
-      const [vendasData, despesasData] = await Promise.all([
+      const [vendasData, despesasData, retiradasData, caixasData] = await Promise.all([
         getVendas(uid, dataFiltro),
         getDespesas(uid, dataFiltro),
+        getRetiradas(dataFiltro),
+        getCaixas(dataFiltro),
       ]);
 
       if (!ativo) return;
       setVendas(vendasData);
       setDespesas(despesasData);
+      setRetiradas(retiradasData);
+      setCaixas(caixasData);
       setLoading(false);
     }
 
@@ -57,20 +70,28 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     };
   }, [uid, dataFiltro]);
 
-  useEffect(() => {
-    const unsub = subscribeResumoDiario(dataFiltro, setResumo);
-    return () => unsub();
-  }, [dataFiltro]);
-
-  const totalVendas = useMemo(
-    () => vendas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [vendas]
+  const resumoFinanceiro = useMemo(
+    () =>
+      calcularResumoFinanceiro({
+        vendas,
+        despesas,
+        retiradas,
+        caixas,
+      }),
+    [caixas, despesas, retiradas, vendas]
   );
-  const totalDespesas = useMemo(
-    () => despesas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [despesas]
+  const saidasDoDia = useMemo(
+    () =>
+      [
+        ...despesas.map((item) => ({ ...item, tipoSaida: "despesa" })),
+        ...retiradas.map((item) => ({
+          ...item,
+          descricao: item.motivo || "Sangria de caixa",
+          tipoSaida: "retirada",
+        })),
+      ].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
+    [despesas, retiradas]
   );
-  const saldo = totalVendas - totalDespesas;
 
   async function salvarDespesa(e) {
     e.preventDefault();
@@ -119,14 +140,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         <div>
           <h1 className="screen-title">Fluxo de caixa</h1>
           <p className="screen-description">
-            Área administrativa para despesas, saldos e conferência diária.
+            Area administrativa para despesas, retiradas, saldos e conferencia diaria.
           </p>
         </div>
       </div>
 
       <div className="section-card filter-card">
         <div className="section-header">
-          <div className="section-title">Data de referência</div>
+          <div className="section-title">Data de referencia</div>
         </div>
         <input
           className="input"
@@ -138,17 +159,24 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
       <div className="stats-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Vendas do dia</span>
-          <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
+          <span className="stat-label">Entradas</span>
+          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Despesas do dia</span>
-          <strong className="stat-value negative">{formatMoney(totalDespesas)}</strong>
+          <span className="stat-label">Gastos</span>
+          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Saldo do dia</span>
-          <strong className={`stat-value ${saldo >= 0 ? "positive" : "negative"}`}>
-            {formatMoney(saldo)}
+          <span className="stat-label">Em caixa</span>
+          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.emCaixa)}</strong>
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <div className="section-card stat-card">
+          <span className="stat-label">Resultado</span>
+          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.resultado)}
           </strong>
         </div>
       </div>
@@ -165,7 +193,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               className="input"
               value={form.descricao}
               onChange={(e) => setForm((prev) => ({ ...prev, descricao: e.target.value }))}
-              placeholder="Descrição"
+              placeholder="Descricao"
             />
             <input
               className="input"
@@ -190,30 +218,36 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
         <div className="section-card">
           <div className="section-header">
-            <div className="section-title">Despesas lançadas</div>
+            <div className="section-title">Saidas lancadas</div>
             <span className="section-subtitle">
-              {loading ? "Carregando..." : `${despesas.length} itens`}
+              {loading ? "Carregando..." : `${saidasDoDia.length} itens`}
             </span>
           </div>
           <div className="scroll-list">
-            {despesas.map((item) => (
-              <div className="list-row" key={item.id}>
+            {saidasDoDia.map((item) => (
+              <div className="list-row" key={`${item.tipoSaida}-${item.id}`}>
                 <div>
                   <strong>{item.descricao}</strong>
-                  <small>{item.data}</small>
+                  <small>
+                    {formatDateLabel(item.data)} • {item.tipoSaida === "retirada" ? "Retirada" : "Despesa"}
+                  </small>
                 </div>
                 <div className="list-row-actions">
                   <strong className="negative">{formatMoney(item.valor)}</strong>
-                  <button className="mini-btn" type="button" onClick={() => editarDespesa(item)}>
-                    Editar
-                  </button>
-                  <button className="mini-btn danger" type="button" onClick={() => excluirDespesa(item.id)}>
-                    Excluir
-                  </button>
+                  {item.tipoSaida === "despesa" ? (
+                    <>
+                      <button className="mini-btn" type="button" onClick={() => editarDespesa(item)}>
+                        Editar
+                      </button>
+                      <button className="mini-btn danger" type="button" onClick={() => excluirDespesa(item.id)}>
+                        Excluir
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ))}
-            {!despesas.length && !loading && <p className="empty-state">Nenhuma despesa cadastrada nessa data.</p>}
+            {!saidasDoDia.length && !loading && <p className="empty-state">Nenhuma saida cadastrada nessa data.</p>}
           </div>
         </div>
       </div>

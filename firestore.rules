@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /atendentes/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /produtos/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /vendas/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /despesas/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /caixas/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /retiradas_caixa/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /resumo_diario/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /ranking_diario/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /lancamentos/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

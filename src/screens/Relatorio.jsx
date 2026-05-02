@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import logoGelato from "../assets/gelatoimg.jpeg";
-import { deleteCaixa, getCaixas } from "../services/caixas";
+import { deleteCaixa, getCaixas, getRetiradas } from "../services/caixas";
 import { getProdutos } from "../services/produtos";
 import {
   getDespesas,
   getVendas,
   getVendasPorCaixa,
-  subscribeResumoDiario,
   subscribeVendasDoDia,
 } from "../services/vendas";
+import { calcularResumoFinanceiro } from "../utils/financeiro";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function formatDateLabel(valor) {
+  if (!valor) return "";
+  const [ano, mes, dia] = String(valor).split("-");
+  if (!ano || !mes || !dia) return String(valor);
+  return `${dia}-${mes}-${ano}`;
 }
 
 function fileToDataUrl(file) {
@@ -52,25 +57,27 @@ export default function Relatorio({ uid, dataHoje }) {
   const [vendas, setVendas] = useState([]);
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesas, setDespesas] = useState([]);
+  const [retiradas, setRetiradas] = useState([]);
   const [caixas, setCaixas] = useState([]);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
   const [vendasCaixaSelecionado, setVendasCaixaSelecionado] = useState([]);
-  const [resumoHoje, setResumoHoje] = useState(null);
 
   useEffect(() => {
     let ativo = true;
 
     async function carregar() {
       setLoading(true);
-      const [vendasData, despesasData] = await Promise.all([
+      const [vendasData, despesasData, retiradasData] = await Promise.all([
         getVendas(uid, dataInicioFiltro, dataFimFiltro),
         getDespesas(uid, dataInicioFiltro, dataFimFiltro),
+        getRetiradas(dataInicioFiltro, dataFimFiltro),
       ]);
       const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
 
       if (!ativo) return;
       setVendas(vendasData);
       setDespesas(despesasData);
+      setRetiradas(retiradasData);
       setCaixas(caixasData);
       setCaixaSelecionado((prev) =>
         prev ? caixasData.find((item) => item.id === prev.id) || null : null
@@ -91,11 +98,8 @@ export default function Relatorio({ uid, dataHoje }) {
     if (!uid || !dataHoje) return;
 
     const unsubVendasHoje = subscribeVendasDoDia(uid, dataHoje, setVendasHoje);
-    const unsubResumoHoje = subscribeResumoDiario(dataHoje, setResumoHoje);
-
     return () => {
       unsubVendasHoje();
-      unsubResumoHoje();
     };
   }, [uid, dataHoje]);
 
@@ -120,15 +124,28 @@ export default function Relatorio({ uid, dataHoje }) {
     };
   }, [caixaSelecionado]);
 
-  const totalVendas = useMemo(
-    () => vendas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [vendas]
+  const resumoFinanceiro = useMemo(
+    () =>
+      calcularResumoFinanceiro({
+        vendas,
+        despesas,
+        retiradas,
+        caixas,
+      }),
+    [caixas, despesas, retiradas, vendas]
   );
-  const totalDespesas = useMemo(
-    () => despesas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [despesas]
+  const saidasPeriodo = useMemo(
+    () =>
+      [
+        ...despesas.map((item) => ({ ...item, descricaoLinha: item.descricao, origem: "Despesa" })),
+        ...retiradas.map((item) => ({
+          ...item,
+          descricaoLinha: item.motivo || "Sangria de caixa",
+          origem: "Retirada",
+        })),
+      ].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
+    [despesas, retiradas]
   );
-  const lucro = totalVendas - totalDespesas;
   const totalVendasHojeCalculado = useMemo(
     () => vendasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
     [vendasHoje]
@@ -172,6 +189,10 @@ export default function Relatorio({ uid, dataHoje }) {
   }
 
   async function exportarRelatorioPDF() {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
     const produtos = await getProdutos();
     const totalEstoque = produtos.reduce((acc, produto) => acc + Number(produto.estoque || 0), 0);
     const totalProdutosAtivos = produtos.filter((produto) => produto.ativo !== false).length;
@@ -196,7 +217,7 @@ export default function Relatorio({ uid, dataHoje }) {
     doc.text("Relatorio Gerencial", 42, y - 8);
     doc.setFontSize(11);
     doc.setTextColor(96, 112, 134);
-    doc.text(`Periodo analisado: ${dataInicioFiltro} ate ${dataFimFiltro}`, 42, y - 2);
+    doc.text(`Periodo analisado: ${formatDateLabel(dataInicioFiltro)} ate ${formatDateLabel(dataFimFiltro)}`, 42, y - 2);
     y += 8;
 
     drawSummaryCard(doc, {
@@ -204,8 +225,8 @@ export default function Relatorio({ uid, dataHoje }) {
       y,
       w: 58,
       h: 22,
-      title: "RECEITAS",
-      value: formatMoney(totalVendas),
+      title: "ENTRADAS",
+      value: formatMoney(resumoFinanceiro.entradas),
       fillColor: [232, 247, 237],
       textColor: [22, 101, 52],
     });
@@ -214,8 +235,8 @@ export default function Relatorio({ uid, dataHoje }) {
       y,
       w: 58,
       h: 22,
-      title: "SAIDAS",
-      value: formatMoney(totalDespesas),
+      title: "GASTOS",
+      value: formatMoney(resumoFinanceiro.gastos),
       fillColor: [254, 242, 242],
       textColor: [185, 28, 28],
     });
@@ -224,10 +245,10 @@ export default function Relatorio({ uid, dataHoje }) {
       y,
       w: 58,
       h: 22,
-      title: "LUCRO",
-      value: formatMoney(lucro),
-      fillColor: lucro >= 0 ? [237, 244, 255] : [254, 242, 242],
-      textColor: lucro >= 0 ? [37, 99, 235] : [185, 28, 28],
+      title: "EM CAIXA",
+      value: formatMoney(resumoFinanceiro.emCaixa),
+      fillColor: [237, 244, 255],
+      textColor: [37, 99, 235],
     });
     y += 30;
 
@@ -268,22 +289,26 @@ export default function Relatorio({ uid, dataHoje }) {
     y = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(12);
-    doc.text("Despesas do periodo", 14, y);
+    doc.text("Saidas do periodo", 14, y);
     y += 4;
     autoTable(doc, {
       startY: y,
-      head: [["Data", "Descricao", "Valor"]],
-      body: despesas.length
-        ? despesas.map((item) => [item.data, item.descricao, formatMoney(item.valor)])
-        : [["-", "Nenhuma despesa registrada no periodo.", "-"]],
+      head: [["Data", "Tipo", "Descricao", "Valor"]],
+      body: saidasPeriodo.length
+        ? saidasPeriodo.map((item) => [
+            formatDateLabel(item.data),
+            item.origem,
+            item.descricaoLinha,
+            formatMoney(item.valor),
+          ])
+        : [["-", "-", "Nenhuma saida registrada no periodo.", "-"]],
       theme: "grid",
       headStyles: { fillColor: [220, 38, 38], textColor: 255 },
       styles: { fontSize: 10, cellPadding: 3 },
-      columnStyles: { 2: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
+      columnStyles: { 3: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
     });
 
-    const pdfBlobUrl = doc.output("bloburl");
-    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+    doc.save(`relatorio-${String(dataInicioFiltro || "").replaceAll("-", "")}-${String(dataFimFiltro || "").replaceAll("-", "")}.pdf`);
   }
 
   return (
@@ -321,7 +346,7 @@ export default function Relatorio({ uid, dataHoje }) {
       <div className="section-card">
         <div className="section-header">
           <div className="section-title">Vendas de hoje</div>
-          <span className="section-subtitle">{dataHoje}</span>
+          <span className="section-subtitle">{formatDateLabel(dataHoje)}</span>
         </div>
         <div className="stats-grid">
           <div className="stat-card">
@@ -355,17 +380,26 @@ export default function Relatorio({ uid, dataHoje }) {
 
       <div className="stats-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Vendas</span>
-          <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
+          <span className="stat-label">Entradas</span>
+          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Despesas</span>
-          <strong className="stat-value negative">{formatMoney(totalDespesas)}</strong>
+          <span className="stat-label">Gastos</span>
+          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Lucro</span>
-          <strong className={`stat-value ${lucro >= 0 ? "positive" : "negative"}`}>
-            {formatMoney(lucro)}
+          <span className="stat-label">Em caixa</span>
+          <strong className="stat-value positive">
+            {formatMoney(resumoFinanceiro.emCaixa)}
+          </strong>
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <div className="section-card stat-card">
+          <span className="stat-label">Resultado</span>
+          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.resultado)}
           </strong>
         </div>
       </div>
@@ -393,19 +427,19 @@ export default function Relatorio({ uid, dataHoje }) {
 
         <div className="section-card">
           <div className="section-header">
-            <div className="section-title">Despesas do periodo</div>
+            <div className="section-title">Saidas do periodo</div>
           </div>
           <div className="scroll-list">
-            {despesas.map((item) => (
-              <div className="list-row" key={item.id}>
+            {saidasPeriodo.map((item) => (
+              <div className="list-row" key={`${item.origem}-${item.id}`}>
                 <div>
-                  <strong>{item.descricao}</strong>
-                  <small>{item.data}</small>
+                  <strong>{item.descricaoLinha}</strong>
+                  <small>{formatDateLabel(item.data)} • {item.origem}</small>
                 </div>
                 <strong className="negative">{formatMoney(item.valor)}</strong>
               </div>
             ))}
-            {!despesas.length && !loading && <p className="empty-state">Nenhuma despesa encontrada.</p>}
+            {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada.</p>}
           </div>
         </div>
       </div>

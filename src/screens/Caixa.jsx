@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import jsPDF from "jspdf";
 import logoGelato from "../assets/gelatoimg.jpeg";
 import {
   abrirCaixa,
@@ -42,6 +41,13 @@ function formatDateTime(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
+function formatDateLabel(valor) {
+  if (!valor) return "";
+  const [ano, mes, dia] = String(valor).split("-");
+  if (!ano || !mes || !dia) return String(valor);
+  return `${dia}-${mes}-${ano}`;
+}
+
 function getProdutoImagem(produto) {
   return (
     produto?.imagem ||
@@ -53,6 +59,10 @@ function getProdutoImagem(produto) {
     produto?.urlImagem ||
     ""
   );
+}
+
+function getProdutoPreco(produto) {
+  return Number(produto?.precoFinal ?? produto?.preco ?? 0);
 }
 
 function buildRanking(rankingData, atendentes) {
@@ -103,12 +113,31 @@ async function getLogoDataUrl() {
   return fileToDataUrl(blob);
 }
 
+function drawPdfBlock(doc, { x, y, w, h, title, value, fillColor, valueColor }) {
+  doc.setFillColor(...fillColor);
+  doc.roundedRect(x, y, w, h, 5, 5, "F");
+  doc.setDrawColor(220, 228, 240);
+  doc.roundedRect(x, y, w, h, 5, 5);
+  doc.setTextColor(99, 115, 140);
+  doc.setFontSize(8);
+  doc.text(title.toUpperCase(), x + 4, y + 6);
+  doc.setTextColor(...valueColor);
+  doc.setFontSize(15);
+  doc.text(value, x + 4, y + 15);
+}
+
+function drawPdfSectionTitle(doc, title, y) {
+  doc.setTextColor(24, 33, 47);
+  doc.setFontSize(12);
+  doc.text(title, 14, y);
+  doc.setDrawColor(226, 232, 240);
+  doc.line(14, y + 2, 196, y + 2);
+}
+
 export default function Caixa({
   uid,
   dataHoje,
   accessRole = "atendente",
-  onCaixaStatusChange,
-  openRetiradaSignal = 0,
 }) {
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
@@ -143,6 +172,7 @@ export default function Caixa({
     valor: "",
     motivo: "",
   });
+  const [itensVenda, setItensVenda] = useState([]);
 
   useEffect(() => {
     const caixaSalvo = readStoredSession();
@@ -199,20 +229,17 @@ export default function Caixa({
   }, [caixaAtualId]);
 
   useEffect(() => {
-    const unsub = subscribeRetiradasCaixa(caixaAtualId, setRetiradasCaixa);
+    const unsub = subscribeRetiradasCaixa(
+      caixaAtualId,
+      setRetiradasCaixa,
+      (error) => {
+        if (error?.code === "permission-denied") {
+          setFeedbackRetirada("Permissao negada no Firestore para ler as retiradas do caixa.");
+        }
+      }
+    );
     return () => unsub();
   }, [caixaAtualId]);
-
-  useEffect(() => {
-    if (typeof onCaixaStatusChange === "function") {
-      onCaixaStatusChange(Boolean(caixaAtual));
-    }
-  }, [caixaAtual, onCaixaStatusChange]);
-
-  useEffect(() => {
-    if (!openRetiradaSignal || !caixaAtual) return;
-    toggleRetiradaPanel();
-  }, [caixaAtual, openRetiradaSignal]);
 
   useEffect(() => {
     if (!toastVenda) return;
@@ -231,6 +258,26 @@ export default function Caixa({
   const produtoSelecionado = useMemo(
     () => produtos.find((item) => item.id === vendaForm.produtoId),
     [produtos, vendaForm.produtoId]
+  );
+  const itensVendaDetalhados = useMemo(
+    () =>
+      itensVenda
+        .map((item) => {
+          const produto = produtos.find((entry) => entry.id === item.produtoId);
+          if (!produto) return null;
+          const precoUnitario = getProdutoPreco(produto);
+          const quantidade = Number(item.quantidade || 0);
+
+          return {
+            ...item,
+            produto,
+            nome: produto.nome,
+            precoUnitario,
+            subtotal: precoUnitario * quantidade,
+          };
+        })
+        .filter(Boolean),
+    [itensVenda, produtos]
   );
   const atendenteLogado = useMemo(
     () => atendentes.find((item) => item.id === caixaAtual?.atendenteId) || null,
@@ -270,23 +317,74 @@ export default function Caixa({
     () => retiradasCaixa.reduce((acc, retirada) => acc + Number(retirada.valor || 0), 0),
     [retiradasCaixa]
   );
-  const totalDinheiroEmCaixa =
-    Number(resumoPagamentos.Dinheiro || 0) + fundoCaixaAtual - totalRetiradas;
-  const valorVendaAtual = useMemo(() => {
-    if (!produtoSelecionado) return 0;
-    const quantidade = Number(vendaForm.quantidade || 0);
-    if (!Number.isFinite(quantidade) || quantidade <= 0) return 0;
-    return Number(produtoSelecionado.preco || 0) * quantidade;
-  }, [produtoSelecionado, vendaForm.quantidade]);
+  const totalDisponivelEmCaixa = useMemo(
+    () => fundoCaixaAtual + totalVendas - totalRetiradas,
+    [fundoCaixaAtual, totalRetiradas, totalVendas]
+  );
+  const totalCarrinho = useMemo(
+    () => itensVendaDetalhados.reduce((acc, item) => acc + Number(item.subtotal || 0), 0),
+    [itensVendaDetalhados]
+  );
+  const quantidadeCarrinho = useMemo(
+    () => itensVendaDetalhados.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+    [itensVendaDetalhados]
+  );
   const valorRecebidoAtual = Number(vendaForm.valorRecebido || 0);
   const trocoAtual = useMemo(() => {
     if (vendaForm.formaPagamento !== "Dinheiro") return 0;
-    return Math.max(valorRecebidoAtual - valorVendaAtual, 0);
-  }, [valorRecebidoAtual, valorVendaAtual, vendaForm.formaPagamento]);
+    return Math.max(valorRecebidoAtual - totalCarrinho, 0);
+  }, [valorRecebidoAtual, totalCarrinho, vendaForm.formaPagamento]);
 
   function toggleRetiradaPanel() {
     setMostrandoRetirada((prev) => !prev);
     setFeedbackRetirada("");
+  }
+
+  function resetVendaForm() {
+    setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+    setItensVenda([]);
+  }
+
+  function adicionarItemVenda() {
+    if (!produtoSelecionado) {
+      setFeedbackVenda("Selecione um produto para adicionar.");
+      return;
+    }
+
+    const quantidade = Number(vendaForm.quantidade || 0);
+    if (!Number.isFinite(quantidade) || quantidade <= 0) {
+      setFeedbackVenda("Informe uma quantidade valida.");
+      return;
+    }
+
+    const quantidadeNoCarrinho = itensVenda
+      .filter((item) => item.produtoId === produtoSelecionado.id)
+      .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
+    const estoqueDisponivel = Number(produtoSelecionado.estoque || 0) - quantidadeNoCarrinho;
+
+    if (estoqueDisponivel < quantidade) {
+      setFeedbackVenda("Estoque insuficiente para adicionar esse item.");
+      return;
+    }
+
+    setItensVenda((prev) => {
+      const index = prev.findIndex((item) => item.produtoId === produtoSelecionado.id);
+      if (index === -1) {
+        return [...prev, { produtoId: produtoSelecionado.id, quantidade }];
+      }
+
+      return prev.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, quantidade: Number(item.quantidade || 0) + quantidade }
+          : item
+      );
+    });
+    setVendaForm((prev) => ({ ...prev, produtoId: "", quantidade: 1 }));
+    setFeedbackVenda("");
+  }
+
+  function removerItemVenda(produtoId) {
+    setItensVenda((prev) => prev.filter((item) => item.produtoId !== produtoId));
   }
 
   async function iniciarCaixa(e) {
@@ -351,7 +449,7 @@ export default function Caixa({
         totalItens,
         totalDinheiro: resumoPagamentos.Dinheiro,
         totalRetiradas,
-        valorEmCaixa: totalDinheiroEmCaixa,
+        valorEmCaixa: totalDisponivelEmCaixa,
       });
       clearStoredSession();
       setCaixaAtual(null);
@@ -360,7 +458,7 @@ export default function Caixa({
       setRetiradasCaixa([]);
       setMostrandoFechamento(false);
       setMostrandoRetirada(false);
-      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+      resetVendaForm();
       setRetiradaForm({ valor: "", motivo: "" });
       setFeedbackCaixa("Caixa fechado com sucesso.");
     } catch {
@@ -372,123 +470,171 @@ export default function Caixa({
 
   async function exportarFechamentoPDF() {
     if (!caixaAtual) return;
+    const { default: jsPDF } = await import("jspdf");
 
     const doc = new jsPDF();
     let y = 18;
     const horarioAbertura = formatDateTime(caixaAtual.abertoEm) || "Nao disponivel";
     const horarioFechamento = new Date().toLocaleString("pt-BR");
+    const resumoCards = [
+      {
+        title: "Receita total",
+        value: formatMoney(totalVendas),
+        fillColor: [232, 247, 237],
+        valueColor: [22, 101, 52],
+      },
+      {
+        title: "Saidas / retiradas",
+        value: formatMoney(totalRetiradas),
+        fillColor: [254, 242, 242],
+        valueColor: [185, 28, 28],
+      },
+      {
+        title: "Disponivel em caixa",
+        value: formatMoney(totalDisponivelEmCaixa),
+        fillColor: [237, 244, 255],
+        valueColor: [37, 99, 235],
+      },
+    ];
 
     try {
       const logoDataUrl = await getLogoDataUrl();
       doc.addImage(logoDataUrl, "JPEG", 14, 10, 24, 24);
-      y = 42;
+      y = 40;
     } catch {
       y = 18;
     }
 
-    doc.setFontSize(16);
+    doc.setTextColor(24, 33, 47);
+    doc.setFontSize(19);
     doc.text("Fechamento de Caixa", 14, y);
+    doc.setFontSize(10);
+    doc.setTextColor(99, 115, 140);
+    doc.text(`Relatorio do turno • ${formatDateLabel(dataHoje)}`, 14, y + 7);
 
-    y += 8;
+    y += 18;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, y, 182, 34, 6, 6, "F");
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, y, 182, 34, 6, 6);
     doc.setFontSize(11);
-    doc.text(`Data: ${dataHoje}`, 14, y);
-    y += 6;
-    doc.text(`Atendente: ${caixaAtual.atendenteNome}`, 14, y);
-    y += 6;
-    doc.text(`Caixa aberto em: ${horarioAbertura}`, 14, y);
-    y += 6;
-    doc.text(`Fundo de caixa: ${formatMoney(fundoCaixaAtual)}`, 14, y);
-    y += 6;
-    doc.text(`Retiradas: ${formatMoney(totalRetiradas)}`, 14, y);
-    y += 6;
-    doc.text(`Caixa fechado em: ${horarioFechamento}`, 14, y);
-    y += 10;
+    doc.setTextColor(24, 33, 47);
+    doc.text(`Atendente: ${caixaAtual.atendenteNome}`, 18, y + 10);
+    doc.text(`Data: ${formatDateLabel(dataHoje)}`, 112, y + 10);
+    doc.text(`Abertura: ${horarioAbertura}`, 18, y + 21);
+    doc.text(`Fechamento: ${horarioFechamento}`, 112, y + 21);
 
-    doc.setFontSize(12);
-    doc.text(`Total vendido: ${formatMoney(totalVendas)}`, 14, y);
-    y += 6;
-    doc.text(`Dinheiro em caixa: ${formatMoney(totalDinheiroEmCaixa)}`, 14, y);
-    y += 6;
-    doc.text(`Itens vendidos: ${totalItens}`, 14, y);
-    y += 10;
-
-    doc.setFontSize(12);
-    doc.text("Resumo por forma de pagamento", 14, y);
-    y += 8;
-
-    [
-      ["PIX", resumoPagamentos.PIX],
-      ["Dinheiro", resumoPagamentos.Dinheiro],
-      ["Debito", resumoPagamentos.Debito],
-      ["Credito", resumoPagamentos.Credito],
-    ].forEach(([label, valor]) => {
-      doc.setFontSize(11);
-      doc.text(`${label}: ${formatMoney(valor)}`, 14, y);
-      y += 6;
+    y += 42;
+    resumoCards.forEach((card, index) => {
+      drawPdfBlock(doc, {
+        x: 14 + index * 61.5,
+        y,
+        w: 57.5,
+        h: 22,
+        title: card.title,
+        value: card.value,
+        fillColor: card.fillColor,
+        valueColor: card.valueColor,
+      });
     });
 
+    y += 30;
+    drawPdfSectionTitle(doc, "Resumo operacional", y);
+    y += 10;
+    doc.setFontSize(10);
+    doc.setTextColor(24, 33, 47);
+    doc.text(`Fundo de caixa: ${formatMoney(fundoCaixaAtual)}`, 14, y);
+    doc.text(`Itens vendidos: ${String(totalItens)}`, 110, y);
+    y += 7;
+    doc.setTextColor(22, 101, 52);
+    doc.text(`Receita total: ${formatMoney(totalVendas)}`, 14, y);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`Saidas / retiradas: ${formatMoney(totalRetiradas)}`, 110, y);
+    y += 11;
+
+    drawPdfSectionTitle(doc, "Formas de pagamento", y);
+    y += 10;
+    [
+      ["PIX", resumoPagamentos.PIX, [22, 101, 52]],
+      ["Dinheiro", resumoPagamentos.Dinheiro, [37, 99, 235]],
+      ["Debito", resumoPagamentos.Debito, [24, 33, 47]],
+      ["Credito", resumoPagamentos.Credito, [24, 33, 47]],
+    ].forEach(([label, valor, color], index) => {
+      const x = 14 + (index % 2) * 92;
+      const rowY = y + Math.floor(index / 2) * 14;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(x, rowY - 6, 84, 10, 4, 4, "F");
+      doc.setTextColor(99, 115, 140);
+      doc.setFontSize(9);
+      doc.text(String(label), x + 4, rowY);
+      doc.setTextColor(...color);
+      doc.setFontSize(11);
+      doc.text(formatMoney(valor), x + 80, rowY, { align: "right" });
+    });
+    y += 34;
+
     if (retiradasCaixa.length) {
-      y += 4;
-      doc.setFontSize(12);
-      doc.text("Retiradas do turno", 14, y);
-      y += 8;
+      drawPdfSectionTitle(doc, "Retiradas do turno", y);
+      y += 10;
 
       retiradasCaixa.forEach((retirada) => {
         if (y > 275) {
           doc.addPage();
           y = 20;
+          drawPdfSectionTitle(doc, "Retiradas do turno", y);
+          y += 10;
         }
 
         doc.setFontSize(10);
-        doc.text(
-          `${retirada.motivo || "Sangria"} | ${formatMoney(retirada.valor)}`,
-          14,
-          y
-        );
-        y += 6;
+        doc.setFillColor(254, 242, 242);
+        doc.roundedRect(14, y - 5, 182, 10, 4, 4, "F");
+        doc.setTextColor(24, 33, 47);
+        doc.text(retirada.motivo || "Sangria", 18, y);
+        doc.setTextColor(185, 28, 28);
+        doc.text(formatMoney(retirada.valor), 192, y, { align: "right" });
+        y += 12;
       });
     }
 
-    y += 4;
-    doc.setFontSize(12);
-    doc.text("Vendas do turno", 14, y);
-    y += 8;
+    drawPdfSectionTitle(doc, "Vendas do turno", y);
+    y += 10;
 
     vendasCaixa.forEach((venda) => {
-      if (y > 275) {
+      if (y > 268) {
         doc.addPage();
         y = 20;
+        drawPdfSectionTitle(doc, "Vendas do turno", y);
+        y += 10;
       }
 
       doc.setFontSize(10);
-      doc.text(
-        `${venda.produto} | ${venda.quantidade} un. | ${venda.formaPagamento || "Sem forma"} | ${formatMoney(venda.valor)}`,
-        14,
-        y
-      );
-      y += 6;
+      doc.setFillColor(240, 246, 255);
+      doc.roundedRect(14, y - 5, 182, venda.formaPagamento === "Dinheiro" ? 16 : 10, 4, 4, "F");
+      doc.setTextColor(24, 33, 47);
+      doc.text(venda.produto, 18, y);
+      doc.setTextColor(99, 115, 140);
+      doc.text(`${venda.quantidade} un. • ${venda.formaPagamento || "Sem forma"}`, 18, y + 5);
+      doc.setTextColor(22, 101, 52);
+      doc.text(formatMoney(venda.valor), 192, y, { align: "right" });
       if (venda.formaPagamento === "Dinheiro") {
+        doc.setTextColor(99, 115, 140);
         doc.text(
           `Recebido: ${formatMoney(venda.valorRecebido || 0)} | Troco: ${formatMoney(venda.troco || 0)}`,
-          14,
-          y
+          18,
+          y + 10
         );
-        y += 6;
       }
+      y += venda.formaPagamento === "Dinheiro" ? 18 : 12;
     });
 
-    const pdfBlobUrl = doc.output("bloburl");
-    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+    doc.save(`fechamento-caixa-${String(dataHoje || "").replaceAll("-", "")}.pdf`);
   }
 
   async function registrarVenda(e) {
     e.preventDefault();
-    if (!caixaAtual || !produtoSelecionado || !atendenteLogado) return;
-
-    const quantidade = Number(vendaForm.quantidade || 0);
-    if (!Number.isFinite(quantidade) || quantidade <= 0) return;
-    if (Number(produtoSelecionado.estoque || 0) < quantidade) {
-      setFeedbackVenda("Estoque insuficiente para registrar a venda.");
+    if (!caixaAtual || !atendenteLogado) return;
+    if (!itensVendaDetalhados.length) {
+      setFeedbackVenda("Adicione pelo menos um produto antes de finalizar.");
       return;
     }
 
@@ -496,39 +642,47 @@ export default function Caixa({
     setFeedbackVenda("");
 
     try {
-      const valor = Number(produtoSelecionado.preco || 0) * quantidade;
       const formaPagamento = vendaForm.formaPagamento;
       const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
-      const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - valor, 0) : 0;
+      const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
 
       if (formaPagamento === "Dinheiro") {
-        if (!Number.isFinite(valorRecebido) || valorRecebido < valor) {
+        if (!Number.isFinite(valorRecebido) || valorRecebido < totalCarrinho) {
           setFeedbackVenda("Informe o valor recebido em dinheiro para calcular o troco.");
           setSalvandoVenda(false);
           return;
         }
       }
 
-      await addVenda(uid, {
-        produto: produtoSelecionado.nome,
-        valor,
-        quantidade,
-        atendente: atendenteLogado.nome,
-        atendenteId: atendenteLogado.id,
-        atendenteNome: atendenteLogado.nome,
-        caixaId: caixaAtual.id,
-        formaPagamento,
-        valorRecebido,
-        troco,
-        data: dataHoje,
-      });
-      await updateProduto(produtoSelecionado.id, {
-        estoque: Number(produtoSelecionado.estoque || 0) - quantidade,
-      });
-      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+      for (const item of itensVendaDetalhados) {
+        const estoqueAtual = Number(item.produto.estoque || 0);
+        if (estoqueAtual < Number(item.quantidade || 0)) {
+          throw new Error(`Estoque insuficiente para ${item.nome}.`);
+        }
+      }
+
+      for (const item of itensVendaDetalhados) {
+        await addVenda(uid, {
+          produto: item.nome,
+          valor: item.subtotal,
+          quantidade: item.quantidade,
+          atendente: atendenteLogado.nome,
+          atendenteId: atendenteLogado.id,
+          atendenteNome: atendenteLogado.nome,
+          caixaId: caixaAtual.id,
+          formaPagamento,
+          valorRecebido: formaPagamento === "Dinheiro" ? valorRecebido : 0,
+          troco: formaPagamento === "Dinheiro" ? troco : 0,
+          data: dataHoje,
+        });
+        await updateProduto(item.produto.id, {
+          estoque: Number(item.produto.estoque || 0) - Number(item.quantidade || 0),
+        });
+      }
+      resetVendaForm();
       setToastVenda("Venda registrada com sucesso.");
-    } catch {
-      setFeedbackVenda("Nao foi possivel registrar a venda.");
+    } catch (error) {
+      setFeedbackVenda(error?.message || "Nao foi possivel registrar a venda.");
     } finally {
       setSalvandoVenda(false);
     }
@@ -546,7 +700,7 @@ export default function Caixa({
       return;
     }
 
-    if (valor > totalDinheiroEmCaixa) {
+    if (valor > totalDisponivelEmCaixa) {
       setFeedbackRetirada("A retirada nao pode ser maior que o dinheiro disponivel no caixa.");
       return;
     }
@@ -566,8 +720,12 @@ export default function Caixa({
       setRetiradaForm({ valor: "", motivo: "" });
       setMostrandoRetirada(false);
       setFeedbackRetirada("Retirada registrada com sucesso.");
-    } catch {
-      setFeedbackRetirada("Nao foi possivel registrar a retirada.");
+    } catch (error) {
+      if (error?.code === "permission-denied") {
+        setFeedbackRetirada("Permissao negada no Firestore para registrar a retirada.");
+      } else {
+        setFeedbackRetirada("Nao foi possivel registrar a retirada.");
+      }
     } finally {
       setSalvandoRetirada(false);
     }
@@ -581,7 +739,7 @@ export default function Caixa({
           <h1 className="screen-title">Registrar venda</h1>
         </div>
         <div className="pdv-hero-side">
-          <span className="screen-badge">{dataHoje}</span>
+          <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
           {caixaAtual ? <span className="pdv-status-pill">Turno aberto</span> : null}
         </div>
       </div>
@@ -591,9 +749,7 @@ export default function Caixa({
           <div className="pdv-status-bar-copy">
             <span className="stat-label">Caixa em operacao</span>
             <strong>{caixaAtual.atendenteNome}</strong>
-            <small>
-              Dinheiro disponivel {formatMoney(totalDinheiroEmCaixa)} • Vendas {formatMoney(totalVendas)}
-            </small>
+            <small>Resumo em tempo real do caixa atual.</small>
           </div>
           <div className="pdv-status-bar-actions">
             <button
@@ -639,6 +795,10 @@ export default function Caixa({
               <strong className="stat-value">
                 {formatMoney(totalItens ? totalVendas / totalItens : 0)}
               </strong>
+            </div>
+            <div className="section-card stat-card stat-card-highlight">
+              <span className="stat-label">Disponivel em caixa</span>
+              <strong className="stat-value positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
             </div>
           </div>
 
@@ -738,7 +898,7 @@ export default function Caixa({
                   <div className="pdv-cash-summary">
                     <div className="pdv-cash-row">
                       <span>Disponivel no caixa</span>
-                      <strong>{formatMoney(totalDinheiroEmCaixa)}</strong>
+                      <strong>{formatMoney(totalDisponivelEmCaixa)}</strong>
                     </div>
                   </div>
                   <button
@@ -762,7 +922,7 @@ export default function Caixa({
                     />
                     <div className="produto-preview-info">
                       <strong>{produtoSelecionado.nome}</strong>
-                      <small>{formatMoney(produtoSelecionado.preco)}</small>
+                      <small>{formatMoney(getProdutoPreco(produtoSelecionado))}</small>
                     </div>
                   </div>
                 ) : null}
@@ -777,7 +937,7 @@ export default function Caixa({
                   <option value="">Selecione um produto</option>
                   {produtosAtivos.map((produto) => (
                     <option key={produto.id} value={produto.id}>
-                      {produto.nome} - {formatMoney(produto.preco)} - estoque {produto.estoque}
+                      {produto.nome} - {formatMoney(getProdutoPreco(produto))} - estoque {produto.estoque}
                     </option>
                   ))}
                 </select>
@@ -815,7 +975,7 @@ export default function Caixa({
                     <input
                       className="input pdv-input"
                       type="number"
-                      min={valorVendaAtual || 0}
+                      min={totalCarrinho || 0}
                       step="0.01"
                       value={vendaForm.valorRecebido}
                       onChange={(e) =>
@@ -826,7 +986,7 @@ export default function Caixa({
                     <div className="pdv-cash-summary">
                       <div className="pdv-cash-row">
                         <span>Total da venda</span>
-                        <strong>{formatMoney(valorVendaAtual)}</strong>
+                        <strong>{formatMoney(totalCarrinho)}</strong>
                       </div>
                       <div className="pdv-cash-row">
                         <span>Troco</span>
@@ -838,12 +998,52 @@ export default function Caixa({
 
                 <input className="input pdv-input" value={caixaAtual.atendenteNome} readOnly />
 
+                <div className="pdv-item-actions">
+                  <button
+                    className="action-btn action-btn-secondary"
+                    type="button"
+                    onClick={adicionarItemVenda}
+                    disabled={salvandoVenda}
+                  >
+                    Adicionar produto
+                  </button>
+                  <div className="pdv-cart-total">
+                    <span>{quantidadeCarrinho} item(ns)</span>
+                    <strong>{formatMoney(totalCarrinho)}</strong>
+                  </div>
+                </div>
+
+                {itensVendaDetalhados.length ? (
+                  <div className="pdv-cart-list">
+                    {itensVendaDetalhados.map((item) => (
+                      <div className="list-row pdv-cart-row" key={item.produtoId}>
+                        <div>
+                          <strong>{item.nome}</strong>
+                          <small>
+                            {item.quantidade} un. x {formatMoney(item.precoUnitario)}
+                          </small>
+                        </div>
+                        <div className="pdv-cart-row-actions">
+                          <strong className="positive">{formatMoney(item.subtotal)}</strong>
+                          <button
+                            className="mini-btn danger"
+                            type="button"
+                            onClick={() => removerItemVenda(item.produtoId)}
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
                 <button
                   className="action-btn action-btn-primary pdv-submit"
                   type="submit"
-                  disabled={salvandoVenda}
+                  disabled={salvandoVenda || !itensVendaDetalhados.length}
                 >
-                  {salvandoVenda ? "Salvando..." : "Registrar venda"}
+                  {salvandoVenda ? "Salvando..." : "Finalizar venda"}
                 </button>
 
                 {feedbackVenda ? <p className="inline-feedback">{feedbackVenda}</p> : null}
@@ -909,7 +1109,7 @@ export default function Caixa({
             </div>
             <div className="stat-card">
               <span className="stat-label">Dinheiro em caixa</span>
-              <strong className="stat-value positive">{formatMoney(totalDinheiroEmCaixa)}</strong>
+              <strong className="stat-value positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
             </div>
             <div className="stat-card">
               <span className="stat-label">Itens vendidos</span>

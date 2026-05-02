@@ -87,6 +87,12 @@ export async function getCaixas(dataInicio, dataFim = dataInicio) {
   return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
+export async function getRetiradas(dataInicio, dataFim = dataInicio) {
+  if (!dataInicio) return [];
+  const snapshot = await getDocs(query(retiradasRef, where("data", ">=", dataInicio), where("data", "<=", dataFim)));
+  return sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+}
+
 export async function deleteCaixa(id) {
   if (!id) throw new Error("Caixa invalido.");
   return deleteDoc(doc(db, "caixas", id));
@@ -116,24 +122,40 @@ export async function addRetiradaCaixa(uid, dados) {
   });
 }
 
-export function subscribeRetiradasCaixa(caixaId, callback) {
+export function subscribeRetiradasCaixa(caixaId, callback, onError) {
   if (!caixaId) {
     callback([]);
     return () => {};
   }
 
-  return onSnapshot(query(retiradasRef, where("caixaId", "==", caixaId)), (snapshot) => {
-    callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
-  });
+  return onSnapshot(
+    query(retiradasRef, where("caixaId", "==", caixaId)),
+    (snapshot) => {
+      callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+    },
+    (error) => {
+      console.error("Erro ao ouvir retiradas do caixa:", error);
+      callback([]);
+      if (typeof onError === "function") onError(error);
+    }
+  );
 }
 
-export function subscribeRetiradasDoDia(data, callback) {
+export function subscribeRetiradasDoDia(data, callback, onError) {
   if (!data) {
     callback([]);
     return () => {};
   }
 
-  return onSnapshot(retiradaDayQuery(data), (snapshot) => {
-    callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
-  });
+  return onSnapshot(
+    retiradaDayQuery(data),
+    (snapshot) => {
+      callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+    },
+    (error) => {
+      console.error("Erro ao ouvir retiradas do dia:", error);
+      callback([]);
+      if (typeof onError === "function") onError(error);
+    }
+  );
 }

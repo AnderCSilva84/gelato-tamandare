@@ -122,6 +122,8 @@ export async function addVenda(uid, dados) {
     atendenteNome: String(dados?.atendenteNome || dados?.atendente || "").trim(),
     caixaId: String(dados?.caixaId || "").trim(),
     formaPagamento: String(dados?.formaPagamento || "").trim(),
+    valorRecebido: Number(dados?.valorRecebido || 0),
+    troco: Number(dados?.troco || 0),
     data: String(dados?.data || ""),
     criadoEm: serverTimestamp(),
   };

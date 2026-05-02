@@ -9,10 +9,12 @@ import {
   hojeISO,
   mesISO,
 } from "./services/lancamentos";
+import { subscribeAtendentes } from "./services/atendentes";
 import TelaAtendentes from "./screens/Atendentes";
 import TelaCaixa from "./screens/Caixa";
 import TelaEstoque from "./screens/Estoque";
 import TelaFluxoCaixa from "./screens/FluxoCaixa";
+import TelaGerencia from "./screens/Gerencia";
 import TelaRelatorio from "./screens/Relatorio";
 import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
@@ -20,6 +22,15 @@ import "./styles.css";
 import "./styles/responsive.css";
 
 const TEMP_USER = { uid: "gelato-local" };
+const ACCESS_STORAGE_KEY = "gelato-painel-access";
+const NAV_ITEMS = [
+  { id: "gerencia", label: "Gerencia", gerenciaOnly: true },
+  { id: "pdv", label: "PDV" },
+  { id: "fluxo", label: "Fluxo de Caixa", gerenciaOnly: true },
+  { id: "estoque", label: "Estoque", gerenciaOnly: true },
+  { id: "atendentes", label: "Atendentes", gerenciaOnly: true },
+  { id: "relatorio", label: "Relatorio", gerenciaOnly: true },
+];
 
 const FilterIcon = (
   <svg
@@ -74,7 +85,7 @@ const ClockIcon = (
 );
 
 function formatMoney(valor, ocultar) {
-  if (ocultar) return "R$ •••••";
+  if (ocultar) return "R$ .....";
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
@@ -107,9 +118,36 @@ function isRetroativo(mesLancamento) {
   return mesLancamento !== mesISO();
 }
 
+function normalizeRole(role) {
+  return role === "gerencia" ? "gerencia" : "atendente";
+}
+
+function readAccessSession() {
+  try {
+    const raw = window.localStorage.getItem(ACCESS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAccessSession(session) {
+  window.localStorage.setItem(ACCESS_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearAccessSession() {
+  window.localStorage.removeItem(ACCESS_STORAGE_KEY);
+}
+
 export default function App() {
   const [user] = useState(TEMP_USER);
   const [tela, setTela] = useState("pdv");
+  const [pdvCaixaAberto, setPdvCaixaAberto] = useState(false);
+  const [openRetiradaSignal, setOpenRetiradaSignal] = useState(0);
+  const [atendentes, setAtendentes] = useState([]);
+  const [accessForm, setAccessForm] = useState({ atendenteId: "", senha: "" });
+  const [accessUserId, setAccessUserId] = useState(() => readAccessSession()?.id || "");
+  const [accessError, setAccessError] = useState("");
   const [lancamentos, setLancamentos] = useState([]);
   const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [mesSelecionado, setMesSelecionado] = useState(mesISO());
@@ -134,6 +172,54 @@ export default function App() {
     const unsub = escutarTodosLancamentos(user.uid, setTodosLancamentos);
     return () => unsub && unsub();
   }, [user.uid]);
+
+  useEffect(() => {
+    const unsub = subscribeAtendentes(user.uid, setAtendentes);
+    return () => unsub && unsub();
+  }, [user.uid]);
+
+  const atendentesAtivos = useMemo(
+    () => atendentes.filter((item) => item.ativo !== false),
+    [atendentes]
+  );
+  const hasGerencia = useMemo(
+    () => atendentesAtivos.some((item) => normalizeRole(item.role) === "gerencia"),
+    [atendentesAtivos]
+  );
+  const unrestrictedSetup = !hasGerencia;
+  const accessUser = useMemo(
+    () => atendentesAtivos.find((item) => item.id === accessUserId) || null,
+    [accessUserId, atendentesAtivos]
+  );
+  const accessRole = normalizeRole(accessUser?.role);
+  const painelLiberado = unrestrictedSetup || Boolean(accessUser);
+  const navItems = useMemo(
+    () =>
+      NAV_ITEMS.filter((item) => unrestrictedSetup || accessRole === "gerencia" || !item.gerenciaOnly),
+    [accessRole, unrestrictedSetup]
+  );
+
+  useEffect(() => {
+    if (unrestrictedSetup) {
+      clearAccessSession();
+      if (accessUserId) {
+        setAccessUserId("");
+      }
+      return;
+    }
+
+    if (accessUserId && !accessUser) {
+      clearAccessSession();
+      setAccessUserId("");
+      setAccessError("Seu acesso expirou. Entre novamente.");
+    }
+  }, [accessUser, accessUserId, unrestrictedSetup]);
+
+  useEffect(() => {
+    if (!navItems.some((item) => item.id === tela)) {
+      setTela("pdv");
+    }
+  }, [navItems, tela]);
 
   const lancamentosFiltrados = useMemo(() => {
     if (!buscaDataAtiva || !dataInicio || !dataFim) return lancamentos;
@@ -199,7 +285,7 @@ export default function App() {
 
     const data = dataLancamento || hojeISO();
     const mes = getMonthFromDate(data);
-    const descricao = (retroDescricao || "Lançamento Retroativo").trim();
+    const descricao = (retroDescricao || "Lancamento Retroativo").trim();
     const tipo = retroTipo === "ENTRADA" ? "ENTRADA" : "SAIDA";
 
     await criarLancamento({
@@ -222,7 +308,7 @@ export default function App() {
     if (!item?.id) return;
 
     const confirma = window.confirm(
-      `Apagar este lançamento?\n\n${formatarDataBR(item.data)} • ${item.descricao}\n${item.tipo} • ${formatMoney(item.valor, false)}`
+      `Apagar este lancamento?\n\n${formatarDataBR(item.data)} - ${item.descricao}\n${item.tipo} - ${formatMoney(item.valor, false)}`
     );
     if (!confirma) return;
 
@@ -232,7 +318,7 @@ export default function App() {
       setTodosLancamentos((prev) => prev.filter((atual) => atual.id !== item.id));
     } catch (err) {
       console.error(err);
-      alert("Não foi possível apagar. Verifique sua conexão e tente novamente.");
+      alert("Nao foi possivel apagar. Verifique sua conexao e tente novamente.");
     }
   }
 
@@ -258,17 +344,17 @@ export default function App() {
     doc.setTextColor(80, 80, 80);
     const periodoTexto =
       buscaDataAtiva && dataInicio && dataFim
-        ? `Período: ${formatarDataBR(dataInicio)} até ${formatarDataBR(dataFim)}`
-        : `Período: Mês ${mesSelecionado}`;
+        ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
+        : `Periodo: Mes ${mesSelecionado}`;
     doc.text(periodoTexto, 14, y);
 
     y += 10;
     doc.setFontSize(10);
     doc.setTextColor(90, 90, 90);
     doc.text("Data", 14, y);
-    doc.text("Descrição", 42, y);
+    doc.text("Descricao", 42, y);
     doc.text("Entrada", 140, y, { align: "right" });
-    doc.text("Saída", 166, y, { align: "right" });
+    doc.text("Saida", 166, y, { align: "right" });
     doc.text("Valor", 195, y, { align: "right" });
 
     y += 4;
@@ -303,7 +389,11 @@ export default function App() {
       doc.setTextColor(185, 28, 28);
       doc.text(saidaValor, 166, y, { align: "right" });
 
-      doc.setTextColor(item.tipo === "ENTRADA" ? 22 : 185, item.tipo === "ENTRADA" ? 101 : 28, item.tipo === "ENTRADA" ? 52 : 28);
+      doc.setTextColor(
+        item.tipo === "ENTRADA" ? 22 : 185,
+        item.tipo === "ENTRADA" ? 101 : 28,
+        item.tipo === "ENTRADA" ? 52 : 28
+      );
       doc.text(valorFinal, 195, y, { align: "right" });
       y += 7;
     });
@@ -325,7 +415,7 @@ export default function App() {
 
     y += 7;
     doc.setTextColor(185, 28, 28);
-    doc.text("Total de Saídas:", 14, y);
+    doc.text("Total de Saidas:", 14, y);
     doc.text(totalSaidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
     y += 9;
@@ -338,12 +428,49 @@ export default function App() {
     doc.save(`extrato-${mesSelecionado}.pdf`);
   }
 
+  function entrarNoPainel(e) {
+    e.preventDefault();
+    const atendente = atendentesAtivos.find((item) => item.id === accessForm.atendenteId);
+
+    if (!atendente) {
+      setAccessError("Selecione um usuario ativo.");
+      return;
+    }
+
+    const senhaCadastrada = String(atendente.senha || "");
+    const senhaInformada = String(accessForm.senha || "");
+
+    if (senhaCadastrada && senhaCadastrada !== senhaInformada) {
+      setAccessError("Senha invalida.");
+      return;
+    }
+
+    const session = {
+      id: atendente.id,
+      nome: atendente.nome,
+      role: normalizeRole(atendente.role),
+    };
+
+    writeAccessSession(session);
+    setAccessUserId(atendente.id);
+    setAccessForm({ atendenteId: "", senha: "" });
+    setAccessError("");
+    setTela(session.role === "gerencia" ? "gerencia" : "pdv");
+  }
+
+  function sairDoPainel() {
+    clearAccessSession();
+    setAccessUserId("");
+    setAccessForm({ atendenteId: "", senha: "" });
+    setTela("pdv");
+  }
+
   const extratoSection = (
     <div className="section-card">
       <div className="section-header section-header-main">
         <div className="section-title">
           <span className="section-icon info">{HistoryIcon}</span>
-          Histórico de Lançamentos
+          Historico de Lancamentos
         </div>
         <span className="section-subtitle">Todos os registros</span>
       </div>
@@ -363,7 +490,7 @@ export default function App() {
             <input className="input" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
             <input className="input" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
             <button className="action-btn action-btn-secondary" onClick={toggleBuscaData} type="button">
-              {buscaDataAtiva ? "Voltar para Mês Atual" : "Ativar Busca no Extrato"}
+              {buscaDataAtiva ? "Voltar para Mes Atual" : "Ativar Busca no Extrato"}
             </button>
           </div>
         )}
@@ -385,8 +512,8 @@ export default function App() {
 
               <span className="valor">{formatMoney(item.valor, false)}</span>
 
-              <button className="icon-btn danger" onClick={() => handleApagarLancamento(item)} title="Apagar lançamento" type="button">
-                🗑️
+              <button className="icon-btn danger" onClick={() => handleApagarLancamento(item)} title="Apagar lancamento" type="button">
+                X
               </button>
             </div>
           );
@@ -397,7 +524,7 @@ export default function App() {
 
   const retroativoPanel = (
     <div className="retroativo-panel">
-      <div className="field-label">Data do Lançamento</div>
+      <div className="field-label">Data do Lancamento</div>
       <input className="input" type="date" value={dataTemp} onChange={(e) => setDataTemp(e.target.value)} />
       <button className="action-btn action-btn-secondary" onClick={confirmarData} type="button">
         Confirmar Data
@@ -405,12 +532,12 @@ export default function App() {
       <div className="helper-text">
         Data ativa: <strong>{formatarDataBR(dataLancamento)}</strong>
       </div>
-      <div className="field-label">Descrição</div>
-      <input className="input" placeholder="Descrição do lançamento" value={retroDescricao} onChange={(e) => setRetroDescricao(e.target.value)} />
+      <div className="field-label">Descricao</div>
+      <input className="input" placeholder="Descricao do lancamento" value={retroDescricao} onChange={(e) => setRetroDescricao(e.target.value)} />
       <div className="field-label">Tipo</div>
       <select className="input select" value={retroTipo} onChange={(e) => setRetroTipo(e.target.value)}>
         <option value="ENTRADA">Entrada</option>
-        <option value="SAIDA">Saída</option>
+        <option value="SAIDA">Saida</option>
       </select>
       <div className="field-label">Valor</div>
       <input className="input" type="number" placeholder="Valor" value={retroValor} onChange={(e) => setRetroValor(e.target.value)} />
@@ -430,35 +557,122 @@ export default function App() {
               <aside className="sidebar">
                 <div className="sidebar-brand">
                   <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
-                  <div className="sidebar-title">Gelato Tamandaré</div>
-                  <div className="sidebar-subtitle">Painel de gestão</div>
+                  <div className="sidebar-title">Gelato Tamandare</div>
+                  <div className="sidebar-subtitle">Painel de gestao</div>
                 </div>
 
-                <div className="sidebar-nav">
-                  <button className={`sidebar-btn ${tela === "pdv" ? "is-active" : ""}`} onClick={() => setTela("pdv")} type="button">
-                    PDV
-                  </button>
-                  <button className={`sidebar-btn ${tela === "fluxo" ? "is-active" : ""}`} onClick={() => setTela("fluxo")} type="button">
-                    Fluxo de Caixa
-                  </button>
-                  <button className={`sidebar-btn ${tela === "estoque" ? "is-active" : ""}`} onClick={() => setTela("estoque")} type="button">
-                    Estoque
-                  </button>
-                  <button className={`sidebar-btn ${tela === "atendentes" ? "is-active" : ""}`} onClick={() => setTela("atendentes")} type="button">
-                    Atendentes
-                  </button>
-                  <button className={`sidebar-btn ${tela === "relatorio" ? "is-active" : ""}`} onClick={() => setTela("relatorio")} type="button">
-                    Relatório
-                  </button>
+                <div className="sidebar-access section-card">
+                  <div className="section-header section-header-main">
+                    <div className="section-title mobile-hide">Acesso</div>
+                    <span className="section-subtitle">
+                      {unrestrictedSetup
+                        ? "Modo configuracao ativo"
+                        : accessUser
+                          ? `${accessUser.nome} - ${accessRole === "gerencia" ? "Gerencia" : "Atendente"}`
+                          : "Entre para liberar o painel"}
+                    </span>
+                  </div>
+
+                  {unrestrictedSetup ? (
+                    <p className="sidebar-access-note">
+                      Cadastre pelo menos um usuario com role gerencia em Atendentes para ativar o controle de acesso.
+                    </p>
+                  ) : accessUser ? (
+                    <div className="stack-form">
+                      <button className="action-btn action-btn-secondary" type="button" onClick={sairDoPainel}>
+                        Sair do painel
+                      </button>
+                      {tela === "pdv" && pdvCaixaAberto ? (
+                        <button
+                          className="action-btn action-btn-warning"
+                          type="button"
+                          onClick={() => setOpenRetiradaSignal((prev) => prev + 1)}
+                        >
+                          Retirada
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <form className="stack-form" onSubmit={entrarNoPainel}>
+                      <select
+                        className="input select"
+                        value={accessForm.atendenteId}
+                        onChange={(e) =>
+                          setAccessForm((prev) => ({ ...prev, atendenteId: e.target.value }))
+                        }
+                      >
+                        <option value="">Selecione o usuario</option>
+                        {atendentesAtivos.map((atendente) => (
+                          <option key={atendente.id} value={atendente.id}>
+                            {atendente.nome} - {normalizeRole(atendente.role) === "gerencia" ? "Gerencia" : "Atendente"}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="input"
+                        type="password"
+                        value={accessForm.senha}
+                        onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                        placeholder="Senha"
+                      />
+                      <button className="action-btn action-btn-primary" type="submit">
+                        Entrar no painel
+                      </button>
+                      {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                    </form>
+                  )}
                 </div>
+
+                {navItems.length > 1 ? (
+                  <div className="sidebar-nav">
+                    {navItems.map((item) => (
+                      <button
+                        key={item.id}
+                        className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
+                        onClick={() => setTela(item.id)}
+                        type="button"
+                        disabled={!painelLiberado}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </aside>
 
               <main className="content">
-                {tela === "pdv" && <TelaCaixa uid={user.uid} dataHoje={hojeISO()} />}
-                {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
-                {tela === "estoque" && <TelaEstoque uid={user.uid} />}
-                {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
-                {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
+                {painelLiberado ? (
+                  <>
+                    {tela === "gerencia" && (
+                      <TelaGerencia uid={user.uid} dataHoje={hojeISO()} onNavigate={setTela} />
+                    )}
+                    {tela === "pdv" && (
+                      <TelaCaixa
+                        uid={user.uid}
+                        dataHoje={hojeISO()}
+                        accessRole={unrestrictedSetup ? "gerencia" : accessRole}
+                        onCaixaStatusChange={setPdvCaixaAberto}
+                        openRetiradaSignal={openRetiradaSignal}
+                      />
+                    )}
+                    {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                    {tela === "estoque" && <TelaEstoque uid={user.uid} />}
+                    {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
+                    {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
+                  </>
+                ) : (
+                  <div className="dashboard-screen">
+                    <div className="section-card access-block-card">
+                      <div className="section-header section-header-main">
+                        <div className="section-title">Painel bloqueado</div>
+                        <span className="section-subtitle">Entre com um usuario cadastrado para continuar</span>
+                      </div>
+                      <p className="screen-description">
+                        Usuarios com role atendente acessam apenas o PDV. Usuarios com role gerencia acessam todo o sistema.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </main>
             </div>
           )}
@@ -470,7 +684,7 @@ export default function App() {
               <div className="app-header app-header-extrato app-header-route">
                 <div className="route-header-row">
                   <button className="icon-btn" onClick={voltarExtrato} type="button">
-                    ←
+                    {"<-"}
                   </button>
                   <div className="header-title-block">
                     <div className="app-title">Extrato</div>
@@ -483,7 +697,7 @@ export default function App() {
               <div className="section-card secondary-tools">
                 <button className="action-btn action-btn-warning" onClick={abrirRetroativo} type="button">
                   {ClockIcon}
-                  Lançamento retroativo
+                  Lancamento retroativo
                 </button>
                 <button className="action-btn action-btn-danger" onClick={exportarPDF} type="button">
                   Exportar PDF
@@ -502,10 +716,10 @@ export default function App() {
               <div className="app-header app-header-extrato app-header-warning app-header-route">
                 <div className="route-header-row">
                   <button className="icon-btn" onClick={voltarExtrato} type="button">
-                    ←
+                    {"<-"}
                   </button>
                   <div className="header-title-block">
-                    <div className="app-title">Lançamento Retroativo</div>
+                    <div className="app-title">Lancamento Retroativo</div>
                     <div className="app-date">{formatarDataHeader(hojeISO())}</div>
                   </div>
                   <div className="header-spacer" />
@@ -517,7 +731,7 @@ export default function App() {
                     <span className="section-icon warning">{ClockIcon}</span>
                     Definir Data
                   </div>
-                  <span className="section-subtitle">Configurar lançamento</span>
+                  <span className="section-subtitle">Configurar lancamento</span>
                 </div>
                 {retroativoPanel}
               </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import logoGelato from "../assets/gelatoimg.jpeg";
 import { deleteCaixa, getCaixas } from "../services/caixas";
 import { getProdutos } from "../services/produtos";
@@ -31,6 +32,17 @@ async function getLogoDataUrl() {
   const response = await fetch(logoGelato);
   const blob = await response.blob();
   return fileToDataUrl(blob);
+}
+
+function drawSummaryCard(doc, { x, y, w, h, title, value, fillColor, textColor = [24, 33, 47] }) {
+  doc.setFillColor(...fillColor);
+  doc.roundedRect(x, y, w, h, 5, 5, "F");
+  doc.setTextColor(96, 112, 134);
+  doc.setFontSize(9);
+  doc.text(title, x + 4, y + 6);
+  doc.setTextColor(...textColor);
+  doc.setFontSize(16);
+  doc.text(value, x + 4, y + 16);
 }
 
 export default function Relatorio({ uid, dataHoje }) {
@@ -125,12 +137,8 @@ export default function Relatorio({ uid, dataHoje }) {
     () => vendasHoje.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
     [vendasHoje]
   );
-  const totalVendasHoje = Number(
-    resumoHoje?.totalVendas ?? (vendasHoje.length ? totalVendasHojeCalculado : 0)
-  );
-  const totalItensHoje = Number(
-    resumoHoje?.totalItens ?? (vendasHoje.length ? totalItensHojeCalculado : 0)
-  );
+  const totalVendasHoje = totalVendasHojeCalculado;
+  const totalItensHoje = totalItensHojeCalculado;
   const vendasPorAtendente = useMemo(() => {
     const mapa = {};
 
@@ -177,77 +185,105 @@ export default function Relatorio({ uid, dataHoje }) {
 
     try {
       const logoDataUrl = await getLogoDataUrl();
-      doc.addImage(logoDataUrl, "JPEG", 14, 10, 24, 24);
-      y = 42;
+      doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+      y = 38;
     } catch {
       y = 18;
     }
 
-    doc.setFontSize(16);
-    doc.text("Relatorio Gerencial", 14, y);
-    y += 8;
+    doc.setTextColor(24, 33, 47);
+    doc.setFontSize(18);
+    doc.text("Relatorio Gerencial", 42, y - 8);
     doc.setFontSize(11);
-    doc.text(`Periodo analisado: ${dataInicioFiltro} ate ${dataFimFiltro}`, 14, y);
+    doc.setTextColor(96, 112, 134);
+    doc.text(`Periodo analisado: ${dataInicioFiltro} ate ${dataFimFiltro}`, 42, y - 2);
     y += 8;
 
-    doc.setFontSize(12);
-    doc.text(`Total vendido: ${formatMoney(totalVendas)}`, 14, y);
-    y += 6;
-    doc.text(`Total de saidas: ${formatMoney(totalDespesas)}`, 14, y);
-    y += 6;
-    doc.text(`Lucro: ${formatMoney(lucro)}`, 14, y);
-    y += 10;
+    drawSummaryCard(doc, {
+      x: 14,
+      y,
+      w: 58,
+      h: 22,
+      title: "RECEITAS",
+      value: formatMoney(totalVendas),
+      fillColor: [232, 247, 237],
+      textColor: [22, 101, 52],
+    });
+    drawSummaryCard(doc, {
+      x: 76,
+      y,
+      w: 58,
+      h: 22,
+      title: "SAIDAS",
+      value: formatMoney(totalDespesas),
+      fillColor: [254, 242, 242],
+      textColor: [185, 28, 28],
+    });
+    drawSummaryCard(doc, {
+      x: 138,
+      y,
+      w: 58,
+      h: 22,
+      title: "LUCRO",
+      value: formatMoney(lucro),
+      fillColor: lucro >= 0 ? [237, 244, 255] : [254, 242, 242],
+      textColor: lucro >= 0 ? [37, 99, 235] : [185, 28, 28],
+    });
+    y += 30;
 
+    doc.setTextColor(24, 33, 47);
     doc.setFontSize(12);
     doc.text("Vendas por atendente", 14, y);
-    y += 8;
-
-    if (!vendasPorAtendente.length) {
-      doc.setFontSize(10);
-      doc.text("Nenhuma venda registrada no periodo.", 14, y);
-      y += 8;
-    } else {
-      vendasPorAtendente.forEach((item) => {
-        doc.setFontSize(10);
-        doc.text(`${item.nome}: ${formatMoney(item.total)}`, 14, y);
-        y += 6;
-      });
-    }
-
     y += 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Atendente", "Total vendido"]],
+      body: vendasPorAtendente.length
+        ? vendasPorAtendente.map((item) => [item.nome, formatMoney(item.total)])
+        : [["Sem registros", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 1: { halign: "right", textColor: [22, 101, 52], fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
     doc.setFontSize(12);
     doc.text("Estoque", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Produtos ativos: ${totalProdutosAtivos}`, 14, y);
-    y += 6;
-    doc.text(`Unidades em estoque: ${totalEstoque}`, 14, y);
-    y += 6;
-    doc.text(`Valor estimado em estoque: ${formatMoney(valorEstoque)}`, 14, y);
-    y += 10;
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Indicador", "Valor"]],
+      body: [
+        ["Produtos ativos", String(totalProdutosAtivos)],
+        ["Unidades em estoque", String(totalEstoque)],
+        ["Valor estimado em estoque", formatMoney(valorEstoque)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 1: { halign: "right" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(12);
     doc.text("Despesas do periodo", 14, y);
-    y += 8;
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Descricao", "Valor"]],
+      body: despesas.length
+        ? despesas.map((item) => [item.data, item.descricao, formatMoney(item.valor)])
+        : [["-", "Nenhuma despesa registrada no periodo.", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [220, 38, 38], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 2: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
+    });
 
-    if (!despesas.length) {
-      doc.setFontSize(10);
-      doc.text("Nenhuma despesa registrada no periodo.", 14, y);
-      y += 8;
-    } else {
-      despesas.forEach((item) => {
-        if (y > 275) {
-          doc.addPage();
-          y = 20;
-        }
-
-        doc.setFontSize(10);
-        doc.text(`${item.descricao} - ${item.data} - ${formatMoney(item.valor)}`, 14, y);
-        y += 6;
-      });
-    }
-
-    doc.save(`relatorio-${dataInicioFiltro}-${dataFimFiltro}.pdf`);
+    const pdfBlobUrl = doc.output("bloburl");
+    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
   }
 
   return (

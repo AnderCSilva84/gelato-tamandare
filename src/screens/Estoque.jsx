@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   addProduto,
   deleteProduto,
   subscribeProdutos,
   updateProduto,
 } from "../services/produtos";
+import logoGelato from "../assets/gelatoimg.jpeg";
 
 function initialForm() {
   return {
@@ -36,6 +39,21 @@ function getProdutoImagem(produto) {
     produto?.urlImagem ||
     ""
   );
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function getLogoDataUrl() {
+  const response = await fetch(logoGelato);
+  const blob = await response.blob();
+  return fileToDataUrl(blob);
 }
 
 export default function Estoque({ uid }) {
@@ -111,6 +129,110 @@ export default function Estoque({ uid }) {
     await updateProduto(produto.id, { ativo: produto.ativo === false });
   }
 
+  async function createBasePdf(title, subtitle) {
+    const doc = new jsPDF();
+    try {
+      const logoDataUrl = await getLogoDataUrl();
+      doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+    } catch {
+      // noop
+    }
+
+    doc.setTextColor(24, 33, 47);
+    doc.setFontSize(18);
+    doc.text(title, 42, 18);
+    doc.setFontSize(11);
+    doc.setTextColor(96, 112, 134);
+    doc.text(subtitle, 42, 26);
+    return doc;
+  }
+
+  async function exportarInventarioPDF() {
+    const doc = await createBasePdf(
+      "Inventario de Estoque",
+      `Produtos cadastrados: ${produtos.length}`
+    );
+
+    autoTable(doc, {
+      startY: 38,
+      head: [["Produto", "Estoque", "Custo", "Venda", "Status"]],
+      body: produtos.map((produto) => [
+        produto.nome,
+        String(Number(produto.estoque || 0)),
+        formatMoney(produto.precoCusto || 0),
+        formatMoney(produto.precoFinal ?? produto.preco ?? 0),
+        produto.ativo === false ? "Inativo" : "Ativo",
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      didParseCell: (data) => {
+        if (data.section === "body" && data.column.index === 1) {
+          const estoque = Number(data.row.raw[1] || 0);
+          if (estoque <= 5) {
+            data.cell.styles.textColor = [185, 28, 28];
+            data.cell.styles.fontStyle = "bold";
+          } else {
+            data.cell.styles.textColor = [22, 101, 52];
+          }
+        }
+      },
+    });
+
+    const pdfBlobUrl = doc.output("bloburl");
+    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function exportarMovimentacaoPDF() {
+    const doc = await createBasePdf(
+      "Movimentacao de Estoque",
+      "Relatorio operacional do estoque atual"
+    );
+
+    autoTable(doc, {
+      startY: 38,
+      head: [["Produto", "Estoque atual", "Situacao", "Custo", "Valor de venda", "NF"]],
+      body: produtos.map((produto) => {
+        const estoque = Number(produto.estoque || 0);
+        const situacao =
+          produto.ativo === false
+            ? "Inativo"
+            : estoque === 0
+              ? "Sem estoque"
+              : estoque <= 5
+                ? "Estoque baixo"
+                : "Estoque regular";
+
+        return [
+          produto.nome,
+          String(estoque),
+          situacao,
+          formatMoney(produto.precoCusto || 0),
+          formatMoney(produto.precoFinal ?? produto.preco ?? 0),
+          produto.notaFiscal || "-",
+        ];
+      }),
+      theme: "grid",
+      headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+      styles: { fontSize: 9, cellPadding: 3 },
+      didParseCell: (data) => {
+        if (data.section !== "body" || data.column.index !== 2) return;
+        const situacao = String(data.cell.raw || "");
+        if (situacao === "Sem estoque" || situacao === "Estoque baixo") {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        }
+        if (situacao === "Estoque regular") {
+          data.cell.styles.textColor = [22, 101, 52];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+    });
+
+    const pdfBlobUrl = doc.output("bloburl");
+    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="dashboard-screen">
       <div className="screen-heading">
@@ -135,6 +257,15 @@ export default function Estoque({ uid }) {
             {produtosBaixos}
           </strong>
         </div>
+      </div>
+
+      <div className="section-actions">
+        <button className="action-btn action-btn-info" type="button" onClick={exportarInventarioPDF}>
+          PDF Inventario
+        </button>
+        <button className="action-btn action-btn-warning" type="button" onClick={exportarMovimentacaoPDF}>
+          PDF Movimentacao
+        </button>
       </div>
 
       <div className="screen-grid">

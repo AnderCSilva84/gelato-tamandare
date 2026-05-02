@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDespesa,
   deleteDespesa,
@@ -62,9 +62,15 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     return () => unsub();
   }, [dataFiltro]);
 
-  const totalVendas = Number(resumo?.totalVendas || 0);
-  const totalDespesas = Number(resumo?.totalDespesas || 0);
-  const saldo = Number(resumo?.lucro || 0);
+  const totalVendas = useMemo(
+    () => vendas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [vendas]
+  );
+  const totalDespesas = useMemo(
+    () => despesas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [despesas]
+  );
+  const saldo = totalVendas - totalDespesas;
 
   async function salvarDespesa(e) {
     e.preventDefault();

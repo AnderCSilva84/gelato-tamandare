@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import logoGelato from "../assets/gelatoimg.jpeg";
-import { abrirCaixa, fecharCaixa, getCaixa, subscribeCaixa } from "../services/caixas";
+import {
+  abrirCaixa,
+  addRetiradaCaixa,
+  fecharCaixa,
+  getCaixa,
+  subscribeCaixa,
+  subscribeRetiradasCaixa,
+} from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
 import {
@@ -96,28 +103,45 @@ async function getLogoDataUrl() {
   return fileToDataUrl(blob);
 }
 
-export default function Caixa({ uid, dataHoje }) {
+export default function Caixa({
+  uid,
+  dataHoje,
+  accessRole = "atendente",
+  onCaixaStatusChange,
+  openRetiradaSignal = 0,
+}) {
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
   const [caixaAtualId, setCaixaAtualId] = useState(() => readStoredSession()?.id || "");
   const [caixaAtual, setCaixaAtual] = useState(() => readStoredSession());
   const [vendasCaixa, setVendasCaixa] = useState([]);
+  const [retiradasCaixa, setRetiradasCaixa] = useState([]);
   const [resumo, setResumo] = useState(null);
   const [rankingData, setRankingData] = useState(null);
   const [salvandoVenda, setSalvandoVenda] = useState(false);
+  const [salvandoRetirada, setSalvandoRetirada] = useState(false);
   const [abrindoSessao, setAbrindoSessao] = useState(false);
   const [fechandoSessao, setFechandoSessao] = useState(false);
   const [mostrandoFechamento, setMostrandoFechamento] = useState(false);
+  const [mostrandoRetirada, setMostrandoRetirada] = useState(false);
+  const [toastVenda, setToastVenda] = useState("");
   const [feedbackVenda, setFeedbackVenda] = useState("");
   const [feedbackCaixa, setFeedbackCaixa] = useState("");
+  const [feedbackRetirada, setFeedbackRetirada] = useState("");
   const [loginForm, setLoginForm] = useState({
     atendenteId: "",
     senha: "",
+    fundoCaixa: "",
   });
   const [vendaForm, setVendaForm] = useState({
     produtoId: "",
     quantidade: 1,
     formaPagamento: "PIX",
+    valorRecebido: "",
+  });
+  const [retiradaForm, setRetiradaForm] = useState({
+    valor: "",
+    motivo: "",
   });
 
   useEffect(() => {
@@ -157,6 +181,7 @@ export default function Caixa({ uid, dataHoje }) {
         setCaixaAtual(null);
         setCaixaAtualId("");
         setVendasCaixa([]);
+        setRetiradasCaixa([]);
         clearStoredSession();
         return;
       }
@@ -172,6 +197,28 @@ export default function Caixa({ uid, dataHoje }) {
     const unsub = subscribeVendasPorCaixa(caixaAtualId, setVendasCaixa);
     return () => unsub();
   }, [caixaAtualId]);
+
+  useEffect(() => {
+    const unsub = subscribeRetiradasCaixa(caixaAtualId, setRetiradasCaixa);
+    return () => unsub();
+  }, [caixaAtualId]);
+
+  useEffect(() => {
+    if (typeof onCaixaStatusChange === "function") {
+      onCaixaStatusChange(Boolean(caixaAtual));
+    }
+  }, [caixaAtual, onCaixaStatusChange]);
+
+  useEffect(() => {
+    if (!openRetiradaSignal || !caixaAtual) return;
+    toggleRetiradaPanel();
+  }, [caixaAtual, openRetiradaSignal]);
+
+  useEffect(() => {
+    if (!toastVenda) return;
+    const timeoutId = window.setTimeout(() => setToastVenda(""), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toastVenda]);
 
   const produtosAtivos = useMemo(
     () => produtos.filter((item) => item.ativo !== false),
@@ -218,17 +265,45 @@ export default function Caixa({ uid, dataHoje }) {
 
     return totais;
   }, [vendasCaixa]);
+  const fundoCaixaAtual = Number(caixaAtual?.fundoCaixa || 0);
+  const totalRetiradas = useMemo(
+    () => retiradasCaixa.reduce((acc, retirada) => acc + Number(retirada.valor || 0), 0),
+    [retiradasCaixa]
+  );
+  const totalDinheiroEmCaixa =
+    Number(resumoPagamentos.Dinheiro || 0) + fundoCaixaAtual - totalRetiradas;
+  const valorVendaAtual = useMemo(() => {
+    if (!produtoSelecionado) return 0;
+    const quantidade = Number(vendaForm.quantidade || 0);
+    if (!Number.isFinite(quantidade) || quantidade <= 0) return 0;
+    return Number(produtoSelecionado.preco || 0) * quantidade;
+  }, [produtoSelecionado, vendaForm.quantidade]);
+  const valorRecebidoAtual = Number(vendaForm.valorRecebido || 0);
+  const trocoAtual = useMemo(() => {
+    if (vendaForm.formaPagamento !== "Dinheiro") return 0;
+    return Math.max(valorRecebidoAtual - valorVendaAtual, 0);
+  }, [valorRecebidoAtual, valorVendaAtual, vendaForm.formaPagamento]);
+
+  function toggleRetiradaPanel() {
+    setMostrandoRetirada((prev) => !prev);
+    setFeedbackRetirada("");
+  }
 
   async function iniciarCaixa(e) {
     e.preventDefault();
     const atendente = atendentesAtivos.find((item) => item.id === loginForm.atendenteId);
     if (!atendente) return;
+    const fundoCaixa = Number(loginForm.fundoCaixa || 0);
 
     const senhaCadastrada = String(atendente.senha || "");
     const senhaInformada = String(loginForm.senha || "");
 
     if (senhaCadastrada && senhaCadastrada !== senhaInformada) {
       setFeedbackCaixa("Senha invalida para abrir o caixa.");
+      return;
+    }
+    if (!Number.isFinite(fundoCaixa) || fundoCaixa < 0) {
+      setFeedbackCaixa("Informe um fundo de caixa valido.");
       return;
     }
 
@@ -240,6 +315,7 @@ export default function Caixa({ uid, dataHoje }) {
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
         data: dataHoje,
+        fundoCaixa,
       });
 
       const sessao = {
@@ -247,13 +323,14 @@ export default function Caixa({ uid, dataHoje }) {
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
         data: dataHoje,
+        fundoCaixa,
         status: "aberto",
       };
 
       writeStoredSession(sessao);
       setCaixaAtualId(docRef.id);
       setCaixaAtual(sessao);
-      setLoginForm({ atendenteId: "", senha: "" });
+      setLoginForm({ atendenteId: "", senha: "", fundoCaixa: "" });
       setFeedbackCaixa(`Caixa aberto para ${atendente.nome}.`);
     } catch {
       setFeedbackCaixa("Nao foi possivel abrir o caixa.");
@@ -272,13 +349,19 @@ export default function Caixa({ uid, dataHoje }) {
       await fecharCaixa(caixaAtualId, {
         totalVendas,
         totalItens,
+        totalDinheiro: resumoPagamentos.Dinheiro,
+        totalRetiradas,
+        valorEmCaixa: totalDinheiroEmCaixa,
       });
       clearStoredSession();
       setCaixaAtual(null);
       setCaixaAtualId("");
       setVendasCaixa([]);
+      setRetiradasCaixa([]);
       setMostrandoFechamento(false);
-      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX" });
+      setMostrandoRetirada(false);
+      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+      setRetiradaForm({ valor: "", motivo: "" });
       setFeedbackCaixa("Caixa fechado com sucesso.");
     } catch {
       setFeedbackCaixa("Nao foi possivel fechar o caixa.");
@@ -314,11 +397,17 @@ export default function Caixa({ uid, dataHoje }) {
     y += 6;
     doc.text(`Caixa aberto em: ${horarioAbertura}`, 14, y);
     y += 6;
+    doc.text(`Fundo de caixa: ${formatMoney(fundoCaixaAtual)}`, 14, y);
+    y += 6;
+    doc.text(`Retiradas: ${formatMoney(totalRetiradas)}`, 14, y);
+    y += 6;
     doc.text(`Caixa fechado em: ${horarioFechamento}`, 14, y);
     y += 10;
 
     doc.setFontSize(12);
     doc.text(`Total vendido: ${formatMoney(totalVendas)}`, 14, y);
+    y += 6;
+    doc.text(`Dinheiro em caixa: ${formatMoney(totalDinheiroEmCaixa)}`, 14, y);
     y += 6;
     doc.text(`Itens vendidos: ${totalItens}`, 14, y);
     y += 10;
@@ -338,6 +427,28 @@ export default function Caixa({ uid, dataHoje }) {
       y += 6;
     });
 
+    if (retiradasCaixa.length) {
+      y += 4;
+      doc.setFontSize(12);
+      doc.text("Retiradas do turno", 14, y);
+      y += 8;
+
+      retiradasCaixa.forEach((retirada) => {
+        if (y > 275) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(10);
+        doc.text(
+          `${retirada.motivo || "Sangria"} | ${formatMoney(retirada.valor)}`,
+          14,
+          y
+        );
+        y += 6;
+      });
+    }
+
     y += 4;
     doc.setFontSize(12);
     doc.text("Vendas do turno", 14, y);
@@ -356,9 +467,18 @@ export default function Caixa({ uid, dataHoje }) {
         y
       );
       y += 6;
+      if (venda.formaPagamento === "Dinheiro") {
+        doc.text(
+          `Recebido: ${formatMoney(venda.valorRecebido || 0)} | Troco: ${formatMoney(venda.troco || 0)}`,
+          14,
+          y
+        );
+        y += 6;
+      }
     });
 
-    doc.save(`fechamento-caixa-${dataHoje}.pdf`);
+    const pdfBlobUrl = doc.output("bloburl");
+    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
   }
 
   async function registrarVenda(e) {
@@ -377,6 +497,18 @@ export default function Caixa({ uid, dataHoje }) {
 
     try {
       const valor = Number(produtoSelecionado.preco || 0) * quantidade;
+      const formaPagamento = vendaForm.formaPagamento;
+      const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
+      const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - valor, 0) : 0;
+
+      if (formaPagamento === "Dinheiro") {
+        if (!Number.isFinite(valorRecebido) || valorRecebido < valor) {
+          setFeedbackVenda("Informe o valor recebido em dinheiro para calcular o troco.");
+          setSalvandoVenda(false);
+          return;
+        }
+      }
+
       await addVenda(uid, {
         produto: produtoSelecionado.nome,
         valor,
@@ -385,18 +517,59 @@ export default function Caixa({ uid, dataHoje }) {
         atendenteId: atendenteLogado.id,
         atendenteNome: atendenteLogado.nome,
         caixaId: caixaAtual.id,
-        formaPagamento: vendaForm.formaPagamento,
+        formaPagamento,
+        valorRecebido,
+        troco,
         data: dataHoje,
       });
       await updateProduto(produtoSelecionado.id, {
         estoque: Number(produtoSelecionado.estoque || 0) - quantidade,
       });
-      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX" });
-      setFeedbackVenda("Venda registrada com sucesso.");
+      setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+      setToastVenda("Venda registrada com sucesso.");
     } catch {
       setFeedbackVenda("Nao foi possivel registrar a venda.");
     } finally {
       setSalvandoVenda(false);
+    }
+  }
+
+  async function registrarRetirada(e) {
+    e.preventDefault();
+    if (!caixaAtual || !atendenteLogado) return;
+
+    const valor = Number(retiradaForm.valor || 0);
+    const motivo = String(retiradaForm.motivo || "").trim();
+
+    if (!Number.isFinite(valor) || valor <= 0) {
+      setFeedbackRetirada("Informe um valor valido para a retirada.");
+      return;
+    }
+
+    if (valor > totalDinheiroEmCaixa) {
+      setFeedbackRetirada("A retirada nao pode ser maior que o dinheiro disponivel no caixa.");
+      return;
+    }
+
+    setSalvandoRetirada(true);
+    setFeedbackRetirada("");
+
+    try {
+      await addRetiradaCaixa(uid, {
+        caixaId: caixaAtual.id,
+        atendenteId: atendenteLogado.id,
+        atendenteNome: atendenteLogado.nome,
+        valor,
+        motivo: motivo || "Sangria de caixa",
+        data: dataHoje,
+      });
+      setRetiradaForm({ valor: "", motivo: "" });
+      setMostrandoRetirada(false);
+      setFeedbackRetirada("Retirada registrada com sucesso.");
+    } catch {
+      setFeedbackRetirada("Nao foi possivel registrar a retirada.");
+    } finally {
+      setSalvandoRetirada(false);
     }
   }
 
@@ -409,22 +582,50 @@ export default function Caixa({ uid, dataHoje }) {
         </div>
         <div className="pdv-hero-side">
           <span className="screen-badge">{dataHoje}</span>
-          {caixaAtual ? (
+          {caixaAtual ? <span className="pdv-status-pill">Turno aberto</span> : null}
+        </div>
+      </div>
+
+      {caixaAtual ? (
+        <div className="section-card pdv-status-bar">
+          <div className="pdv-status-bar-copy">
+            <span className="stat-label">Caixa em operacao</span>
+            <strong>{caixaAtual.atendenteNome}</strong>
+            <small>
+              Dinheiro disponivel {formatMoney(totalDinheiroEmCaixa)} • Vendas {formatMoney(totalVendas)}
+            </small>
+          </div>
+          <div className="pdv-status-bar-actions">
             <button
-              className="action-btn action-btn-secondary pdv-close-btn"
+              className="action-btn action-btn-warning"
+              type="button"
+              onClick={toggleRetiradaPanel}
+            >
+              {mostrandoRetirada ? "Ocultar retirada" : "Retirada"}
+            </button>
+            <button
+              className="action-btn action-btn-secondary"
               type="button"
               onClick={() => setMostrandoFechamento(true)}
-              disabled={fechandoSessao || !vendasCaixa.length}
+              disabled={fechandoSessao}
             >
               {fechandoSessao ? "Fechando..." : "Fechar caixa"}
             </button>
-          ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
         <div className="pdv-main-column">
           <div className="stats-grid pdv-stats-grid">
+            <div className="section-card stat-card">
+              <span className="stat-label">Fundo inicial</span>
+              <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+            </div>
+            <div className="section-card stat-card">
+              <span className="stat-label">Retiradas</span>
+              <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
+            </div>
             <div className="section-card stat-card">
               <span className="stat-label">Total no turno</span>
               <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
@@ -471,6 +672,18 @@ export default function Caixa({ uid, dataHoje }) {
                   placeholder="Senha do atendente"
                 />
 
+                <input
+                  className="input pdv-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={loginForm.fundoCaixa}
+                  onChange={(e) =>
+                    setLoginForm((prev) => ({ ...prev, fundoCaixa: e.target.value }))
+                  }
+                  placeholder="Fundo de caixa inicial"
+                />
+
                 <button
                   className="action-btn action-btn-primary pdv-submit"
                   type="submit"
@@ -488,6 +701,57 @@ export default function Caixa({ uid, dataHoje }) {
                 <div className="section-title">Caixa aberto</div>
                 <span className="section-subtitle">Atendente: {caixaAtual.atendenteNome}</span>
               </div>
+              {mostrandoRetirada ? (
+                <form className="stack-form pdv-retirada-card" onSubmit={registrarRetirada}>
+                  <div className="pdv-retirada-head">
+                    <div>
+                      <strong>Retirada</strong>
+                      <small>Sangria de valores do caixa</small>
+                    </div>
+                    <button
+                      className="mini-btn"
+                      type="button"
+                      onClick={toggleRetiradaPanel}
+                    >
+                      X
+                    </button>
+                  </div>
+                  <input
+                    className="input pdv-input"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={retiradaForm.valor}
+                    onChange={(e) =>
+                      setRetiradaForm((prev) => ({ ...prev, valor: e.target.value }))
+                    }
+                    placeholder="Valor da retirada"
+                  />
+                  <input
+                    className="input pdv-input"
+                    value={retiradaForm.motivo}
+                    onChange={(e) =>
+                      setRetiradaForm((prev) => ({ ...prev, motivo: e.target.value }))
+                    }
+                    placeholder="Motivo da sangria"
+                  />
+                  <div className="pdv-cash-summary">
+                    <div className="pdv-cash-row">
+                      <span>Disponivel no caixa</span>
+                      <strong>{formatMoney(totalDinheiroEmCaixa)}</strong>
+                    </div>
+                  </div>
+                  <button
+                    className="action-btn action-btn-danger"
+                    type="submit"
+                    disabled={salvandoRetirada}
+                  >
+                    {salvandoRetirada ? "Registrando..." : "Confirmar retirada"}
+                  </button>
+                  {feedbackRetirada ? <p className="inline-feedback">{feedbackRetirada}</p> : null}
+                </form>
+              ) : null}
+
               <form className="stack-form" onSubmit={registrarVenda}>
                 {produtoSelecionado && getProdutoImagem(produtoSelecionado) ? (
                   <div className="produto-preview">
@@ -533,7 +797,11 @@ export default function Caixa({ uid, dataHoje }) {
                   className="input select pdv-input"
                   value={vendaForm.formaPagamento}
                   onChange={(e) =>
-                    setVendaForm((prev) => ({ ...prev, formaPagamento: e.target.value }))
+                    setVendaForm((prev) => ({
+                      ...prev,
+                      formaPagamento: e.target.value,
+                      valorRecebido: e.target.value === "Dinheiro" ? prev.valorRecebido : "",
+                    }))
                   }
                 >
                   <option value="PIX">PIX</option>
@@ -541,6 +809,32 @@ export default function Caixa({ uid, dataHoje }) {
                   <option value="Debito">Debito</option>
                   <option value="Credito">Credito</option>
                 </select>
+
+                {vendaForm.formaPagamento === "Dinheiro" ? (
+                  <>
+                    <input
+                      className="input pdv-input"
+                      type="number"
+                      min={valorVendaAtual || 0}
+                      step="0.01"
+                      value={vendaForm.valorRecebido}
+                      onChange={(e) =>
+                        setVendaForm((prev) => ({ ...prev, valorRecebido: e.target.value }))
+                      }
+                      placeholder="Valor recebido em dinheiro"
+                    />
+                    <div className="pdv-cash-summary">
+                      <div className="pdv-cash-row">
+                        <span>Total da venda</span>
+                        <strong>{formatMoney(valorVendaAtual)}</strong>
+                      </div>
+                      <div className="pdv-cash-row">
+                        <span>Troco</span>
+                        <strong>{formatMoney(trocoAtual)}</strong>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
 
                 <input className="input pdv-input" value={caixaAtual.atendenteNome} readOnly />
 
@@ -552,8 +846,11 @@ export default function Caixa({ uid, dataHoje }) {
                   {salvandoVenda ? "Salvando..." : "Registrar venda"}
                 </button>
 
-                {feedbackVenda && <p className="inline-feedback">{feedbackVenda}</p>}
+                {feedbackVenda ? <p className="inline-feedback">{feedbackVenda}</p> : null}
                 {feedbackCaixa && <p className="inline-feedback">{feedbackCaixa}</p>}
+                {!mostrandoRetirada && feedbackRetirada ? (
+                  <p className="inline-feedback">{feedbackRetirada}</p>
+                ) : null}
               </form>
             </div>
           )}
@@ -573,6 +870,11 @@ export default function Caixa({ uid, dataHoje }) {
                     <small>
                       {venda.quantidade} un. - {venda.formaPagamento || "Sem forma"}
                     </small>
+                    {venda.formaPagamento === "Dinheiro" ? (
+                      <small>
+                        Recebido {formatMoney(venda.valorRecebido || 0)} - Troco {formatMoney(venda.troco || 0)}
+                      </small>
+                    ) : null}
                   </div>
                   <strong className="positive">{formatMoney(venda.valor)}</strong>
                 </div>
@@ -594,8 +896,20 @@ export default function Caixa({ uid, dataHoje }) {
 
           <div className="stats-grid fechamento-grid">
             <div className="stat-card">
+              <span className="stat-label">Fundo inicial</span>
+              <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Retiradas</span>
+              <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
+            </div>
+            <div className="stat-card">
               <span className="stat-label">Total do turno</span>
               <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Dinheiro em caixa</span>
+              <strong className="stat-value positive">{formatMoney(totalDinheiroEmCaixa)}</strong>
             </div>
             <div className="stat-card">
               <span className="stat-label">Itens vendidos</span>
@@ -626,6 +940,20 @@ export default function Caixa({ uid, dataHoje }) {
             </div>
           </div>
 
+          {retiradasCaixa.length ? (
+            <div className="scroll-list fechamento-lista">
+              {retiradasCaixa.map((retirada) => (
+                <div className="list-row" key={retirada.id}>
+                  <div>
+                    <strong>{retirada.motivo || "Sangria de caixa"}</strong>
+                    <small>Retirada do turno</small>
+                  </div>
+                  <strong className="negative">{formatMoney(retirada.valor)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="scroll-list fechamento-lista">
             {vendasCaixa.map((venda) => (
               <div className="list-row" key={venda.id}>
@@ -634,6 +962,11 @@ export default function Caixa({ uid, dataHoje }) {
                   <small>
                     {venda.quantidade} un. - {venda.formaPagamento || "Sem forma"}
                   </small>
+                  {venda.formaPagamento === "Dinheiro" ? (
+                    <small>
+                      Recebido {formatMoney(venda.valorRecebido || 0)} - Troco {formatMoney(venda.troco || 0)}
+                    </small>
+                  ) : null}
                 </div>
                 <strong className="positive">{formatMoney(venda.valor)}</strong>
               </div>
@@ -654,6 +987,9 @@ export default function Caixa({ uid, dataHoje }) {
         </div>
       ) : null}
 
+      {toastVenda ? <div className="toast-popup">{toastVenda}</div> : null}
+
+      {accessRole === "gerencia" ? (
       <div className="section-card ranking-card ranking-card-footer">
         <div className="section-header">
           <div className="section-title">Ranking do Dia</div>
@@ -697,6 +1033,7 @@ export default function Caixa({ uid, dataHoje }) {
           {!ranking.length && <p className="empty-state">Nenhuma venda por atendente registrada hoje.</p>}
         </div>
       </div>
+      ) : null}
     </div>
   );
 }

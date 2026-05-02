@@ -19,6 +19,7 @@ export default function Atendentes({ uid }) {
   const [nome, setNome] = useState("");
   const [meta, setMeta] = useState("");
   const [senha, setSenha] = useState("");
+  const [role, setRole] = useState("atendente");
   const [editandoId, setEditandoId] = useState("");
 
   useEffect(() => {
@@ -38,6 +39,7 @@ export default function Atendentes({ uid }) {
       nome,
       meta: Number(meta || 0),
       senha,
+      role,
     };
 
     if (editandoId) {
@@ -49,6 +51,7 @@ export default function Atendentes({ uid }) {
     setNome("");
     setMeta("");
     setSenha("");
+    setRole("atendente");
     setEditandoId("");
   }
 
@@ -93,6 +96,10 @@ export default function Atendentes({ uid }) {
               onChange={(e) => setSenha(e.target.value)}
               placeholder="Senha do atendente"
             />
+            <select className="input select" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="atendente">Atendente</option>
+              <option value="gerencia">Gerencia</option>
+            </select>
             <button className="action-btn action-btn-primary" type="submit">
               {editandoId ? "Atualizar atendente" : "Cadastrar atendente"}
             </button>
@@ -112,7 +119,7 @@ export default function Atendentes({ uid }) {
                 <div>
                   <strong>{atendente.nome}</strong>
                   <small>
-                    {atendente.ativo === false ? "Inativo" : "Ativo"} - Meta{" "}
+                    {atendente.ativo === false ? "Inativo" : "Ativo"} - {atendente.role === "gerencia" ? "Gerencia" : "Atendente"} - Meta{" "}
                     {formatMoney(atendente.meta || 0)}
                   </small>
                   <small>{atendente.senha ? "Senha cadastrada" : "Sem senha cadastrada"}</small>
@@ -126,6 +133,7 @@ export default function Atendentes({ uid }) {
                       setNome(atendente.nome || "");
                       setMeta(String(atendente.meta ?? ""));
                       setSenha(atendente.senha || "");
+                      setRole(atendente.role === "gerencia" ? "gerencia" : "atendente");
                     }}
                   >
                     Editar

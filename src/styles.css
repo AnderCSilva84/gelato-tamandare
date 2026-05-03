@@ -1668,6 +1668,25 @@ body::before { content: none; }
   max-width: 560px;
 }
 
+.system-footer {
+  width: 100%;
+  padding: 18px 16px 28px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.system-footer-line:first-child {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.system-footer-line:last-child {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 @media (max-width: 480px) {
   .app-container { padding: 16px 14px 24px; }
   .balance-value { font-size: 32px; }
@@ -1936,6 +1955,10 @@ body::before { content: none; }
   .pdv-sales-list {
     max-height: none;
   }
+
+  .system-footer {
+    padding: 14px 16px 24px;
+  }
 }
 
 @media (min-width: 769px) and (max-width: 1100px) {
@@ -1964,4 +1987,10 @@ body::before { content: none; }
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+}
+
+@media (min-width: 769px) {
+  .system-footer {
+    padding: 20px 32px 28px;
+  }
 }

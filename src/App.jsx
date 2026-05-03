@@ -84,6 +84,13 @@ const ClockIcon = (
   </svg>
 );
 
+const SystemFooter = (
+  <footer className="system-footer">
+    <div className="system-footer-line">Desenvolvido por Anderson C Silva</div>
+    <div className="system-footer-line">ACS Informática</div>
+  </footer>
+);
+
 function formatMoney(valor, ocultar) {
   if (ocultar) return "R$ .....";
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -553,117 +560,120 @@ export default function App() {
         <Route
           path="/"
           element={(
-            <div className="dashboard">
-              <aside className="sidebar">
-                <div className="sidebar-brand">
-                  <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
-                  <div className="sidebar-title">Gelato Tamandare</div>
-                  <div className="sidebar-subtitle">Painel de gestao</div>
-                </div>
-
-                <div className="sidebar-access section-card">
-                  <div className="section-header section-header-main">
-                    <div className="section-title mobile-hide">Acesso</div>
-                    <span className="section-subtitle">
-                      {unrestrictedSetup
-                        ? "Modo configuracao ativo"
-                        : accessUser
-                          ? `${accessUser.nome} - ${accessRole === "gerencia" ? "Gerencia" : "Atendente"}`
-                          : "Entre para liberar o painel"}
-                    </span>
+            <>
+              <div className="dashboard">
+                <aside className="sidebar">
+                  <div className="sidebar-brand">
+                    <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
+                    <div className="sidebar-title">Gelato Tamandare</div>
+                    <div className="sidebar-subtitle">Painel de gestao</div>
                   </div>
 
-                  {unrestrictedSetup ? (
-                    <p className="sidebar-access-note">
-                      Cadastre pelo menos um usuario com role gerencia em Atendentes para ativar o controle de acesso.
-                    </p>
-                  ) : accessUser ? (
-                    <div className="sidebar-access-actions">
-                      <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
-                        Sair do painel
-                      </button>
+                  <div className="sidebar-access section-card">
+                    <div className="section-header section-header-main">
+                      <div className="section-title mobile-hide">Acesso</div>
+                      <span className="section-subtitle">
+                        {unrestrictedSetup
+                          ? "Modo configuracao ativo"
+                          : accessUser
+                            ? `${accessUser.nome} - ${accessRole === "gerencia" ? "Gerencia" : "Atendente"}`
+                            : "Entre para liberar o painel"}
+                      </span>
                     </div>
-                  ) : (
-                    <form className="stack-form" onSubmit={entrarNoPainel}>
-                      <select
-                        className="input select"
-                        value={accessForm.atendenteId}
-                        onChange={(e) =>
-                          setAccessForm((prev) => ({ ...prev, atendenteId: e.target.value }))
-                        }
-                      >
-                        <option value="">Selecione o usuario</option>
-                        {atendentesAtivos.map((atendente) => (
-                          <option key={atendente.id} value={atendente.id}>
-                            {atendente.nome} - {normalizeRole(atendente.role) === "gerencia" ? "Gerencia" : "Atendente"}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        className="input"
-                        type="password"
-                        value={accessForm.senha}
-                        onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
-                        placeholder="Senha"
-                      />
-                      <button className="action-btn action-btn-primary" type="submit">
-                        Entrar no painel
-                      </button>
-                      {accessError ? <p className="inline-feedback">{accessError}</p> : null}
-                    </form>
-                  )}
-                </div>
 
-                {navItems.length > 1 ? (
-                  <div className="sidebar-nav">
-                    {navItems.map((item) => (
-                      <button
-                        key={item.id}
-                        className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
-                        onClick={() => setTela(item.id)}
-                        type="button"
-                        disabled={!painelLiberado}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </aside>
-
-              <main className="content">
-                {painelLiberado ? (
-                  <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
-                    {tela === "gerencia" && (
-                      <TelaGerencia uid={user.uid} dataHoje={hojeISO()} onNavigate={setTela} />
-                    )}
-                    {tela === "pdv" && (
-                      <TelaCaixa
-                        uid={user.uid}
-                        dataHoje={hojeISO()}
-                        accessRole={unrestrictedSetup ? "gerencia" : accessRole}
-                      />
-                    )}
-                    {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
-                    {tela === "estoque" && <TelaEstoque uid={user.uid} />}
-                    {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
-                    {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
-                  </Suspense>
-                ) : (
-                  <div className="dashboard-screen">
-                    <div className="section-card access-block-card">
-                      <div className="section-header section-header-main">
-                        <div className="section-title">Painel bloqueado</div>
-                        <span className="section-subtitle">Entre com um usuario cadastrado para continuar</span>
-                      </div>
-                      <p className="screen-description">
-                        Usuarios com role atendente acessam apenas o PDV. Usuarios com role gerencia acessam todo o sistema.
+                    {unrestrictedSetup ? (
+                      <p className="sidebar-access-note">
+                        Cadastre pelo menos um usuario com role gerencia em Atendentes para ativar o controle de acesso.
                       </p>
-                    </div>
+                    ) : accessUser ? (
+                      <div className="sidebar-access-actions">
+                        <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
+                          Sair do painel
+                        </button>
+                      </div>
+                    ) : (
+                      <form className="stack-form" onSubmit={entrarNoPainel}>
+                        <select
+                          className="input select"
+                          value={accessForm.atendenteId}
+                          onChange={(e) =>
+                            setAccessForm((prev) => ({ ...prev, atendenteId: e.target.value }))
+                          }
+                        >
+                          <option value="">Selecione o usuario</option>
+                          {atendentesAtivos.map((atendente) => (
+                            <option key={atendente.id} value={atendente.id}>
+                              {atendente.nome} - {normalizeRole(atendente.role) === "gerencia" ? "Gerencia" : "Atendente"}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="input"
+                          type="password"
+                          value={accessForm.senha}
+                          onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                          placeholder="Senha"
+                        />
+                        <button className="action-btn action-btn-primary" type="submit">
+                          Entrar no painel
+                        </button>
+                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                      </form>
+                    )}
                   </div>
-                )}
-              </main>
-            </div>
+
+                  {navItems.length > 1 ? (
+                    <div className="sidebar-nav">
+                      {navItems.map((item) => (
+                        <button
+                          key={item.id}
+                          className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
+                          onClick={() => setTela(item.id)}
+                          type="button"
+                          disabled={!painelLiberado}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </aside>
+
+                <main className="content">
+                  {painelLiberado ? (
+                    <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
+                      {tela === "gerencia" && (
+                        <TelaGerencia uid={user.uid} dataHoje={hojeISO()} onNavigate={setTela} />
+                      )}
+                      {tela === "pdv" && (
+                        <TelaCaixa
+                          uid={user.uid}
+                          dataHoje={hojeISO()}
+                          accessRole={unrestrictedSetup ? "gerencia" : accessRole}
+                        />
+                      )}
+                      {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                      {tela === "estoque" && <TelaEstoque uid={user.uid} />}
+                      {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
+                      {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
+                    </Suspense>
+                  ) : (
+                    <div className="dashboard-screen">
+                      <div className="section-card access-block-card">
+                        <div className="section-header section-header-main">
+                          <div className="section-title">Painel bloqueado</div>
+                          <span className="section-subtitle">Entre com um usuario cadastrado para continuar</span>
+                        </div>
+                        <p className="screen-description">
+                          Usuarios com role atendente acessam apenas o PDV. Usuarios com role gerencia acessam todo o sistema.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </main>
+              </div>
+              {SystemFooter}
+            </>
           )}
         />
         <Route
@@ -695,6 +705,7 @@ export default function App() {
               <button className="action-btn action-btn-secondary" onClick={voltarExtrato} type="button">
                 Voltar
               </button>
+              {SystemFooter}
             </div>
           )}
         />
@@ -727,6 +738,7 @@ export default function App() {
               <button className="action-btn action-btn-secondary" onClick={voltarExtrato} type="button">
                 Voltar
               </button>
+              {SystemFooter}
             </div>
           )}
         />

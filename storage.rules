@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && (
+          request.auth.token.role == 'admin'
+          || request.auth.token.role == 'gerencia'
+          || request.auth.token.admin == true
+        );
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function maxSize(sizeInMb) {
+      return request.resource.size <= sizeInMb * 1024 * 1024;
+    }
+
+    // Bloqueia tudo por padrão
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Imagens de produtos
+    // Usuários logados podem ler.
+    // Apenas admin/gerência pode criar, editar ou apagar.
+    match /produtos/{fileName} {
+      allow read: if isSignedIn();
+
+      allow create, update: if isAdmin()
+        && isImage()
+        && maxSize(5);
+
+      allow delete: if isAdmin();
+    }
+
+    // Imagens gerais do sistema
+    // Ex: banners, logos, imagens auxiliares.
+    match /imagens/{fileName} {
+      allow read: if isSignedIn();
+
+      allow create, update: if isAdmin()
+        && isImage()
+        && maxSize(5);
+
+      allow delete: if isAdmin();
+    }
+
+    // Relatórios e PDFs
+    // Apenas admin/gerência acessa.
+    match /relatorios/{fileName} {
+      allow read: if isAdmin();
+
+      allow create, update: if isAdmin()
+        && isPdf()
+        && maxSize(10);
+
+      allow delete: if isAdmin();
+    }
+
+    // Anexos gerais autenticados
+    // Mantido mais restrito para evitar bagunça no Storage.
+    match /anexos/{fileName} {
+      allow read: if isSignedIn();
+
+      allow create, update: if isSignedIn()
+        && maxSize(10);
+
+      allow delete: if isAdmin();
+    }
+  }
+}

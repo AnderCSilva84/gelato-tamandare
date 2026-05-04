@@ -12,6 +12,8 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { getProdutos, updateProduto } from "./produtos";
+import { deleteVenda, getVendasPorCaixa } from "./vendas";
 
 const caixasRef = collection(db, "caixas");
 const retiradasRef = collection(db, "retiradas_caixa");
@@ -95,6 +97,48 @@ export async function getRetiradas(dataInicio, dataFim = dataInicio) {
 
 export async function deleteCaixa(id) {
   if (!id) throw new Error("Caixa invalido.");
+
+  const [vendasDoCaixa, retiradasDoCaixa] = await Promise.all([
+    getVendasPorCaixa(id),
+    getDocs(query(retiradasRef, where("caixaId", "==", id))),
+  ]);
+
+  if (vendasDoCaixa.length) {
+    const produtos = await getProdutos();
+    const produtosPorId = new Map(produtos.map((produto) => [produto.id, produto]));
+    const produtosPorNome = new Map(produtos.map((produto) => [String(produto.nome || "").trim(), produto]));
+    const reposicaoPorProduto = new Map();
+
+    vendasDoCaixa.forEach((venda) => {
+      const quantidade = Number(venda?.quantidade || 0);
+      if (!quantidade) return;
+
+      const produto =
+        (venda?.produtoId && produtosPorId.get(String(venda.produtoId))) ||
+        produtosPorNome.get(String(venda?.produto || "").trim());
+
+      if (!produto?.id) return;
+
+      reposicaoPorProduto.set(
+        produto.id,
+        (reposicaoPorProduto.get(produto.id) || 0) + quantidade
+      );
+    });
+
+    await Promise.all(
+      Array.from(reposicaoPorProduto.entries()).map(([produtoId, quantidade]) => {
+        const produto = produtosPorId.get(produtoId);
+        if (!produto) return Promise.resolve();
+        return updateProduto(produtoId, {
+          estoque: Number(produto.estoque || 0) + Number(quantidade || 0),
+        });
+      })
+    );
+  }
+
+  await Promise.all(vendasDoCaixa.map((venda) => deleteVenda(venda.id)));
+  await Promise.all(retiradasDoCaixa.docs.map((item) => deleteDoc(doc(db, "retiradas_caixa", item.id))));
+
   return deleteDoc(doc(db, "caixas", id));
 }
 
@@ -120,6 +164,25 @@ export async function addRetiradaCaixa(uid, dados) {
     data: String(dados?.data || "").trim(),
     criadoEm: serverTimestamp(),
   });
+}
+
+export async function updateRetiradaCaixa(id, dados) {
+  if (!id) throw new Error("Retirada invalida.");
+
+  const payload = Object.fromEntries(
+    Object.entries({
+      valor: dados?.valor !== undefined ? Number(dados.valor) : undefined,
+      motivo: dados?.motivo !== undefined ? String(dados.motivo).trim() : undefined,
+      data: dados?.data !== undefined ? String(dados.data).trim() : undefined,
+    }).filter(([, value]) => value !== undefined)
+  );
+
+  await updateDoc(doc(db, "retiradas_caixa", id), payload);
+}
+
+export async function deleteRetiradaCaixa(id) {
+  if (!id) throw new Error("Retirada invalida.");
+  return deleteDoc(doc(db, "retiradas_caixa", id));
 }
 
 export function subscribeRetiradasCaixa(caixaId, callback, onError) {

@@ -115,6 +115,7 @@ export async function addVenda(uid, dados) {
   const venda = {
     uid: uid || null,
     produto: String(dados?.produto || "").trim(),
+    produtoId: String(dados?.produtoId || "").trim(),
     valor: Number(dados?.valor || 0),
     quantidade: Number(dados?.quantidade || 1),
     atendente: String(dados?.atendente || "").trim(),
@@ -146,6 +147,7 @@ export async function updateVenda(id, dados) {
     ...dados,
     valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
     quantidade: dados?.quantidade !== undefined ? Number(dados.quantidade) : current.quantidade,
+    produtoId: dados?.produtoId !== undefined ? String(dados.produtoId) : current.produtoId,
     atendenteId:
       dados?.atendenteId !== undefined ? String(dados.atendenteId) : current.atendenteId,
     atendenteNome:
@@ -192,6 +194,17 @@ export function subscribeVendasDoDia(uid, data, callback) {
   }
 
   return onSnapshot(dayQuery(vendasRef, data), (snapshot) => {
+    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  });
+}
+
+export function subscribeVendasPeriodo(uid, dataInicio, dataFim, callback) {
+  if (!dataInicio || !dataFim) {
+    callback([]);
+    return () => {};
+  }
+
+  return onSnapshot(rangeQuery(vendasRef, dataInicio, dataFim), (snapshot) => {
     callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
   });
 }

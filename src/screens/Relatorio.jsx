@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import logoGelato from "../assets/gelatoimg.jpeg";
-import { deleteCaixa, getCaixas, getRetiradas } from "../services/caixas";
+import {
+  deleteCaixa,
+  deleteRetiradaCaixa,
+  getCaixas,
+  getRetiradas,
+  updateRetiradaCaixa,
+} from "../services/caixas";
 import { getProdutos } from "../services/produtos";
 import {
+  deleteDespesa,
   getDespesas,
   getVendas,
   getVendasPorCaixa,
   subscribeVendasDoDia,
+  updateDespesa,
 } from "../services/vendas";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 
@@ -61,38 +69,37 @@ export default function Relatorio({ uid, dataHoje }) {
   const [caixas, setCaixas] = useState([]);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
   const [vendasCaixaSelecionado, setVendasCaixaSelecionado] = useState([]);
+  const [saidaEditando, setSaidaEditando] = useState(null);
+  const [saidaForm, setSaidaForm] = useState({ descricao: "", valor: "", data: "" });
+
+  const carregarPeriodoAtual = useCallback(async () => {
+    setLoading(true);
+    const [vendasData, despesasData, retiradasData] = await Promise.all([
+      getVendas(uid, dataInicioFiltro, dataFimFiltro),
+      getDespesas(uid, dataInicioFiltro, dataFimFiltro),
+      getRetiradas(dataInicioFiltro, dataFimFiltro),
+    ]);
+    const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
+
+    setVendas(vendasData);
+    setDespesas(despesasData);
+    setRetiradas(retiradasData);
+    setCaixas(caixasData);
+    setCaixaSelecionado((prev) =>
+      prev ? caixasData.find((item) => item.id === prev.id) || null : null
+    );
+    setLoading(false);
+  }, [dataFimFiltro, dataInicioFiltro, uid]);
 
   useEffect(() => {
-    let ativo = true;
-
     async function carregar() {
-      setLoading(true);
-      const [vendasData, despesasData, retiradasData] = await Promise.all([
-        getVendas(uid, dataInicioFiltro, dataFimFiltro),
-        getDespesas(uid, dataInicioFiltro, dataFimFiltro),
-        getRetiradas(dataInicioFiltro, dataFimFiltro),
-      ]);
-      const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
-
-      if (!ativo) return;
-      setVendas(vendasData);
-      setDespesas(despesasData);
-      setRetiradas(retiradasData);
-      setCaixas(caixasData);
-      setCaixaSelecionado((prev) =>
-        prev ? caixasData.find((item) => item.id === prev.id) || null : null
-      );
-      setLoading(false);
+      await carregarPeriodoAtual();
     }
 
     if (uid && dataInicioFiltro && dataFimFiltro) {
       carregar();
     }
-
-    return () => {
-      ativo = false;
-    };
-  }, [uid, dataInicioFiltro, dataFimFiltro]);
+  }, [carregarPeriodoAtual, uid, dataInicioFiltro, dataFimFiltro]);
 
   useEffect(() => {
     if (!uid || !dataHoje) return;
@@ -125,41 +132,82 @@ export default function Relatorio({ uid, dataHoje }) {
   }, [caixaSelecionado]);
 
   const resumoFinanceiro = useMemo(
-    () =>
-      calcularResumoFinanceiro({
-        vendas,
+    () => {
+      const caixaIds = new Set(caixas.map((item) => item.id));
+      const vendasVinculadas = vendas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
+      const retiradasVinculadas = retiradas.filter(
+        (item) => item.caixaId && caixaIds.has(item.caixaId)
+      );
+
+      return calcularResumoFinanceiro({
+        vendas: vendasVinculadas,
         despesas,
-        retiradas,
+        retiradas: retiradasVinculadas,
         caixas,
-      }),
+      });
+    },
     [caixas, despesas, retiradas, vendas]
   );
+  const vendasPeriodoVinculadas = useMemo(() => {
+    const caixaIds = new Set(caixas.map((item) => item.id));
+    return vendas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
+  }, [caixas, vendas]);
+  const retiradasPeriodoVinculadas = useMemo(() => {
+    const caixaIds = new Set(caixas.map((item) => item.id));
+    return retiradas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
+  }, [caixas, retiradas]);
   const saidasPeriodo = useMemo(
     () =>
       [
-        ...despesas.map((item) => ({ ...item, descricaoLinha: item.descricao, origem: "Despesa" })),
-        ...retiradas.map((item) => ({
+        ...despesas.map((item) => ({
+          ...item,
+          descricaoLinha: item.descricao,
+          origem: "Despesa",
+          tipoSaida: "despesa",
+        })),
+        ...retiradasPeriodoVinculadas.map((item) => ({
           ...item,
           descricaoLinha: item.motivo || "Sangria de caixa",
           origem: "Retirada",
+          tipoSaida: "retirada",
         })),
       ].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
-    [despesas, retiradas]
+    [despesas, retiradasPeriodoVinculadas]
   );
   const totalVendasHojeCalculado = useMemo(
-    () => vendasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
-    [vendasHoje]
+    () => {
+      const caixaIdsHoje = new Set(
+        caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
+      );
+      return vendasHoje
+        .filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId))
+        .reduce((acc, item) => acc + Number(item.valor || 0), 0);
+    },
+    [caixas, dataHoje, vendasHoje]
   );
   const totalItensHojeCalculado = useMemo(
-    () => vendasHoje.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
-    [vendasHoje]
+    () => {
+      const caixaIdsHoje = new Set(
+        caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
+      );
+      return vendasHoje
+        .filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId))
+        .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
+    },
+    [caixas, dataHoje, vendasHoje]
   );
   const totalVendasHoje = totalVendasHojeCalculado;
   const totalItensHoje = totalItensHojeCalculado;
+  const vendasHojeVinculadas = useMemo(() => {
+    const caixaIdsHoje = new Set(
+      caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
+    );
+    return vendasHoje.filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId));
+  }, [caixas, dataHoje, vendasHoje]);
   const vendasPorAtendente = useMemo(() => {
     const mapa = {};
 
-    vendas.forEach((venda) => {
+    vendasPeriodoVinculadas.forEach((venda) => {
       const chave = venda.atendenteNome || venda.atendente || "Sem atendente";
       if (!mapa[chave]) {
         mapa[chave] = 0;
@@ -170,7 +218,7 @@ export default function Relatorio({ uid, dataHoje }) {
     return Object.entries(mapa)
       .map(([nome, total]) => ({ nome, total }))
       .sort((a, b) => b.total - a.total);
-  }, [vendas]);
+  }, [vendasPeriodoVinculadas]);
 
   async function excluirCaixa(item) {
     if (!item?.id || item.status === "aberto") return;
@@ -181,11 +229,65 @@ export default function Relatorio({ uid, dataHoje }) {
     if (!confirmar) return;
 
     await deleteCaixa(item.id);
-    setCaixas((prev) => prev.filter((caixa) => caixa.id !== item.id));
-    if (caixaSelecionado?.id === item.id) {
-      setCaixaSelecionado(null);
-      setVendasCaixaSelecionado([]);
+    if (caixaSelecionado?.id === item.id) setVendasCaixaSelecionado([]);
+    await carregarPeriodoAtual();
+  }
+
+  function iniciarEdicaoSaida(item) {
+    setSaidaEditando(item);
+    setSaidaForm({
+      descricao: item.descricaoLinha || "",
+      valor: String(item.valor ?? ""),
+      data: item.data || dataHoje,
+    });
+  }
+
+  function cancelarEdicaoSaida() {
+    setSaidaEditando(null);
+    setSaidaForm({ descricao: "", valor: "", data: "" });
+  }
+
+  async function salvarSaidaEditada(e) {
+    e.preventDefault();
+    if (!saidaEditando?.id) return;
+
+    const valor = Number(saidaForm.valor || 0);
+    if (!saidaForm.descricao.trim() || !Number.isFinite(valor) || valor <= 0 || !saidaForm.data) return;
+
+    if (saidaEditando.tipoSaida === "despesa") {
+      await updateDespesa(saidaEditando.id, {
+        descricao: saidaForm.descricao,
+        valor,
+        data: saidaForm.data,
+      });
+    } else {
+      await updateRetiradaCaixa(saidaEditando.id, {
+        motivo: saidaForm.descricao,
+        valor,
+        data: saidaForm.data,
+      });
     }
+
+    cancelarEdicaoSaida();
+    await carregarPeriodoAtual();
+  }
+
+  async function excluirSaida(item) {
+    if (!item?.id) return;
+
+    const confirmar = window.confirm(
+      `Excluir ${String(item.origem || "saida").toLowerCase()} "${item.descricaoLinha}"?`
+    );
+    if (!confirmar) return;
+
+    if (item.tipoSaida === "despesa") {
+      await deleteDespesa(item.id);
+    } else {
+      await deleteRetiradaCaixa(item.id);
+    }
+
+    if (saidaEditando?.id === item.id) cancelarEdicaoSaida();
+    await carregarPeriodoAtual();
   }
 
   async function exportarRelatorioPDF() {
@@ -252,8 +354,27 @@ export default function Relatorio({ uid, dataHoje }) {
     });
     y += 30;
 
-    doc.setTextColor(24, 33, 47);
     doc.setFontSize(12);
+    doc.setTextColor(24, 33, 47);
+    doc.text("Resumo financeiro", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Indicador", "Valor"]],
+      body: [
+        ["Fundo de caixa", formatMoney(resumoFinanceiro.fundoCaixa)],
+        ["Entradas", formatMoney(resumoFinanceiro.entradas)],
+        ["Gastos", formatMoney(resumoFinanceiro.gastos)],
+        ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
+        ["Resultado", formatMoney(resumoFinanceiro.resultado)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
     doc.text("Vendas por atendente", 14, y);
     y += 4;
 
@@ -359,11 +480,11 @@ export default function Relatorio({ uid, dataHoje }) {
           </div>
           <div className="stat-card">
             <span className="stat-label">Registros de venda</span>
-            <strong className="stat-value">{vendasHoje.length}</strong>
+            <strong className="stat-value">{vendasHojeVinculadas.length}</strong>
           </div>
         </div>
         <div className="scroll-list">
-          {vendasHoje.map((item) => (
+          {vendasHojeVinculadas.map((item) => (
             <div className="list-row" key={item.id}>
               <div>
                 <strong>{item.produto}</strong>
@@ -374,7 +495,7 @@ export default function Relatorio({ uid, dataHoje }) {
               <strong className="positive">{formatMoney(item.valor)}</strong>
             </div>
           ))}
-          {!vendasHoje.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
+          {!vendasHojeVinculadas.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
         </div>
       </div>
 

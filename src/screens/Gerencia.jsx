@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getCaixas, subscribeRetiradasDoDia } from "../services/caixas";
+import { deleteCaixa, fecharCaixa, getCaixas, subscribeRetiradasDoDia } from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
 import { subscribeDespesasDoDia, subscribeVendasDoDia } from "../services/vendas";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
@@ -18,12 +18,16 @@ function formatDateLabel(valor) {
   return `${dia}-${mes}-${ano}`;
 }
 
-export default function Gerencia({ uid, dataHoje, onNavigate }) {
+export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesasHoje, setDespesasHoje] = useState([]);
   const [retiradasHoje, setRetiradasHoje] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
+  const [acaoCaixa, setAcaoCaixa] = useState(null);
+  const [senhaGerencia, setSenhaGerencia] = useState("");
+  const [feedbackAcaoCaixa, setFeedbackAcaoCaixa] = useState("");
+  const [salvandoAcaoCaixa, setSalvandoAcaoCaixa] = useState(false);
 
   useEffect(() => {
     if (!uid || !dataHoje) return;
@@ -51,15 +55,27 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
     () => caixasHoje.filter((item) => item.status === "aberto"),
     [caixasHoje]
   );
+  const caixaIdsDoDia = useMemo(
+    () => new Set(caixasHoje.map((item) => item.id)),
+    [caixasHoje]
+  );
+  const vendasHojeVinculadas = useMemo(
+    () => vendasHoje.filter((item) => item.caixaId && caixaIdsDoDia.has(item.caixaId)),
+    [caixaIdsDoDia, vendasHoje]
+  );
+  const retiradasHojeVinculadas = useMemo(
+    () => retiradasHoje.filter((item) => item.caixaId && caixaIdsDoDia.has(item.caixaId)),
+    [caixaIdsDoDia, retiradasHoje]
+  );
   const resumoFinanceiro = useMemo(
     () =>
       calcularResumoFinanceiro({
-        vendas: vendasHoje,
+        vendas: vendasHojeVinculadas,
         despesas: despesasHoje,
-        retiradas: retiradasHoje,
+        retiradas: retiradasHojeVinculadas,
         caixas: caixasAbertos,
       }),
-    [caixasAbertos, despesasHoje, retiradasHoje, vendasHoje]
+    [caixasAbertos, despesasHoje, retiradasHojeVinculadas, vendasHojeVinculadas]
   );
   const estoqueBaixo = useMemo(
     () =>
@@ -74,6 +90,119 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
       produtos.filter((produto) => produto.ativo !== false && Number(produto.estoque || 0) === 0),
     [produtos]
   );
+  const totalItensVendidos = useMemo(
+    () => vendasHojeVinculadas.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+    [vendasHojeVinculadas]
+  );
+  const totalSaidasHoje = despesasHoje.length + retiradasHojeVinculadas.length;
+  const totalAlertasEstoque = estoqueBaixo.length + semEstoque.length;
+  const ultimasVendas = vendasHojeVinculadas.slice(0, 5);
+  const ultimasSaidas = useMemo(
+    () =>
+      [
+        ...despesasHoje.map((item) => ({
+          ...item,
+          titulo: item.descricao,
+          detalhe: "Despesa operacional",
+        })),
+        ...retiradasHojeVinculadas.map((item) => ({
+          ...item,
+          titulo: item.motivo || "Sangria de caixa",
+          detalhe: item.atendenteNome || "Sem atendente",
+        })),
+      ].slice(0, 5),
+    [despesasHoje, retiradasHojeVinculadas]
+  );
+  const caixasDoDia = useMemo(
+    () =>
+      [...caixasHoje].sort((a, b) => {
+        if (a?.status !== b?.status) return a?.status === "aberto" ? -1 : 1;
+        return String(a?.atendenteNome || "").localeCompare(String(b?.atendenteNome || ""));
+      }),
+    [caixasHoje]
+  );
+
+  function abrirAcaoCaixa(tipo, caixa) {
+    setAcaoCaixa({ tipo, caixa });
+    setSenhaGerencia("");
+    setFeedbackAcaoCaixa("");
+  }
+
+  function fecharPainelAcao() {
+    setAcaoCaixa(null);
+    setSenhaGerencia("");
+    setFeedbackAcaoCaixa("");
+    setSalvandoAcaoCaixa(false);
+  }
+
+  async function confirmarAcaoCaixa() {
+    if (!acaoCaixa?.caixa?.id) return;
+
+    const senhaCadastrada = String(accessUser?.senha || "");
+    const senhaInformada = String(senhaGerencia || "");
+
+    if (!senhaCadastrada) {
+      setFeedbackAcaoCaixa("Cadastre uma senha para a gerencia antes de usar esta acao.");
+      return;
+    }
+
+    if (senhaInformada !== senhaCadastrada) {
+      setFeedbackAcaoCaixa("Senha da gerencia invalida.");
+      return;
+    }
+
+    setSalvandoAcaoCaixa(true);
+    setFeedbackAcaoCaixa("");
+
+    try {
+      if (acaoCaixa.tipo === "fechar") {
+        const caixa = acaoCaixa.caixa;
+        const vendasDoCaixa = vendasHoje.filter((item) => item.caixaId === caixa.id);
+        const retiradasDoCaixa = retiradasHoje.filter((item) => item.caixaId === caixa.id);
+        const totalVendas = vendasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0);
+        const totalItens = vendasDoCaixa.reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
+        const totalDinheiro = vendasDoCaixa
+          .filter((item) => item.formaPagamento === "Dinheiro")
+          .reduce((acc, item) => acc + Number(item.valor || 0), 0);
+        const totalRetiradas = retiradasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0);
+        const valorEmCaixa =
+          Number(caixa.fundoCaixa || 0) + totalVendas - totalRetiradas;
+
+        await fecharCaixa(caixa.id, {
+          totalVendas,
+          totalItens,
+          totalDinheiro,
+          totalRetiradas,
+          valorEmCaixa,
+        });
+
+        setCaixasHoje((prev) =>
+          prev.map((item) =>
+            item.id === caixa.id
+              ? {
+                  ...item,
+                  status: "fechado",
+                  totalVendas,
+                  totalItens,
+                  totalDinheiro,
+                  valorEmCaixa,
+                }
+              : item
+          )
+        );
+      }
+
+      if (acaoCaixa.tipo === "excluir") {
+        await deleteCaixa(acaoCaixa.caixa.id);
+        setCaixasHoje((prev) => prev.filter((item) => item.id !== acaoCaixa.caixa.id));
+      }
+
+      fecharPainelAcao();
+    } catch {
+      setFeedbackAcaoCaixa("Nao foi possivel concluir a acao no caixa.");
+      setSalvandoAcaoCaixa(false);
+    }
+  }
 
   return (
     <div className="dashboard-screen">
@@ -82,153 +211,259 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
           <span className="pdv-eyebrow">Resumo Gerencial</span>
           <h1 className="screen-title">Operacao do dia</h1>
           <p className="screen-description">
-            Visao rapida de vendas, saidas, retiradas e alertas criticos da sorveteria.
+            Priorize caixa, resultado e alertas. Os detalhes ficam logo abaixo, sob demanda.
           </p>
         </div>
         <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
       </div>
 
-      <div className="stats-grid gerencia-stats-grid">
-        <div className="section-card stat-card">
-          <span className="stat-label">Entradas</span>
-          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
-        </div>
-        <div className="section-card stat-card">
-          <span className="stat-label">Gastos</span>
-          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
-        </div>
+      <div className="stats-grid gerencia-stats-grid gerencia-stats-grid-compact">
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.emCaixa)}</strong>
+          <strong className="stat-value positive">
+            {formatMoney(resumoFinanceiro.emCaixa)}
+          </strong>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Resultado</span>
-          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
-            {formatMoney(resumoFinanceiro.resultado)}
+          <span className="stat-label">Alertas</span>
+          <strong className={`stat-value ${totalAlertasEstoque ? "negative" : "positive"}`}>
+            {totalAlertasEstoque}
           </strong>
         </div>
       </div>
 
-      <div className="gerencia-actions">
+      <div className="gerencia-micro-grid">
+        <div className="section-card gerencia-micro-card">
+          <span className="stat-label">Entradas</span>
+          <strong className="positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
+        </div>
+        <div className="section-card gerencia-micro-card">
+          <span className="stat-label">Gastos</span>
+          <strong className="negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
+        </div>
+        <div className="section-card gerencia-micro-card">
+          <span className="stat-label">Caixas abertos</span>
+          <strong>{caixasAbertos.length}</strong>
+        </div>
+        <div className="section-card gerencia-micro-card">
+          <span className="stat-label">Itens vendidos</span>
+          <strong>{totalItensVendidos}</strong>
+        </div>
+      </div>
+
+      <div className="gerencia-actions gerencia-actions-compact">
         <button className="action-btn action-btn-primary" type="button" onClick={() => onNavigate("pdv")}>
-          Ir para PDV
+          PDV
         </button>
         <button className="action-btn action-btn-warning" type="button" onClick={() => onNavigate("fluxo")}>
-          Despesas e fluxo
+          Fluxo
         </button>
         <button className="action-btn action-btn-info" type="button" onClick={() => onNavigate("estoque")}>
-          Ver estoque
+          Estoque
         </button>
         <button className="action-btn action-btn-secondary" type="button" onClick={() => onNavigate("relatorio")}>
-          Abrir relatorio
+          Relatorio
         </button>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      <div className="screen-grid gerencia-focus-grid">
+        <div className="section-card gerencia-focus-card">
           <div className="section-header">
-            <div className="section-title">Caixas abertos</div>
-            <span className="section-subtitle">{caixasAbertos.length} em operacao</span>
+            <div className="section-title">Operacao agora</div>
+            <span className="section-subtitle">Leitura rapida</span>
+          </div>
+          <div className="gerencia-focus-list">
+            <div className="gerencia-focus-item">
+              <span>Caixas em operacao</span>
+              <strong>{caixasAbertos.length}</strong>
+            </div>
+            <div className="gerencia-focus-item">
+              <span>Vendas registradas</span>
+              <strong>{vendasHojeVinculadas.length}</strong>
+            </div>
+            <div className="gerencia-focus-item">
+              <span>Saidas do dia</span>
+              <strong>{totalSaidasHoje}</strong>
+            </div>
+            <div className="gerencia-focus-item">
+              <span>Alertas de estoque</span>
+              <strong className={totalAlertasEstoque ? "negative" : "positive"}>
+                {totalAlertasEstoque}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="section-card gerencia-focus-card">
+          <div className="section-header">
+            <div className="section-title">Caixas do dia</div>
+            <span className="section-subtitle">{caixasDoDia.length} registros</span>
           </div>
           <div className="scroll-list">
-            {caixasAbertos.map((caixa) => (
+            {caixasDoDia.map((caixa) => (
               <div className="list-row" key={caixa.id}>
                 <div>
                   <strong>{caixa.atendenteNome}</strong>
                   <small>Fundo {formatMoney(caixa.fundoCaixa || 0)} • {formatDateLabel(caixa.data)}</small>
                 </div>
-                <strong className="positive">Aberto</strong>
-              </div>
-            ))}
-            {!caixasAbertos.length && <p className="empty-state">Nenhum caixa aberto no momento.</p>}
-          </div>
-        </div>
-
-        <div className="section-card">
-          <div className="section-header">
-            <div className="section-title">Alertas de estoque</div>
-            <span className="section-subtitle">
-              {estoqueBaixo.length + semEstoque.length} produtos em atencao
-            </span>
-          </div>
-          <div className="scroll-list">
-            {semEstoque.map((produto) => (
-              <div className="list-row stock-low" key={`zero-${produto.id}`}>
-                <div>
-                  <strong>{produto.nome}</strong>
-                  <small>Sem estoque • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
+                <div className="list-row-actions">
+                  <strong className={caixa.status === "aberto" ? "positive" : ""}>
+                    {caixa.status === "aberto" ? "Aberto" : "Fechado"}
+                  </strong>
+                  {caixa.status === "aberto" ? (
+                    <button
+                      className="mini-btn"
+                      type="button"
+                      onClick={() => abrirAcaoCaixa("fechar", caixa)}
+                    >
+                      Fechar
+                    </button>
+                  ) : (
+                    <button
+                      className="mini-btn danger"
+                      type="button"
+                      onClick={() => abrirAcaoCaixa("excluir", caixa)}
+                    >
+                      Excluir
+                    </button>
+                  )}
                 </div>
-                <strong className="negative">0</strong>
               </div>
             ))}
-            {estoqueBaixo.map((produto) => (
-              <div className="list-row stock-low" key={`low-${produto.id}`}>
-                <div>
-                  <strong>{produto.nome}</strong>
-                  <small>Estoque baixo • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
-                </div>
-                <strong className="negative">{produto.estoque}</strong>
-              </div>
-            ))}
-            {!estoqueBaixo.length && !semEstoque.length && (
-              <p className="empty-state">Nenhum alerta de estoque no momento.</p>
-            )}
+            {!caixasDoDia.length && <p className="empty-state">Nenhum caixa registrado no momento.</p>}
           </div>
         </div>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      {acaoCaixa ? (
+        <div className="section-card gerencia-action-card">
           <div className="section-header">
-            <div className="section-title">Ultimas vendas do dia</div>
-            <span className="section-subtitle">{vendasHoje.length} registros</span>
+            <div className="section-title">
+              {acaoCaixa.tipo === "fechar" ? "Fechar caixa pela gerencia" : "Excluir caixa pela gerencia"}
+            </div>
+            <span className="section-subtitle">{acaoCaixa.caixa.atendenteNome}</span>
           </div>
-          <div className="scroll-list">
-            {vendasHoje.slice(0, 8).map((item) => (
-              <div className="list-row" key={item.id}>
-                <div>
-                  <strong>{item.produto}</strong>
-                  <small>
-                    {item.quantidade} un. • {item.formaPagamento || "Sem forma"} • {item.atendenteNome || item.atendente}
-                  </small>
-                </div>
-                <strong className="positive">{formatMoney(item.valor)}</strong>
-              </div>
-            ))}
-            {!vendasHoje.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
+          <div className="stack-form">
+            <p className="screen-description gerencia-action-description">
+              Digite a senha da gerencia para {acaoCaixa.tipo === "fechar" ? "fechar" : "excluir"} este caixa.
+            </p>
+            <input
+              className="input"
+              type="password"
+              value={senhaGerencia}
+              onChange={(e) => setSenhaGerencia(e.target.value)}
+              placeholder="Senha da gerencia"
+            />
+            <div className="section-actions gerencia-action-buttons">
+              <button
+                className="action-btn action-btn-secondary"
+                type="button"
+                onClick={fecharPainelAcao}
+                disabled={salvandoAcaoCaixa}
+              >
+                Cancelar
+              </button>
+              <button
+                className={acaoCaixa.tipo === "fechar" ? "action-btn action-btn-warning" : "action-btn action-btn-danger"}
+                type="button"
+                onClick={confirmarAcaoCaixa}
+                disabled={salvandoAcaoCaixa}
+              >
+                {salvandoAcaoCaixa
+                  ? "Processando..."
+                  : acaoCaixa.tipo === "fechar"
+                    ? "Confirmar fechamento"
+                    : "Confirmar exclusao"}
+              </button>
+            </div>
+            {feedbackAcaoCaixa ? <p className="inline-feedback">{feedbackAcaoCaixa}</p> : null}
           </div>
         </div>
+      ) : null}
 
-        <div className="section-card">
-          <div className="section-header">
-            <div className="section-title">Saidas do dia</div>
-            <span className="section-subtitle">{despesasHoje.length + retiradasHoje.length} registros</span>
+      <details className="section-card gerencia-disclosure" open>
+        <summary className="gerencia-disclosure-summary">
+          <div>
+            <strong>Estoque em alerta</strong>
+            <small>{totalAlertasEstoque} produtos em atencao</small>
           </div>
-          <div className="scroll-list">
-            {despesasHoje.map((item) => (
-              <div className="list-row" key={`despesa-${item.id}`}>
-                <div>
-                  <strong>{item.descricao}</strong>
-                  <small>Despesa operacional</small>
-                </div>
-                <strong className="negative">{formatMoney(item.valor)}</strong>
+        </summary>
+        <div className="scroll-list gerencia-disclosure-body">
+          {semEstoque.map((produto) => (
+            <div className="list-row stock-low" key={`zero-${produto.id}`}>
+              <div>
+                <strong>{produto.nome}</strong>
+                <small>Sem estoque • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
               </div>
-            ))}
-            {retiradasHoje.map((item) => (
-              <div className="list-row" key={`retirada-${item.id}`}>
-                <div>
-                  <strong>{item.motivo || "Sangria de caixa"}</strong>
-                  <small>{item.atendenteNome || "Sem atendente"}</small>
-                </div>
-                <strong className="negative">{formatMoney(item.valor)}</strong>
+              <strong className="negative">0</strong>
+            </div>
+          ))}
+          {estoqueBaixo.map((produto) => (
+            <div className="list-row stock-low" key={`low-${produto.id}`}>
+              <div>
+                <strong>{produto.nome}</strong>
+                <small>Estoque baixo • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
               </div>
-            ))}
-            {!despesasHoje.length && !retiradasHoje.length && (
-              <p className="empty-state">Nenhuma saida registrada hoje.</p>
-            )}
+              <strong className="negative">{produto.estoque}</strong>
+            </div>
+          ))}
+          {!estoqueBaixo.length && !semEstoque.length && (
+            <p className="empty-state">Nenhum alerta de estoque no momento.</p>
+          )}
+        </div>
+      </details>
+
+      <details className="section-card gerencia-disclosure">
+        <summary className="gerencia-disclosure-summary">
+          <div>
+            <strong>Movimento do dia</strong>
+            <small>{ultimasVendas.length} vendas recentes e {ultimasSaidas.length} saidas recentes</small>
+          </div>
+        </summary>
+        <div className="screen-grid gerencia-details-grid">
+          <div>
+            <div className="section-header">
+              <div className="section-title">Ultimas vendas</div>
+              <span className="section-subtitle">{vendasHojeVinculadas.length} registros</span>
+            </div>
+            <div className="scroll-list gerencia-disclosure-body">
+              {ultimasVendas.map((item) => (
+                <div className="list-row" key={item.id}>
+                  <div>
+                    <strong>{item.produto}</strong>
+                    <small>
+                      {item.quantidade} un. • {item.formaPagamento || "Sem forma"} • {item.atendenteNome || item.atendente}
+                    </small>
+                  </div>
+                  <strong className="positive">{formatMoney(item.valor)}</strong>
+                </div>
+              ))}
+              {!vendasHojeVinculadas.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
+            </div>
+          </div>
+
+          <div>
+            <div className="section-header">
+              <div className="section-title">Saidas do dia</div>
+              <span className="section-subtitle">{totalSaidasHoje} registros</span>
+            </div>
+            <div className="scroll-list gerencia-disclosure-body">
+              {ultimasSaidas.map((item, index) => (
+                <div className="list-row" key={`${item.id}-${index}`}>
+                  <div>
+                    <strong>{item.titulo || "Saida"}</strong>
+                    <small>{item.detalhe}</small>
+                  </div>
+                  <strong className="negative">{formatMoney(item.valor)}</strong>
+                </div>
+              ))}
+              {!despesasHoje.length && !retiradasHojeVinculadas.length && (
+                <p className="empty-state">Nenhuma saida registrada hoje.</p>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }

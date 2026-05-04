@@ -12,8 +12,7 @@ import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
 import {
   addVenda,
-  subscribeRankingDiario,
-  subscribeResumoDiario,
+  subscribeVendasPeriodo,
   subscribeVendasPorCaixa,
 } from "../services/vendas";
 
@@ -65,8 +64,21 @@ function getProdutoPreco(produto) {
   return Number(produto?.precoFinal ?? produto?.preco ?? 0);
 }
 
-function buildRanking(rankingData, atendentes) {
-  const mapa = rankingData?.atendentes || {};
+function buildRanking(vendas, atendentes) {
+  const mapa = vendas.reduce((acc, venda) => {
+    const id = String(venda?.atendenteId || venda?.atendente || "").trim();
+    if (!id) return acc;
+
+    if (!acc[id]) {
+      acc[id] = {
+        nome: venda?.atendenteNome || venda?.atendente || "Sem atendente",
+        total: 0,
+      };
+    }
+
+    acc[id].total += Number(venda?.valor || 0);
+    return acc;
+  }, {});
   const metas = Object.fromEntries(
     atendentes.map((atendente) => [atendente.id, Number(atendente.meta || 0)])
   );
@@ -113,7 +125,7 @@ async function getLogoDataUrl() {
   return fileToDataUrl(blob);
 }
 
-function drawPdfBlock(doc, { x, y, w, h, title, value, fillColor, valueColor }) {
+function drawPdfBlock(doc, { x, y, w, h, title, subtitle, value, fillColor, valueColor }) {
   doc.setFillColor(...fillColor);
   doc.roundedRect(x, y, w, h, 5, 5, "F");
   doc.setDrawColor(220, 228, 240);
@@ -121,9 +133,13 @@ function drawPdfBlock(doc, { x, y, w, h, title, value, fillColor, valueColor }) 
   doc.setTextColor(99, 115, 140);
   doc.setFontSize(8);
   doc.text(title.toUpperCase(), x + 4, y + 6);
+  if (subtitle) {
+    doc.setFontSize(6.5);
+    doc.text(subtitle, x + 4, y + 10);
+  }
   doc.setTextColor(...valueColor);
   doc.setFontSize(15);
-  doc.text(value, x + 4, y + 15);
+  doc.text(value, x + 4, y + 17);
 }
 
 function drawPdfSectionTitle(doc, title, y) {
@@ -144,15 +160,15 @@ export default function Caixa({
   const [caixaAtualId, setCaixaAtualId] = useState(() => readStoredSession()?.id || "");
   const [caixaAtual, setCaixaAtual] = useState(() => readStoredSession());
   const [vendasCaixa, setVendasCaixa] = useState([]);
+  const [vendasRankingMes, setVendasRankingMes] = useState([]);
   const [retiradasCaixa, setRetiradasCaixa] = useState([]);
-  const [resumo, setResumo] = useState(null);
-  const [rankingData, setRankingData] = useState(null);
   const [salvandoVenda, setSalvandoVenda] = useState(false);
   const [salvandoRetirada, setSalvandoRetirada] = useState(false);
   const [abrindoSessao, setAbrindoSessao] = useState(false);
   const [fechandoSessao, setFechandoSessao] = useState(false);
   const [mostrandoFechamento, setMostrandoFechamento] = useState(false);
   const [mostrandoRetirada, setMostrandoRetirada] = useState(false);
+  const [mostrandoResumoExpandido, setMostrandoResumoExpandido] = useState(false);
   const [toastVenda, setToastVenda] = useState("");
   const [feedbackVenda, setFeedbackVenda] = useState("");
   const [feedbackCaixa, setFeedbackCaixa] = useState("");
@@ -194,13 +210,14 @@ export default function Caixa({
 
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
     const unsubAtendentes = subscribeAtendentes(uid, setAtendentes);
-    const unsubResumo = subscribeResumoDiario(dataHoje, setResumo);
-    const unsubRanking = subscribeRankingDiario(dataHoje, setRankingData);
+    const mesAtual = String(dataHoje || "").slice(0, 7);
+    const dataInicioMes = `${mesAtual}-01`;
+    const dataFimMes = `${mesAtual}-31`;
+    const unsubRanking = subscribeVendasPeriodo(uid, dataInicioMes, dataFimMes, setVendasRankingMes);
 
     return () => {
       unsubProdutos();
       unsubAtendentes();
-      unsubResumo();
       unsubRanking();
     };
   }, [uid, dataHoje]);
@@ -212,6 +229,7 @@ export default function Caixa({
         setCaixaAtualId("");
         setVendasCaixa([]);
         setRetiradasCaixa([]);
+        setMostrandoResumoExpandido(false);
         clearStoredSession();
         return;
       }
@@ -287,13 +305,17 @@ export default function Caixa({
     () => vendasCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0),
     [vendasCaixa]
   );
+  const totalVendasRankingMes = useMemo(
+    () => vendasRankingMes.reduce((acc, venda) => acc + Number(venda.valor || 0), 0),
+    [vendasRankingMes]
+  );
   const totalItens = useMemo(
     () => vendasCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0),
     [vendasCaixa]
   );
   const ranking = useMemo(
-    () => buildRanking(rankingData, atendentesAtivos),
-    [rankingData, atendentesAtivos]
+    () => buildRanking(vendasRankingMes, atendentesAtivos),
+    [vendasRankingMes, atendentesAtivos]
   );
   const resumoPagamentos = useMemo(() => {
     const totais = {
@@ -320,6 +342,10 @@ export default function Caixa({
   const totalDisponivelEmCaixa = useMemo(
     () => fundoCaixaAtual + totalVendas - totalRetiradas,
     [fundoCaixaAtual, totalRetiradas, totalVendas]
+  );
+  const totalBruto = useMemo(
+    () => fundoCaixaAtual + totalVendas,
+    [fundoCaixaAtual, totalVendas]
   );
   const totalCarrinho = useMemo(
     () => itensVendaDetalhados.reduce((acc, item) => acc + Number(item.subtotal || 0), 0),
@@ -458,6 +484,7 @@ export default function Caixa({
       setRetiradasCaixa([]);
       setMostrandoFechamento(false);
       setMostrandoRetirada(false);
+      setMostrandoResumoExpandido(false);
       resetVendaForm();
       setRetiradaForm({ valor: "", motivo: "" });
       setFeedbackCaixa("Caixa fechado com sucesso.");
@@ -476,22 +503,27 @@ export default function Caixa({
     let y = 18;
     const horarioAbertura = formatDateTime(caixaAtual.abertoEm) || "Nao disponivel";
     const horarioFechamento = new Date().toLocaleString("pt-BR");
+    const totalBruto = fundoCaixaAtual + totalVendas;
+    const totalLiquido = totalDisponivelEmCaixa;
     const resumoCards = [
       {
-        title: "Receita total",
-        value: formatMoney(totalVendas),
+        title: "Total bruto",
+        subtitle: "fundo de caixa + vendas",
+        value: formatMoney(totalBruto),
         fillColor: [232, 247, 237],
         valueColor: [22, 101, 52],
       },
       {
         title: "Saidas / retiradas",
+        subtitle: "valores retirados do caixa",
         value: formatMoney(totalRetiradas),
         fillColor: [254, 242, 242],
         valueColor: [185, 28, 28],
       },
       {
-        title: "Disponivel em caixa",
-        value: formatMoney(totalDisponivelEmCaixa),
+        title: "Total liquido",
+        subtitle: "bruto - saidas / retiradas",
+        value: formatMoney(totalLiquido),
         fillColor: [237, 244, 255],
         valueColor: [37, 99, 235],
       },
@@ -547,9 +579,12 @@ export default function Caixa({
     doc.text(`Itens vendidos: ${String(totalItens)}`, 110, y);
     y += 7;
     doc.setTextColor(22, 101, 52);
-    doc.text(`Receita total: ${formatMoney(totalVendas)}`, 14, y);
+    doc.text(`Total bruto: ${formatMoney(totalBruto)}`, 14, y);
     doc.setTextColor(185, 28, 28);
     doc.text(`Saidas / retiradas: ${formatMoney(totalRetiradas)}`, 110, y);
+    y += 7;
+    doc.setTextColor(37, 99, 235);
+    doc.text(`Total liquido: ${formatMoney(totalLiquido)}`, 14, y);
     y += 11;
 
     drawPdfSectionTitle(doc, "Formas de pagamento", y);
@@ -664,6 +699,7 @@ export default function Caixa({
       for (const item of itensVendaDetalhados) {
         await addVenda(uid, {
           produto: item.nome,
+          produtoId: item.produto.id,
           valor: item.subtotal,
           quantidade: item.quantidade,
           atendente: atendenteLogado.nome,
@@ -737,6 +773,9 @@ export default function Caixa({
         <div className="pdv-hero-copy">
           <span className="pdv-eyebrow">Gelato Tamandare</span>
           <h1 className="screen-title">Registrar venda</h1>
+          <p className="screen-description pdv-hero-description">
+            Mantenha o foco na venda. Indicadores e acoes de conferencia ficam em segundo plano.
+          </p>
         </div>
         <div className="pdv-hero-side">
           <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
@@ -747,18 +786,18 @@ export default function Caixa({
       {caixaAtual ? (
         <div className="section-card pdv-status-bar">
           <div className="pdv-status-bar-copy">
-            <span className="stat-label">Caixa em operacao</span>
+            <span className="stat-label">Atendente no caixa</span>
             <strong>{caixaAtual.atendenteNome}</strong>
-            <small>Resumo em tempo real do caixa atual.</small>
+            <small>Acoes administrativas do turno.</small>
           </div>
           <div className="pdv-status-bar-actions">
             <button
               className="action-btn action-btn-warning"
               type="button"
               onClick={toggleRetiradaPanel}
-            >
-              {mostrandoRetirada ? "Ocultar retirada" : "Retirada"}
-            </button>
+              >
+                {mostrandoRetirada ? "Ocultar retirada" : "Nova retirada"}
+              </button>
             <button
               className="action-btn action-btn-secondary"
               type="button"
@@ -774,18 +813,35 @@ export default function Caixa({
       <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
         <div className="pdv-main-column">
           <div className="stats-grid pdv-stats-grid">
-            <div className="section-card stat-card">
-              <span className="stat-label">Fundo inicial</span>
-              <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
-            </div>
-            <div className="section-card stat-card">
-              <span className="stat-label">Retiradas</span>
-              <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
-            </div>
-            <div className="section-card stat-card">
-              <span className="stat-label">Total no turno</span>
-              <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
-            </div>
+            {mostrandoResumoExpandido ? (
+              <>
+                <div className="section-card stat-card">
+                  <span className="stat-label">Fundo inicial</span>
+                  <small className="stat-note">entrada inicial do caixa</small>
+                  <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+                </div>
+                <div className="section-card stat-card">
+                  <span className="stat-label">Saidas / retiradas</span>
+                  <small className="stat-note">valores retirados do caixa</small>
+                  <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
+                </div>
+                <div className="section-card stat-card">
+                  <span className="stat-label">Total bruto</span>
+                  <small className="stat-note">fundo de caixa + vendas</small>
+                  <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
+                </div>
+              </>
+            ) : (
+              <button
+                className="section-card stat-card stat-card-toggle"
+                type="button"
+                onClick={() => setMostrandoResumoExpandido(true)}
+                aria-expanded="false"
+              >
+                <span className="stat-label">Indicadores</span>
+                <strong className="stat-value">Indicadores</strong>
+              </button>
+            )}
             <div className="section-card stat-card">
               <span className="stat-label">Itens no turno</span>
               <strong className="stat-value">{totalItens}</strong>
@@ -797,9 +853,21 @@ export default function Caixa({
               </strong>
             </div>
             <div className="section-card stat-card stat-card-highlight">
-              <span className="stat-label">Disponivel em caixa</span>
+              <span className="stat-label">Total liquido</span>
+              <small className="stat-note">bruto - saidas / retiradas</small>
               <strong className="stat-value positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
             </div>
+            {mostrandoResumoExpandido ? (
+              <button
+                className="section-card stat-card stat-card-toggle stat-card-toggle-close"
+                type="button"
+                onClick={() => setMostrandoResumoExpandido(false)}
+                aria-expanded="true"
+              >
+                <span className="stat-label">Indicadores</span>
+                <strong className="stat-value">Ocultar</strong>
+              </button>
+            ) : null}
           </div>
 
           {!caixaAtual ? (
@@ -953,6 +1021,15 @@ export default function Caixa({
                   placeholder="Quantidade"
                 />
 
+                <button
+                  className="action-btn action-btn-secondary"
+                  type="button"
+                  onClick={adicionarItemVenda}
+                  disabled={salvandoVenda}
+                >
+                  Adicionar produto
+                </button>
+
                 <select
                   className="input select pdv-input"
                   value={vendaForm.formaPagamento}
@@ -999,14 +1076,6 @@ export default function Caixa({
                 <input className="input pdv-input" value={caixaAtual.atendenteNome} readOnly />
 
                 <div className="pdv-item-actions">
-                  <button
-                    className="action-btn action-btn-secondary"
-                    type="button"
-                    onClick={adicionarItemVenda}
-                    disabled={salvandoVenda}
-                  >
-                    Adicionar produto
-                  </button>
                   <div className="pdv-cart-total">
                     <span>{quantidadeCarrinho} item(ns)</span>
                     <strong>{formatMoney(totalCarrinho)}</strong>
@@ -1097,18 +1166,22 @@ export default function Caixa({
           <div className="stats-grid fechamento-grid">
             <div className="stat-card">
               <span className="stat-label">Fundo inicial</span>
+              <small className="stat-note">entrada inicial do caixa</small>
               <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
             </div>
             <div className="stat-card">
-              <span className="stat-label">Retiradas</span>
+              <span className="stat-label">Saidas / retiradas</span>
+              <small className="stat-note">valores retirados do caixa</small>
               <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
             </div>
             <div className="stat-card">
-              <span className="stat-label">Total do turno</span>
-              <strong className="stat-value positive">{formatMoney(totalVendas)}</strong>
+              <span className="stat-label">Total bruto</span>
+              <small className="stat-note">fundo de caixa + vendas</small>
+              <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
             </div>
             <div className="stat-card">
-              <span className="stat-label">Dinheiro em caixa</span>
+              <span className="stat-label">Total liquido</span>
+              <small className="stat-note">bruto - saidas / retiradas</small>
               <strong className="stat-value positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
             </div>
             <div className="stat-card">
@@ -1192,10 +1265,10 @@ export default function Caixa({
       {accessRole === "gerencia" ? (
       <div className="section-card ranking-card ranking-card-footer">
         <div className="section-header">
-          <div className="section-title">Ranking do Dia</div>
+          <div className="section-title">Ranking do Mes</div>
           <span className="section-subtitle">
-            {Number(resumo?.totalVendas || 0) > 0
-              ? formatMoney(resumo.totalVendas)
+            {Number(totalVendasRankingMes || 0) > 0
+              ? formatMoney(totalVendasRankingMes)
               : "Atualizacao em tempo real"}
           </span>
         </div>
@@ -1230,7 +1303,7 @@ export default function Caixa({
               </div>
             );
           })}
-          {!ranking.length && <p className="empty-state">Nenhuma venda por atendente registrada hoje.</p>}
+          {!ranking.length && <p className="empty-state">Nenhuma venda por atendente registrada neste mes.</p>}
         </div>
       </div>
       ) : null}

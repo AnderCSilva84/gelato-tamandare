@@ -150,6 +150,7 @@ export default function App() {
   const [user] = useState(TEMP_USER);
   const [tela, setTela] = useState("pdv");
   const [atendentes, setAtendentes] = useState([]);
+  const [atendentesLoaded, setAtendentesLoaded] = useState(false);
   const [accessForm, setAccessForm] = useState({ atendenteId: "", senha: "" });
   const [accessUserId, setAccessUserId] = useState(() => readAccessSession()?.id || "");
   const [accessError, setAccessError] = useState("");
@@ -179,7 +180,10 @@ export default function App() {
   }, [user.uid]);
 
   useEffect(() => {
-    const unsub = subscribeAtendentes(user.uid, setAtendentes);
+    const unsub = subscribeAtendentes(user.uid, (items) => {
+      setAtendentes(items);
+      setAtendentesLoaded(true);
+    });
     return () => unsub && unsub();
   }, [user.uid]);
 
@@ -205,6 +209,8 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (!atendentesLoaded) return;
+
     if (unrestrictedSetup) {
       clearAccessSession();
       if (accessUserId) {
@@ -218,7 +224,7 @@ export default function App() {
       setAccessUserId("");
       setAccessError("Seu acesso expirou. Entre novamente.");
     }
-  }, [accessUser, accessUserId, unrestrictedSetup]);
+  }, [accessUser, accessUserId, atendentesLoaded, unrestrictedSetup]);
 
   useEffect(() => {
     if (!navItems.some((item) => item.id === tela)) {
@@ -643,7 +649,12 @@ export default function App() {
                   {painelLiberado ? (
                     <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                       {tela === "gerencia" && (
-                        <TelaGerencia uid={user.uid} dataHoje={hojeISO()} onNavigate={setTela} />
+                        <TelaGerencia
+                          uid={user.uid}
+                          dataHoje={hojeISO()}
+                          onNavigate={setTela}
+                          accessUser={accessUser}
+                        />
                       )}
                       {tela === "pdv" && (
                         <TelaCaixa

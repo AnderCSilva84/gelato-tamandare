@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import logoGelato from "../assets/gelatoimg.jpeg";
 import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addDespesa,
@@ -21,6 +22,32 @@ function formatDateLabel(valor) {
   const [ano, mes, dia] = String(valor).split("-");
   if (!ano || !mes || !dia) return String(valor);
   return `${dia}-${mes}-${ano}`;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function getLogoDataUrl() {
+  const response = await fetch(logoGelato);
+  const blob = await response.blob();
+  return fileToDataUrl(blob);
+}
+
+function drawSummaryCard(doc, { x, y, w, h, title, value, fillColor, textColor = [24, 33, 47] }) {
+  doc.setFillColor(...fillColor);
+  doc.roundedRect(x, y, w, h, 5, 5, "F");
+  doc.setTextColor(96, 112, 134);
+  doc.setFontSize(9);
+  doc.text(title, x + 4, y + 6);
+  doc.setTextColor(...textColor);
+  doc.setFontSize(16);
+  doc.text(value, x + 4, y + 16);
 }
 
 function initialForm(data) {
@@ -153,6 +180,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     return data === dataFiltro;
   }
 
+  const caixasResumo = useMemo(
+    () => ({
+      abertos: caixas.filter((item) => item.status === "aberto").length,
+      fechados: caixas.filter((item) => item.status === "fechado").length,
+    }),
+    [caixas]
+  );
+
   async function salvarDespesa(e) {
     e.preventDefault();
     const dataDespesa = form.data;
@@ -204,6 +239,193 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
   }
 
+  async function exportarFluxoPDF() {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
+    const doc = new jsPDF();
+    let y = 18;
+
+    try {
+      const logoDataUrl = await getLogoDataUrl();
+      doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+      y = 38;
+    } catch {
+      y = 18;
+    }
+
+    doc.setTextColor(24, 33, 47);
+    doc.setFontSize(18);
+    doc.text("Fluxo de Caixa", 42, y - 8);
+    doc.setFontSize(11);
+    doc.setTextColor(96, 112, 134);
+    doc.text(
+      modoFiltro === "periodo"
+        ? `Periodo analisado: ${formatDateLabel(periodoReferencia.inicio)} ate ${formatDateLabel(periodoReferencia.fim)}`
+        : `Data analisada: ${formatDateLabel(periodoReferencia.inicio)}`,
+      42,
+      y - 2
+    );
+    y += 8;
+
+    drawSummaryCard(doc, {
+      x: 14,
+      y,
+      w: 43,
+      h: 22,
+      title: "ENTRADAS",
+      value: formatMoney(resumoFinanceiro.entradas),
+      fillColor: [232, 247, 237],
+      textColor: [22, 101, 52],
+    });
+    drawSummaryCard(doc, {
+      x: 61,
+      y,
+      w: 43,
+      h: 22,
+      title: "GASTOS",
+      value: formatMoney(resumoFinanceiro.gastos),
+      fillColor: [254, 242, 242],
+      textColor: [185, 28, 28],
+    });
+    drawSummaryCard(doc, {
+      x: 108,
+      y,
+      w: 43,
+      h: 22,
+      title: "EM CAIXA",
+      value: formatMoney(resumoFinanceiro.emCaixa),
+      fillColor: [237, 244, 255],
+      textColor: [37, 99, 235],
+    });
+    drawSummaryCard(doc, {
+      x: 155,
+      y,
+      w: 41,
+      h: 22,
+      title: "RESULTADO",
+      value: formatMoney(resumoFinanceiro.resultado),
+      fillColor: resumoFinanceiro.resultado >= 0 ? [240, 253, 244] : [255, 241, 242],
+      textColor: resumoFinanceiro.resultado >= 0 ? [22, 101, 52] : [190, 24, 93],
+    });
+    y += 30;
+
+    doc.setFontSize(12);
+    doc.setTextColor(24, 33, 47);
+    doc.text("Resumo financeiro", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Indicador", "Valor"]],
+      body: [
+        ["Fundo de caixa", formatMoney(resumoFinanceiro.fundoCaixa)],
+        ["Entradas", formatMoney(resumoFinanceiro.entradas)],
+        ["Gastos", formatMoney(resumoFinanceiro.gastos)],
+        ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
+        ["Resultado", formatMoney(resumoFinanceiro.resultado)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.text("Caixas considerados", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Indicador", "Valor"]],
+      body: [
+        ["Total de caixas", String(caixas.length)],
+        ["Caixas abertos", String(caixasResumo.abertos)],
+        ["Caixas fechados", String(caixasResumo.fechados)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 1: { halign: "right" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.text("Saidas registradas", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Tipo", "Descricao", "Valor"]],
+      body: saidasDoDia.length
+        ? saidasDoDia.map((item) => [
+            formatDateLabel(item.data),
+            item.tipoSaida === "retirada" ? "Retirada" : "Despesa",
+            item.descricao,
+            formatMoney(item.valor),
+          ])
+        : [["-", "-", "Nenhuma saida registrada.", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [220, 38, 38], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 3: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.text("Vendas registradas", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Produto", "Qtd.", "Atendente", "Valor"]],
+      body: vendas.length
+        ? vendas.map((item) => [
+            formatDateLabel(item.data),
+            item.produto,
+            String(item.quantidade || 0),
+            item.atendenteNome || item.atendente || "-",
+            formatMoney(item.valor),
+          ])
+        : [["-", "Nenhuma venda registrada.", "-", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [22, 101, 52], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        2: { halign: "center" },
+        4: { halign: "right", textColor: [22, 101, 52], fontStyle: "bold" },
+      },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.text("Caixas do periodo", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Atendente", "Status", "Fundo", "Total vendas", "Em caixa"]],
+      body: caixas.length
+        ? caixas.map((item) => [
+            formatDateLabel(item.data),
+            item.atendenteNome || "-",
+            item.status === "aberto" ? "Aberto" : "Fechado",
+            formatMoney(item.fundoCaixa || 0),
+            formatMoney(item.totalVendas || 0),
+            formatMoney(item.valorEmCaixa || 0),
+          ])
+        : [["-", "-", "Nenhum caixa registrado.", "-", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 9, cellPadding: 3 },
+      columnStyles: {
+        3: { halign: "right" },
+        4: { halign: "right" },
+        5: { halign: "right" },
+      },
+    });
+
+    const sufixoArquivo =
+      modoFiltro === "periodo"
+        ? `${String(periodoReferencia.inicio || "").replaceAll("-", "")}-${String(periodoReferencia.fim || "").replaceAll("-", "")}`
+        : String(periodoReferencia.inicio || "").replaceAll("-", "");
+    doc.save(`fluxo-caixa-${sufixoArquivo}.pdf`);
+  }
+
   return (
     <div className="dashboard-screen">
       <div className="screen-heading">
@@ -213,6 +435,9 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             Area administrativa para despesas, retiradas, saldos e conferencia diaria.
           </p>
         </div>
+        <button className="action-btn action-btn-info" type="button" onClick={exportarFluxoPDF} disabled={!filtroValido || loading}>
+          Exportar PDF
+        </button>
       </div>
 
       <div className="section-card filter-card">

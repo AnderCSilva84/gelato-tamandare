@@ -33,6 +33,21 @@ function formatDateLabel(valor) {
   return `${dia}-${mes}-${ano}`;
 }
 
+function formatDateTimeLabel(valor) {
+  if (!valor) return "";
+
+  if (typeof valor?.toDate === "function") {
+    return valor.toDate().toLocaleString("pt-BR");
+  }
+
+  if (valor instanceof Date) {
+    return valor.toLocaleString("pt-BR");
+  }
+
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -470,7 +485,7 @@ export default function Relatorio({ uid, dataHoje }) {
     <div className="dashboard-screen">
       <div className="screen-heading">
         <div>
-          <h1 className="screen-title">Relatório</h1>
+          <h1 className="screen-title">RelatÃ³rio</h1>
           <p className="screen-description">Resumo de vendas, despesas e lucro por data.</p>
         </div>
       </div>
@@ -523,7 +538,7 @@ export default function Relatorio({ uid, dataHoje }) {
               <div>
                 <strong>{item.produto}</strong>
                 <small>
-                  {item.quantidade} un. • {item.atendenteNome || item.atendente}
+                  {item.quantidade} un. - {item.atendenteNome || item.atendente}
                 </small>
               </div>
               <strong className="positive">{formatMoney(item.valor)}</strong>
@@ -570,7 +585,7 @@ export default function Relatorio({ uid, dataHoje }) {
                 <div>
                   <strong>{item.produto}</strong>
                   <small>
-                    {item.quantidade} un. • {item.atendenteNome || item.atendente}
+                    {item.quantidade} un. - {item.atendenteNome || item.atendente}
                   </small>
                 </div>
                 <strong className="positive">{formatMoney(item.valor)}</strong>
@@ -589,7 +604,7 @@ export default function Relatorio({ uid, dataHoje }) {
               <div className="list-row" key={`${item.origem}-${item.id}`}>
                 <div>
                   <strong>{item.descricaoLinha}</strong>
-                  <small>{formatDateLabel(item.data)} • {item.origem}</small>
+                  <small>{formatDateLabel(item.data)} - {item.origem}</small>
                 </div>
                 <strong className="negative">{formatMoney(item.valor)}</strong>
               </div>
@@ -621,11 +636,14 @@ export default function Relatorio({ uid, dataHoje }) {
                       Caixa {caixa.atendenteNome} ({caixa.status === "aberto" ? "Aberto" : "Fechado"})
                     </strong>
                     <small>
-                      {caixa.data} • {Number(caixa.totalItens || 0)} itens •{" "}
+                      {caixa.data} - {Number(caixa.totalItens || 0)} itens -{" "}
                       {caixa.status === "fechado"
                         ? `Fechado com ${formatMoney(caixa.totalVendas || 0)}`
                         : formatMoney(caixa.totalVendas || 0)}
                     </small>
+                    {caixa.status === "fechado" && formatDateTimeLabel(caixa.fechadoEm) ? (
+                      <small>Fechado em {formatDateTimeLabel(caixa.fechadoEm)}</small>
+                    ) : null}
                   </div>
                 </button>
                 {caixa.status === "aberto" ? (
@@ -672,7 +690,7 @@ export default function Relatorio({ uid, dataHoje }) {
                 <div>
                   <strong>{item.produto}</strong>
                   <small>
-                    {item.quantidade} un. • {item.formaPagamento || "Sem forma"} •{" "}
+                    {item.quantidade} un. - {item.formaPagamento || "Sem forma"} -{" "}
                     {item.atendenteNome || item.atendente}
                   </small>
                 </div>
@@ -692,3 +710,4 @@ export default function Relatorio({ uid, dataHoje }) {
     </div>
   );
 }
+

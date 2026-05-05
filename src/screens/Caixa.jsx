@@ -259,6 +259,7 @@ export default function Caixa({
     quantidade: 1,
     formaPagamento: "PIX",
     valorRecebido: "",
+    data: dataHoje,
   });
   const [retiradaForm, setRetiradaForm] = useState({
     valor: "",
@@ -308,6 +309,16 @@ export default function Caixa({
 
     const unsub = subscribeCaixasPeriodo(dataHoje, dataHoje, setCaixasGerenciaDia);
     return () => unsub();
+  }, [accessRole, dataHoje]);
+
+  useEffect(() => {
+    setVendaForm((prev) => {
+      if (prev.data === dataHoje) return prev;
+      if (accessRole !== "gerencia") {
+        return { ...prev, data: dataHoje };
+      }
+      return prev.data ? prev : { ...prev, data: dataHoje };
+    });
   }, [accessRole, dataHoje]);
 
   useEffect(() => {
@@ -508,7 +519,13 @@ export default function Caixa({
   }
 
   function resetVendaForm() {
-    setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
+    setVendaForm({
+      produtoId: "",
+      quantidade: 1,
+      formaPagamento: "PIX",
+      valorRecebido: "",
+      data: accessRole === "gerencia" ? vendaForm.data || dataHoje : dataHoje,
+    });
     setItensVenda([]);
   }
 
@@ -890,6 +907,13 @@ export default function Caixa({
       const formaPagamento = vendaForm.formaPagamento;
       const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
       const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
+      const dataVenda = accessRole === "gerencia" ? String(vendaForm.data || "").trim() : dataHoje;
+
+      if (!dataVenda) {
+        setFeedbackVenda("Selecione uma data valida para a venda.");
+        setSalvandoVenda(false);
+        return;
+      }
 
       if (formaPagamento === "Dinheiro") {
         if (!Number.isFinite(valorRecebido) || valorRecebido < totalCarrinho) {
@@ -919,7 +943,7 @@ export default function Caixa({
           formaPagamento,
           valorRecebido: formaPagamento === "Dinheiro" ? valorRecebido : 0,
           troco: formaPagamento === "Dinheiro" ? troco : 0,
-          data: dataHoje,
+          data: dataVenda,
         });
         await updateProduto(item.produto.id, {
           estoque: Number(item.produto.estoque || 0) - Number(item.quantidade || 0),
@@ -1295,6 +1319,16 @@ export default function Caixa({
               ) : null}
 
               <form className="pdv-order-form" onSubmit={registrarVenda}>
+                {accessRole === "gerencia" ? (
+                  <input
+                    className="input pdv-panel-input"
+                    type="date"
+                    value={vendaForm.data}
+                    onChange={(e) =>
+                      setVendaForm((prev) => ({ ...prev, data: e.target.value }))
+                    }
+                  />
+                ) : null}
                 <div className="pdv-order-topline">
                   <div className="pdv-selected-product">
                     <span>Produto</span>

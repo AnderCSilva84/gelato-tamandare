@@ -5,13 +5,16 @@ import {
   addRetiradaCaixa,
   fecharCaixa,
   getCaixa,
+  getRetiradas,
   subscribeCaixa,
+  subscribeCaixasPeriodo,
   subscribeRetiradasCaixa,
 } from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
 import {
   addVenda,
+  getVendasPorCaixa,
   subscribeVendasPeriodo,
   subscribeVendasPorCaixa,
 } from "../services/vendas";
@@ -62,6 +65,74 @@ function getProdutoImagem(produto) {
 
 function getProdutoPreco(produto) {
   return Number(produto?.precoFinal ?? produto?.preco ?? 0);
+}
+
+const CATEGORY_LABELS = {
+  todos: "Todos",
+  bebidas: "Bebidas",
+  lanches: "Lanches",
+  refeicoes: "Refeicoes",
+  sobremesas: "Sobremesas",
+  outros: "Outros",
+};
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function inferProductCategory(produto) {
+  const explicit = normalizeText(
+    produto?.categoria || produto?.grupo || produto?.tipo || produto?.section
+  );
+
+  if (explicit) {
+    if (explicit.includes("beb")) return "bebidas";
+    if (explicit.includes("lanch")) return "lanches";
+    if (explicit.includes("sobrem") || explicit.includes("doce") || explicit.includes("sorv"))
+      return "sobremesas";
+    if (explicit.includes("refei") || explicit.includes("prato") || explicit.includes("almoco"))
+      return "refeicoes";
+  }
+
+  const nome = normalizeText(produto?.nome);
+
+  if (
+    /(agua|suco|refrigerante|coca|cafe|cerveja|vinho|cha|milk shake|vitamina|energetico)/.test(
+      nome
+    )
+  ) {
+    return "bebidas";
+  }
+
+  if (
+    /(hamburg|burger|pizza|coxinha|empada|pastel|sanduiche|lanche|pao|risole|hot dog|tapioca)/.test(
+      nome
+    )
+  ) {
+    return "lanches";
+  }
+
+  if (
+    /(prato|refeicao|almoco|janta|file|salmao|picanha|frango|carne|salada|self service)/.test(
+      nome
+    )
+  ) {
+    return "refeicoes";
+  }
+
+  if (
+    /(sorvete|acai|pudim|bolo|brigadeiro|brownie|mousse|sobremesa|picole|chocolate)/.test(
+      nome
+    )
+  ) {
+    return "sobremesas";
+  }
+
+  return "outros";
 }
 
 function buildRanking(vendas, atendentes) {
@@ -154,6 +225,7 @@ export default function Caixa({
   uid,
   dataHoje,
   accessRole = "atendente",
+  accessUser = null,
 }) {
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
@@ -161,6 +233,8 @@ export default function Caixa({
   const [caixaAtual, setCaixaAtual] = useState(() => readStoredSession());
   const [vendasCaixa, setVendasCaixa] = useState([]);
   const [vendasRankingMes, setVendasRankingMes] = useState([]);
+  const [caixasRankingMes, setCaixasRankingMes] = useState([]);
+  const [caixasGerenciaDia, setCaixasGerenciaDia] = useState([]);
   const [retiradasCaixa, setRetiradasCaixa] = useState([]);
   const [salvandoVenda, setSalvandoVenda] = useState(false);
   const [salvandoRetirada, setSalvandoRetirada] = useState(false);
@@ -169,6 +243,8 @@ export default function Caixa({
   const [mostrandoFechamento, setMostrandoFechamento] = useState(false);
   const [mostrandoRetirada, setMostrandoRetirada] = useState(false);
   const [mostrandoResumoExpandido, setMostrandoResumoExpandido] = useState(false);
+  const [categoriaAtiva, setCategoriaAtiva] = useState("todos");
+  const [buscaProduto, setBuscaProduto] = useState("");
   const [toastVenda, setToastVenda] = useState("");
   const [feedbackVenda, setFeedbackVenda] = useState("");
   const [feedbackCaixa, setFeedbackCaixa] = useState("");
@@ -214,13 +290,25 @@ export default function Caixa({
     const dataInicioMes = `${mesAtual}-01`;
     const dataFimMes = `${mesAtual}-31`;
     const unsubRanking = subscribeVendasPeriodo(uid, dataInicioMes, dataFimMes, setVendasRankingMes);
+    const unsubCaixasRanking = subscribeCaixasPeriodo(dataInicioMes, dataFimMes, setCaixasRankingMes);
 
     return () => {
       unsubProdutos();
       unsubAtendentes();
       unsubRanking();
+      unsubCaixasRanking();
     };
   }, [uid, dataHoje]);
+
+  useEffect(() => {
+    if (accessRole !== "gerencia" || !dataHoje) {
+      setCaixasGerenciaDia([]);
+      return;
+    }
+
+    const unsub = subscribeCaixasPeriodo(dataHoje, dataHoje, setCaixasGerenciaDia);
+    return () => unsub();
+  }, [accessRole, dataHoje]);
 
   useEffect(() => {
     const unsub = subscribeCaixa(caixaAtualId, (caixa) => {
@@ -269,6 +357,12 @@ export default function Caixa({
     () => produtos.filter((item) => item.ativo !== false),
     [produtos]
   );
+  const categoriasDisponiveis = useMemo(() => {
+    const categorias = new Set(
+      produtosAtivos.map((produto) => inferProductCategory(produto)).filter(Boolean)
+    );
+    return ["todos", ...Object.keys(CATEGORY_LABELS).filter((key) => key !== "todos" && categorias.has(key))];
+  }, [produtosAtivos]);
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
     [atendentes]
@@ -297,25 +391,43 @@ export default function Caixa({
         .filter(Boolean),
     [itensVenda, produtos]
   );
+  const produtosFiltrados = useMemo(() => {
+    const termo = normalizeText(buscaProduto);
+
+    return produtosAtivos.filter((produto) => {
+      const categoria = inferProductCategory(produto);
+      const matchCategoria = categoriaAtiva === "todos" || categoria === categoriaAtiva;
+      if (!matchCategoria) return false;
+      if (!termo) return true;
+
+      const estoque = String(produto?.estoque ?? "");
+      const nome = normalizeText(produto?.nome);
+      return nome.includes(termo) || estoque.includes(termo);
+    });
+  }, [buscaProduto, categoriaAtiva, produtosAtivos]);
   const atendenteLogado = useMemo(
     () => atendentes.find((item) => item.id === caixaAtual?.atendenteId) || null,
     [atendentes, caixaAtual]
   );
+  const vendasRankingMesVinculadas = useMemo(() => {
+    const caixaIds = new Set(caixasRankingMes.map((item) => item.id));
+    return vendasRankingMes.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
+  }, [caixasRankingMes, vendasRankingMes]);
   const totalVendas = useMemo(
     () => vendasCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0),
     [vendasCaixa]
   );
   const totalVendasRankingMes = useMemo(
-    () => vendasRankingMes.reduce((acc, venda) => acc + Number(venda.valor || 0), 0),
-    [vendasRankingMes]
+    () => vendasRankingMesVinculadas.reduce((acc, venda) => acc + Number(venda.valor || 0), 0),
+    [vendasRankingMesVinculadas]
   );
   const totalItens = useMemo(
     () => vendasCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0),
     [vendasCaixa]
   );
   const ranking = useMemo(
-    () => buildRanking(vendasRankingMes, atendentesAtivos),
-    [vendasRankingMes, atendentesAtivos]
+    () => buildRanking(vendasRankingMesVinculadas, atendentesAtivos),
+    [vendasRankingMesVinculadas, atendentesAtivos]
   );
   const resumoPagamentos = useMemo(() => {
     const totais = {
@@ -360,15 +472,50 @@ export default function Caixa({
     if (vendaForm.formaPagamento !== "Dinheiro") return 0;
     return Math.max(valorRecebidoAtual - totalCarrinho, 0);
   }, [valorRecebidoAtual, totalCarrinho, vendaForm.formaPagamento]);
+  const vendaAtualResumo = useMemo(
+    () => vendasCaixa.slice(0, 8),
+    [vendasCaixa]
+  );
+  const caixasAbertosGerencia = useMemo(
+    () => caixasGerenciaDia.filter((item) => item.status === "aberto"),
+    [caixasGerenciaDia]
+  );
+
+  useEffect(() => {
+    if (!categoriasDisponiveis.includes(categoriaAtiva)) {
+      setCategoriaAtiva("todos");
+    }
+  }, [categoriaAtiva, categoriasDisponiveis]);
 
   function toggleRetiradaPanel() {
     setMostrandoRetirada((prev) => !prev);
     setFeedbackRetirada("");
   }
 
+  function selecionarProduto(produtoId) {
+    setVendaForm((prev) => ({ ...prev, produtoId, quantidade: prev.produtoId === produtoId ? prev.quantidade : 1 }));
+    setFeedbackVenda("");
+  }
+
+  function ajustarQuantidade(delta) {
+    setVendaForm((prev) => {
+      const quantidadeAtual = Number(prev.quantidade || 1);
+      return {
+        ...prev,
+        quantidade: Math.max(1, quantidadeAtual + delta),
+      };
+    });
+  }
+
   function resetVendaForm() {
     setVendaForm({ produtoId: "", quantidade: 1, formaPagamento: "PIX", valorRecebido: "" });
     setItensVenda([]);
+  }
+
+  function limparCarrinho() {
+    setItensVenda([]);
+    setFeedbackVenda("");
+    setVendaForm((prev) => ({ ...prev, valorRecebido: "" }));
   }
 
   function adicionarItemVenda() {
@@ -490,6 +637,69 @@ export default function Caixa({
       setFeedbackCaixa("Caixa fechado com sucesso.");
     } catch {
       setFeedbackCaixa("Nao foi possivel fechar o caixa.");
+    } finally {
+      setFechandoSessao(false);
+    }
+  }
+
+  async function encerrarCaixaComoGerencia(caixa) {
+    if (!caixa?.id || fechandoSessao) return;
+
+    const confirmar = window.confirm(`Fechar o caixa de ${caixa.atendenteNome}?`);
+    if (!confirmar) return;
+
+    setFechandoSessao(true);
+    setFeedbackCaixa("");
+
+    try {
+      const [vendasDoCaixa, retiradasDoDia] = await Promise.all([
+        getVendasPorCaixa(caixa.id),
+        getRetiradas(dataHoje, dataHoje),
+      ]);
+
+      const retiradasDoCaixa = retiradasDoDia.filter((item) => item.caixaId === caixa.id);
+      const totalVendasGerencia = vendasDoCaixa.reduce(
+        (acc, item) => acc + Number(item.valor || 0),
+        0
+      );
+      const totalItensGerencia = vendasDoCaixa.reduce(
+        (acc, item) => acc + Number(item.quantidade || 0),
+        0
+      );
+      const totalDinheiroGerencia = vendasDoCaixa
+        .filter((item) => item.formaPagamento === "Dinheiro")
+        .reduce((acc, item) => acc + Number(item.valor || 0), 0);
+      const totalRetiradasGerencia = retiradasDoCaixa.reduce(
+        (acc, item) => acc + Number(item.valor || 0),
+        0
+      );
+      const valorEmCaixaGerencia =
+        Number(caixa.fundoCaixa || 0) + totalVendasGerencia - totalRetiradasGerencia;
+
+      await fecharCaixa(caixa.id, {
+        totalVendas: totalVendasGerencia,
+        totalItens: totalItensGerencia,
+        totalDinheiro: totalDinheiroGerencia,
+        totalRetiradas: totalRetiradasGerencia,
+        valorEmCaixa: valorEmCaixaGerencia,
+      });
+
+      if (caixaAtualId === caixa.id) {
+        clearStoredSession();
+        setCaixaAtual(null);
+        setCaixaAtualId("");
+        setVendasCaixa([]);
+        setRetiradasCaixa([]);
+        setMostrandoFechamento(false);
+        setMostrandoRetirada(false);
+        setMostrandoResumoExpandido(false);
+        resetVendaForm();
+        setRetiradaForm({ valor: "", motivo: "" });
+      }
+
+      setFeedbackCaixa(`Caixa de ${caixa.atendenteNome} fechado com sucesso.`);
+    } catch {
+      setFeedbackCaixa("Nao foi possivel fechar o caixa pela gerencia.");
     } finally {
       setFechandoSessao(false);
     }
@@ -810,125 +1020,233 @@ export default function Caixa({
         </div>
       ) : null}
 
-      <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
-        <div className="pdv-main-column">
-          <div className="stats-grid pdv-stats-grid">
-            {mostrandoResumoExpandido ? (
-              <>
-                <div className="section-card stat-card">
-                  <span className="stat-label">Fundo inicial</span>
-                  <small className="stat-note">entrada inicial do caixa</small>
-                  <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
-                </div>
-                <div className="section-card stat-card">
-                  <span className="stat-label">Saidas / retiradas</span>
-                  <small className="stat-note">valores retirados do caixa</small>
-                  <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
-                </div>
-                <div className="section-card stat-card">
-                  <span className="stat-label">Total bruto</span>
-                  <small className="stat-note">fundo de caixa + vendas</small>
-                  <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
-                </div>
-              </>
-            ) : (
-              <button
-                className="section-card stat-card stat-card-toggle"
-                type="button"
-                onClick={() => setMostrandoResumoExpandido(true)}
-                aria-expanded="false"
-              >
-                <span className="stat-label">Indicadores</span>
-                <strong className="stat-value">Indicadores</strong>
-              </button>
-            )}
-            <div className="section-card stat-card">
-              <span className="stat-label">Itens no turno</span>
-              <strong className="stat-value">{totalItens}</strong>
-            </div>
-            <div className="section-card stat-card">
-              <span className="stat-label">Ticket medio turno</span>
-              <strong className="stat-value">
-                {formatMoney(totalItens ? totalVendas / totalItens : 0)}
-              </strong>
-            </div>
-            <div className="section-card stat-card stat-card-highlight">
-              <span className="stat-label">Total liquido</span>
-              <small className="stat-note">bruto - saidas / retiradas</small>
-              <strong className="stat-value positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
-            </div>
-            {mostrandoResumoExpandido ? (
-              <button
-                className="section-card stat-card stat-card-toggle stat-card-toggle-close"
-                type="button"
-                onClick={() => setMostrandoResumoExpandido(false)}
-                aria-expanded="true"
-              >
-                <span className="stat-label">Indicadores</span>
-                <strong className="stat-value">Ocultar</strong>
-              </button>
-            ) : null}
+      {accessRole === "gerencia" && caixasAbertosGerencia.length ? (
+        <div className="section-card">
+          <div className="section-header">
+            <div className="section-title">Fechamento pela gerencia</div>
+            <span className="section-subtitle">
+              {accessUser?.nome ? `Gerencia: ${accessUser.nome}` : "Feche caixas abertos do dia"}
+            </span>
           </div>
-
-          {!caixaAtual ? (
-            <div className="section-card pdv-card pdv-card-primary">
-              <div className="section-header">
-                <div className="section-title">Abrir caixa</div>
-                <span className="section-subtitle">Entre com o atendente para iniciar o turno.</span>
+          <div className="scroll-list">
+            {caixasAbertosGerencia.map((caixa) => (
+              <div className="list-row" key={`gerencia-close-${caixa.id}`}>
+                <div>
+                  <strong>{caixa.atendenteNome}</strong>
+                  <small>
+                    Fundo {formatMoney(caixa.fundoCaixa || 0)} - {formatDateLabel(caixa.data)}
+                  </small>
+                </div>
+                <div className="list-row-actions">
+                  <strong className="positive">Aberto</strong>
+                  <button
+                    className="action-btn action-btn-warning"
+                    type="button"
+                    onClick={() => encerrarCaixaComoGerencia(caixa)}
+                    disabled={fechandoSessao}
+                  >
+                    {fechandoSessao ? "Fechando..." : "Fechar caixa"}
+                  </button>
+                </div>
               </div>
-              <form className="stack-form" onSubmit={iniciarCaixa}>
-                <select
-                  className="input select pdv-input"
-                  value={loginForm.atendenteId}
-                  onChange={(e) =>
-                    setLoginForm((prev) => ({ ...prev, atendenteId: e.target.value }))
-                  }
-                >
-                  <option value="">Selecione o atendente</option>
-                  {atendentesAtivos.map((atendente) => (
-                    <option key={atendente.id} value={atendente.id}>
-                      {atendente.nome}
-                    </option>
-                  ))}
-                </select>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-                <input
-                  className="input pdv-input"
-                  type="password"
-                  value={loginForm.senha}
-                  onChange={(e) => setLoginForm((prev) => ({ ...prev, senha: e.target.value }))}
-                  placeholder="Senha do atendente"
-                />
-
-                <input
-                  className="input pdv-input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={loginForm.fundoCaixa}
-                  onChange={(e) =>
-                    setLoginForm((prev) => ({ ...prev, fundoCaixa: e.target.value }))
-                  }
-                  placeholder="Fundo de caixa inicial"
-                />
-
-                <button
-                  className="action-btn action-btn-primary pdv-submit"
-                  type="submit"
-                  disabled={abrindoSessao}
-                >
-                  {abrindoSessao ? "Abrindo..." : "Entrar no caixa"}
-                </button>
-
-                {feedbackCaixa && <p className="inline-feedback">{feedbackCaixa}</p>}
-              </form>
+      <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
+        {!caixaAtual ? (
+          <div className="section-card pdv-card pdv-card-primary">
+            <div className="section-header">
+              <div className="section-title">Abrir caixa</div>
+              <span className="section-subtitle">Entre com o atendente para iniciar o turno.</span>
             </div>
-          ) : (
-            <div className="section-card pdv-card pdv-card-primary">
-              <div className="section-header">
-                <div className="section-title">Caixa aberto</div>
-                <span className="section-subtitle">Atendente: {caixaAtual.atendenteNome}</span>
+            <form className="stack-form" onSubmit={iniciarCaixa}>
+              <select
+                className="input select pdv-input"
+                value={loginForm.atendenteId}
+                onChange={(e) =>
+                  setLoginForm((prev) => ({ ...prev, atendenteId: e.target.value }))
+                }
+              >
+                <option value="">Selecione o atendente</option>
+                {atendentesAtivos.map((atendente) => (
+                  <option key={atendente.id} value={atendente.id}>
+                    {atendente.nome}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                className="input pdv-input"
+                type="password"
+                value={loginForm.senha}
+                onChange={(e) => setLoginForm((prev) => ({ ...prev, senha: e.target.value }))}
+                placeholder="Senha do atendente"
+              />
+
+              <input
+                className="input pdv-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={loginForm.fundoCaixa}
+                onChange={(e) =>
+                  setLoginForm((prev) => ({ ...prev, fundoCaixa: e.target.value }))
+                }
+                placeholder="Fundo de caixa inicial"
+              />
+
+              <button
+                className="action-btn action-btn-primary pdv-submit"
+                type="submit"
+                disabled={abrindoSessao}
+              >
+                {abrindoSessao ? "Abrindo..." : "Entrar no caixa"}
+              </button>
+
+              {feedbackCaixa && <p className="inline-feedback">{feedbackCaixa}</p>}
+            </form>
+          </div>
+        ) : (
+          <>
+            <div className="pdv-main-column">
+              <div className="stats-grid pdv-stats-grid">
+                {mostrandoResumoExpandido ? (
+                  <>
+                    <div className="section-card stat-card">
+                      <span className="stat-label">Fundo inicial</span>
+                      <small className="stat-note">entrada inicial do caixa</small>
+                      <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+                    </div>
+                    <div className="section-card stat-card">
+                      <span className="stat-label">Saidas / retiradas</span>
+                      <small className="stat-note">valores retirados do caixa</small>
+                      <strong className="stat-value negative">{formatMoney(totalRetiradas)}</strong>
+                    </div>
+                    <div className="section-card stat-card">
+                      <span className="stat-label">Total bruto</span>
+                      <small className="stat-note">fundo de caixa + vendas</small>
+                      <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    className="section-card stat-card stat-card-toggle"
+                    type="button"
+                    onClick={() => setMostrandoResumoExpandido(true)}
+                    aria-expanded="false"
+                  >
+                    <span className="stat-label">Indicadores</span>
+                    <strong className="stat-value">Expandir</strong>
+                  </button>
+                )}
+                <div className="section-card stat-card">
+                  <span className="stat-label">Itens no turno</span>
+                  <strong className="stat-value">{totalItens}</strong>
+                </div>
+                <div className="section-card stat-card">
+                  <span className="stat-label">Ticket medio turno</span>
+                  <strong className="stat-value">
+                    {formatMoney(totalItens ? totalVendas / totalItens : 0)}
+                  </strong>
+                </div>
+                <div className="section-card stat-card stat-card-highlight">
+                  <span className="stat-label">Em caixa</span>
+                  <small className="stat-note">liquido disponivel agora</small>
+                  <strong className="stat-value positive">
+                    {formatMoney(totalDisponivelEmCaixa)}
+                  </strong>
+                </div>
+                {mostrandoResumoExpandido ? (
+                  <button
+                    className="section-card stat-card stat-card-toggle stat-card-toggle-close"
+                    type="button"
+                    onClick={() => setMostrandoResumoExpandido(false)}
+                    aria-expanded="true"
+                  >
+                    <span className="stat-label">Indicadores</span>
+                    <strong className="stat-value">Ocultar</strong>
+                  </button>
+                ) : null}
               </div>
+
+              <section className="section-card pdv-card pdv-catalog-panel">
+                <div className="pdv-catalog-topbar">
+                  <div className="section-header">
+                    <div className="section-title">Produtos</div>
+                    <span className="section-subtitle">
+                      Toque no item para selecionar e montar a venda.
+                    </span>
+                  </div>
+                  <input
+                    className="input pdv-search-input"
+                    value={buscaProduto}
+                    onChange={(e) => setBuscaProduto(e.target.value)}
+                    placeholder="Buscar por nome do produto"
+                  />
+                </div>
+
+                <div className="pdv-category-tabs" role="tablist" aria-label="Categorias de produto">
+                  {categoriasDisponiveis.map((categoria) => (
+                    <button
+                      key={categoria}
+                      className={`pdv-category-tab ${categoriaAtiva === categoria ? "is-active" : ""}`}
+                      type="button"
+                      onClick={() => setCategoriaAtiva(categoria)}
+                    >
+                      {CATEGORY_LABELS[categoria] || categoria}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pdv-product-grid">
+                  {produtosFiltrados.map((produto) => {
+                    const preco = getProdutoPreco(produto);
+                    const imagem = getProdutoImagem(produto);
+                    const isSelected = produto.id === vendaForm.produtoId;
+                    const semEstoque = Number(produto.estoque || 0) <= 0;
+
+                    return (
+                      <button
+                        key={produto.id}
+                        className={`pdv-product-card ${isSelected ? "is-selected" : ""}`}
+                        type="button"
+                        onClick={() => selecionarProduto(produto.id)}
+                        disabled={semEstoque}
+                      >
+                        <div className="pdv-product-media">
+                          {imagem ? (
+                            <img src={imagem} alt={produto.nome} className="pdv-product-image" />
+                          ) : (
+                            <span className="pdv-product-fallback">
+                              {String(produto.nome || "?").slice(0, 2).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="pdv-product-copy">
+                          <strong>{produto.nome}</strong>
+                          <small>{formatMoney(preco)}</small>
+                          <span className={semEstoque ? "negative" : ""}>
+                            Estoque {produto.estoque}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {!produtosFiltrados.length ? (
+                    <p className="empty-state">Nenhum produto encontrado para esse filtro.</p>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+
+            <aside className="section-card pdv-card pdv-order-panel">
+              <div className="section-header">
+                <div className="section-title">Venda atual</div>
+                <span className="section-subtitle">{caixaAtual.atendenteNome}</span>
+              </div>
+
               {mostrandoRetirada ? (
                 <form className="stack-form pdv-retirada-card" onSubmit={registrarRetirada}>
                   <div className="pdv-retirada-head">
@@ -936,16 +1254,12 @@ export default function Caixa({
                       <strong>Retirada</strong>
                       <small>Sangria de valores do caixa</small>
                     </div>
-                    <button
-                      className="mini-btn"
-                      type="button"
-                      onClick={toggleRetiradaPanel}
-                    >
+                    <button className="mini-btn" type="button" onClick={toggleRetiradaPanel}>
                       X
                     </button>
                   </div>
                   <input
-                    className="input pdv-input"
+                    className="input pdv-panel-input"
                     type="number"
                     min="0.01"
                     step="0.01"
@@ -956,7 +1270,7 @@ export default function Caixa({
                     placeholder="Valor da retirada"
                   />
                   <input
-                    className="input pdv-input"
+                    className="input pdv-panel-input"
                     value={retiradaForm.motivo}
                     onChange={(e) =>
                       setRetiradaForm((prev) => ({ ...prev, motivo: e.target.value }))
@@ -980,9 +1294,33 @@ export default function Caixa({
                 </form>
               ) : null}
 
-              <form className="stack-form" onSubmit={registrarVenda}>
+              <form className="pdv-order-form" onSubmit={registrarVenda}>
+                <div className="pdv-order-topline">
+                  <div className="pdv-selected-product">
+                    <span>Produto</span>
+                    <strong>{produtoSelecionado?.nome || "Selecione no painel ao lado"}</strong>
+                  </div>
+                  <div className="pdv-qty-stepper" aria-label="Quantidade">
+                    <button type="button" onClick={() => ajustarQuantidade(-1)}>
+                      -
+                    </button>
+                    <input
+                      className="input pdv-qty-input"
+                      type="number"
+                      min="1"
+                      value={vendaForm.quantidade}
+                      onChange={(e) =>
+                        setVendaForm((prev) => ({ ...prev, quantidade: e.target.value }))
+                      }
+                    />
+                    <button type="button" onClick={() => ajustarQuantidade(1)}>
+                      +
+                    </button>
+                  </div>
+                </div>
+
                 {produtoSelecionado && getProdutoImagem(produtoSelecionado) ? (
-                  <div className="produto-preview">
+                  <div className="produto-preview pdv-product-preview-compact">
                     <img
                       className="produto-preview-image"
                       src={getProdutoImagem(produtoSelecionado)}
@@ -995,62 +1333,54 @@ export default function Caixa({
                   </div>
                 ) : null}
 
-                <select
-                  className="input select pdv-input"
-                  value={vendaForm.produtoId}
-                  onChange={(e) =>
-                    setVendaForm((prev) => ({ ...prev, produtoId: e.target.value }))
-                  }
-                >
-                  <option value="">Selecione um produto</option>
-                  {produtosAtivos.map((produto) => (
-                    <option key={produto.id} value={produto.id}>
-                      {produto.nome} - {formatMoney(getProdutoPreco(produto))} - estoque {produto.estoque}
-                    </option>
-                  ))}
-                </select>
+                <div className="pdv-order-actions-row">
+                  <button
+                    className="action-btn action-btn-secondary"
+                    type="button"
+                    onClick={adicionarItemVenda}
+                    disabled={salvandoVenda}
+                  >
+                    Adicionar item
+                  </button>
+                  <button
+                    className="action-btn action-btn-danger"
+                    type="button"
+                    onClick={limparCarrinho}
+                    disabled={!itensVendaDetalhados.length}
+                  >
+                    Limpar
+                  </button>
+                </div>
 
-                <input
-                  className="input pdv-input"
-                  type="number"
-                  min="1"
-                  value={vendaForm.quantidade}
-                  onChange={(e) =>
-                    setVendaForm((prev) => ({ ...prev, quantidade: e.target.value }))
-                  }
-                  placeholder="Quantidade"
-                />
+                <div className="pdv-payment-grid">
+                  <select
+                    className="input select pdv-panel-input"
+                    value={vendaForm.formaPagamento}
+                    onChange={(e) =>
+                      setVendaForm((prev) => ({
+                        ...prev,
+                        formaPagamento: e.target.value,
+                        valorRecebido: e.target.value === "Dinheiro" ? prev.valorRecebido : "",
+                      }))
+                    }
+                  >
+                    <option value="PIX">PIX</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                    <option value="Debito">Debito</option>
+                    <option value="Credito">Credito</option>
+                  </select>
 
-                <button
-                  className="action-btn action-btn-secondary"
-                  type="button"
-                  onClick={adicionarItemVenda}
-                  disabled={salvandoVenda}
-                >
-                  Adicionar produto
-                </button>
-
-                <select
-                  className="input select pdv-input"
-                  value={vendaForm.formaPagamento}
-                  onChange={(e) =>
-                    setVendaForm((prev) => ({
-                      ...prev,
-                      formaPagamento: e.target.value,
-                      valorRecebido: e.target.value === "Dinheiro" ? prev.valorRecebido : "",
-                    }))
-                  }
-                >
-                  <option value="PIX">PIX</option>
-                  <option value="Dinheiro">Dinheiro</option>
-                  <option value="Debito">Debito</option>
-                  <option value="Credito">Credito</option>
-                </select>
+                  <input
+                    className="input pdv-panel-input"
+                    value={caixaAtual.atendenteNome}
+                    readOnly
+                  />
+                </div>
 
                 {vendaForm.formaPagamento === "Dinheiro" ? (
-                  <>
+                  <div className="pdv-payment-grid pdv-payment-grid-cash">
                     <input
-                      className="input pdv-input"
+                      className="input pdv-panel-input"
                       type="number"
                       min={totalCarrinho || 0}
                       step="0.01"
@@ -1062,38 +1392,25 @@ export default function Caixa({
                     />
                     <div className="pdv-cash-summary">
                       <div className="pdv-cash-row">
-                        <span>Total da venda</span>
-                        <strong>{formatMoney(totalCarrinho)}</strong>
-                      </div>
-                      <div className="pdv-cash-row">
                         <span>Troco</span>
                         <strong>{formatMoney(trocoAtual)}</strong>
                       </div>
                     </div>
-                  </>
+                  </div>
                 ) : null}
 
-                <input className="input pdv-input" value={caixaAtual.atendenteNome} readOnly />
-
-                <div className="pdv-item-actions">
-                  <div className="pdv-cart-total">
-                    <span>{quantidadeCarrinho} item(ns)</span>
-                    <strong>{formatMoney(totalCarrinho)}</strong>
+                <div className="pdv-cart-table">
+                  <div className="pdv-cart-table-head">
+                    <span>Produto</span>
+                    <span>Qtd</span>
+                    <span>Unit</span>
+                    <span>Total</span>
                   </div>
-                </div>
-
-                {itensVendaDetalhados.length ? (
-                  <div className="pdv-cart-list">
+                  <div className="pdv-cart-list pdv-cart-table-body">
                     {itensVendaDetalhados.map((item) => (
-                      <div className="list-row pdv-cart-row" key={item.produtoId}>
-                        <div>
+                      <div className="pdv-cart-table-row" key={item.produtoId}>
+                        <div className="pdv-cart-table-product">
                           <strong>{item.nome}</strong>
-                          <small>
-                            {item.quantidade} un. x {formatMoney(item.precoUnitario)}
-                          </small>
-                        </div>
-                        <div className="pdv-cart-row-actions">
-                          <strong className="positive">{formatMoney(item.subtotal)}</strong>
                           <button
                             className="mini-btn danger"
                             type="button"
@@ -1102,59 +1419,81 @@ export default function Caixa({
                             Remover
                           </button>
                         </div>
+                        <span>{item.quantidade}</span>
+                        <span>{formatMoney(item.precoUnitario)}</span>
+                        <strong>{formatMoney(item.subtotal)}</strong>
                       </div>
                     ))}
+                    {!itensVendaDetalhados.length ? (
+                      <p className="empty-state">Nenhum item adicionado na venda.</p>
+                    ) : null}
                   </div>
-                ) : null}
+                </div>
 
-                <button
-                  className="action-btn action-btn-primary pdv-submit"
-                  type="submit"
-                  disabled={salvandoVenda || !itensVendaDetalhados.length}
-                >
-                  {salvandoVenda ? "Salvando..." : "Finalizar venda"}
-                </button>
+                <div className="pdv-cart-total pdv-cart-total-emphasis">
+                  <span>{quantidadeCarrinho} item(ns)</span>
+                  <strong>{formatMoney(totalCarrinho)}</strong>
+                </div>
+
+                <div className="pdv-order-submit-row">
+                  <button
+                    className="action-btn action-btn-danger"
+                    type="button"
+                    onClick={limparCarrinho}
+                    disabled={!itensVendaDetalhados.length}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="action-btn action-btn-primary pdv-submit"
+                    type="submit"
+                    disabled={salvandoVenda || !itensVendaDetalhados.length}
+                  >
+                    {salvandoVenda ? "Salvando..." : "Receber e Finalizar"}
+                  </button>
+                </div>
 
                 {feedbackVenda ? <p className="inline-feedback">{feedbackVenda}</p> : null}
-                {feedbackCaixa && <p className="inline-feedback">{feedbackCaixa}</p>}
+                {feedbackCaixa ? <p className="inline-feedback">{feedbackCaixa}</p> : null}
                 {!mostrandoRetirada && feedbackRetirada ? (
                   <p className="inline-feedback">{feedbackRetirada}</p>
                 ) : null}
               </form>
-            </div>
-          )}
-        </div>
-
-        {caixaAtual ? (
-          <aside className="section-card pdv-sales-column">
-            <div className="section-header">
-              <div className="section-title">Vendas do turno</div>
-              <span className="section-subtitle">{vendasCaixa.length} registros</span>
-            </div>
-            <div className="scroll-list pdv-sales-list">
-              {vendasCaixa.map((venda) => (
-                <div className="list-row pdv-sale-row" key={venda.id}>
-                  <div>
-                    <strong>{venda.produto}</strong>
-                    <small>
-                      {venda.quantidade} un. - {venda.formaPagamento || "Sem forma"}
-                    </small>
-                    {venda.formaPagamento === "Dinheiro" ? (
-                      <small>
-                        Recebido {formatMoney(venda.valorRecebido || 0)} - Troco {formatMoney(venda.troco || 0)}
-                      </small>
-                    ) : null}
-                  </div>
-                  <strong className="positive">{formatMoney(venda.valor)}</strong>
-                </div>
-              ))}
-              {!vendasCaixa.length && (
-                <p className="empty-state">Nenhuma venda registrada neste turno.</p>
-              )}
-            </div>
-          </aside>
-        ) : null}
+            </aside>
+          </>
+        )}
       </div>
+
+      {caixaAtual ? (
+        <section className="section-card pdv-sales-board">
+          <div className="section-header">
+            <div className="section-title">Vendas do turno</div>
+            <span className="section-subtitle">{vendasCaixa.length} registros</span>
+          </div>
+          <div className="scroll-list pdv-sales-list">
+            {vendaAtualResumo.map((venda) => (
+              <div className="list-row pdv-sale-row" key={venda.id}>
+                <div>
+                  <strong>{venda.produto}</strong>
+                  <small>
+                    {venda.quantidade} un. - {venda.formaPagamento || "Sem forma"}
+                  </small>
+                  {venda.formaPagamento === "Dinheiro" ? (
+                    <small>
+                      Recebido {formatMoney(venda.valorRecebido || 0)} - Troco{" "}
+                      {formatMoney(venda.troco || 0)}
+                    </small>
+                  ) : null}
+                </div>
+                <strong className="positive">{formatMoney(venda.valor)}</strong>
+              </div>
+            ))}
+            {!vendasCaixa.length ? (
+              <p className="empty-state">Nenhuma venda registrada neste turno.</p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {caixaAtual && mostrandoFechamento ? (
         <div className="section-card fechamento-card">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import logoGelato from "../assets/gelatoimg.jpeg";
 import {
   deleteCaixa,
+  fecharCaixa,
   deleteRetiradaCaixa,
   getCaixas,
   getRetiradas,
@@ -230,6 +231,39 @@ export default function Relatorio({ uid, dataHoje }) {
 
     await deleteCaixa(item.id);
     if (caixaSelecionado?.id === item.id) setVendasCaixaSelecionado([]);
+    await carregarPeriodoAtual();
+  }
+
+  async function fecharCaixaManual(item) {
+    if (!item?.id || item.status !== "aberto") return;
+
+    const confirmar = window.confirm(
+      `Fechar o caixa de ${item.atendenteNome} em ${item.data}?`
+    );
+    if (!confirmar) return;
+
+    const vendasDoCaixa = await getVendasPorCaixa(item.id);
+    const retiradasDoCaixa = retiradas.filter((retirada) => retirada.caixaId === item.id);
+    const totalVendas = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
+    const totalItens = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0);
+    const totalDinheiro = vendasDoCaixa
+      .filter((venda) => venda.formaPagamento === "Dinheiro")
+      .reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
+    const totalRetiradas = retiradasDoCaixa.reduce(
+      (acc, retirada) => acc + Number(retirada.valor || 0),
+      0
+    );
+    const valorEmCaixa =
+      Number(item.fundoCaixa || 0) + totalDinheiro - totalRetiradas;
+
+    await fecharCaixa(item.id, {
+      totalVendas,
+      totalItens,
+      totalDinheiro,
+      totalRetiradas,
+      valorEmCaixa,
+    });
+
     await carregarPeriodoAtual();
   }
 
@@ -594,7 +628,15 @@ export default function Relatorio({ uid, dataHoje }) {
                     </small>
                   </div>
                 </button>
-                {caixa.status !== "aberto" ? (
+                {caixa.status === "aberto" ? (
+                  <button
+                    className="mini-btn"
+                    type="button"
+                    onClick={() => fecharCaixaManual(caixa)}
+                  >
+                    Fechar
+                  </button>
+                ) : (
                   <button
                     className="mini-btn danger"
                     type="button"
@@ -602,7 +644,7 @@ export default function Relatorio({ uid, dataHoje }) {
                   >
                     Excluir
                   </button>
-                ) : null}
+                )}
               </div>
             ))}
             {!caixas.length && !loading && <p className="empty-state">Nenhum caixa encontrado no periodo.</p>}

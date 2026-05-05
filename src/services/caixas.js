@@ -89,6 +89,17 @@ export async function getCaixas(dataInicio, dataFim = dataInicio) {
   return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
+export function subscribeCaixasPeriodo(dataInicio, dataFim, callback) {
+  if (!dataInicio || !dataFim) {
+    callback([]);
+    return () => {};
+  }
+
+  return onSnapshot(rangeQuery(dataInicio, dataFim), (snapshot) => {
+    callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  });
+}
+
 export async function getRetiradas(dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
   const snapshot = await getDocs(query(retiradasRef, where("data", ">=", dataInicio), where("data", "<=", dataFim)));

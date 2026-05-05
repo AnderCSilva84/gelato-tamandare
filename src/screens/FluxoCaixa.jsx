@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addDespesa,
@@ -32,7 +32,10 @@ function initialForm(data) {
 }
 
 export default function FluxoCaixa({ uid, dataHoje }) {
+  const [modoFiltro, setModoFiltro] = useState("dia");
   const [dataFiltro, setDataFiltro] = useState(dataHoje);
+  const [dataInicioFiltro, setDataInicioFiltro] = useState(dataHoje);
+  const [dataFimFiltro, setDataFimFiltro] = useState(dataHoje);
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
   const [despesas, setDespesas] = useState([]);
@@ -41,18 +44,58 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   const [form, setForm] = useState(() => initialForm(dataHoje));
   const [editandoId, setEditandoId] = useState("");
 
+  const filtroValido =
+    modoFiltro === "dia"
+      ? Boolean(dataFiltro)
+      : Boolean(dataInicioFiltro && dataFimFiltro && dataInicioFiltro <= dataFimFiltro);
+
+  const periodoReferencia =
+    modoFiltro === "periodo"
+      ? { inicio: dataInicioFiltro, fim: dataFimFiltro }
+      : { inicio: dataFiltro, fim: dataFiltro };
+
+  const carregarFluxo = useCallback(
+    async (inicio, fim) => {
+      if (!uid || !inicio || !fim) return;
+
+      setLoading(true);
+      const [vendasData, despesasData, retiradasData, caixasData] = await Promise.all([
+        getVendas(uid, inicio, fim),
+        getDespesas(uid, inicio, fim),
+        getRetiradas(inicio, fim),
+        getCaixas(inicio, fim),
+      ]);
+
+      setVendas(vendasData);
+      setDespesas(despesasData);
+      setRetiradas(retiradasData);
+      setCaixas(caixasData);
+      setLoading(false);
+    },
+    [uid]
+  );
+
   useEffect(() => {
     let ativo = true;
 
     async function carregar() {
-      if (!uid || !dataFiltro) return;
+      if (!uid) return;
+      if (!filtroValido) {
+        if (!ativo) return;
+        setVendas([]);
+        setDespesas([]);
+        setRetiradas([]);
+        setCaixas([]);
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
       const [vendasData, despesasData, retiradasData, caixasData] = await Promise.all([
-        getVendas(uid, dataFiltro),
-        getDespesas(uid, dataFiltro),
-        getRetiradas(dataFiltro),
-        getCaixas(dataFiltro),
+        getVendas(uid, periodoReferencia.inicio, periodoReferencia.fim),
+        getDespesas(uid, periodoReferencia.inicio, periodoReferencia.fim),
+        getRetiradas(periodoReferencia.inicio, periodoReferencia.fim),
+        getCaixas(periodoReferencia.inicio, periodoReferencia.fim),
       ]);
 
       if (!ativo) return;
@@ -68,7 +111,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     return () => {
       ativo = false;
     };
-  }, [uid, dataFiltro]);
+  }, [filtroValido, modoFiltro, dataFiltro, dataInicioFiltro, dataFimFiltro, periodoReferencia.fim, periodoReferencia.inicio, uid]);
 
   const resumoFinanceiro = useMemo(
     () =>
@@ -93,9 +136,26 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     [despesas, retiradas]
   );
 
+  const subtituloReferencia = useMemo(() => {
+    if (modoFiltro === "periodo") {
+      if (!dataInicioFiltro || !dataFimFiltro) return "Selecione o periodo";
+      return `${formatDateLabel(dataInicioFiltro)} ate ${formatDateLabel(dataFimFiltro)}`;
+    }
+
+    return formatDateLabel(dataFiltro);
+  }, [dataFiltro, dataFimFiltro, dataInicioFiltro, modoFiltro]);
+
+  function despesaDentroDoFiltro(data) {
+    if (!data) return false;
+    if (modoFiltro === "periodo") {
+      return data >= dataInicioFiltro && data <= dataFimFiltro;
+    }
+    return data === dataFiltro;
+  }
+
   async function salvarDespesa(e) {
     e.preventDefault();
-    const dataDespesa = editandoId ? form.data : dataFiltro;
+    const dataDespesa = form.data;
     const valor = Number(form.valor || 0);
     if (!form.descricao.trim() || !Number.isFinite(valor) || valor <= 0 || !dataDespesa) return;
 
@@ -113,9 +173,20 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
     }
 
-    const despesasAtualizadas = await getDespesas(uid, dataFiltro);
-    setDespesas(despesasAtualizadas);
-    setForm(initialForm(dataFiltro));
+    if (modoFiltro === "dia" && dataDespesa !== dataFiltro) {
+      setDataFiltro(dataDespesa);
+      setDataInicioFiltro(dataDespesa);
+      setDataFimFiltro(dataDespesa);
+    } else if (modoFiltro === "periodo" && !despesaDentroDoFiltro(dataDespesa)) {
+      setModoFiltro("dia");
+      setDataFiltro(dataDespesa);
+      setDataInicioFiltro(dataDespesa);
+      setDataFimFiltro(dataDespesa);
+    } else {
+      await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
+    }
+
+    setForm(initialForm(dataDespesa));
     setEditandoId("");
   }
 
@@ -130,8 +201,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
   async function excluirDespesa(id) {
     await deleteDespesa(id);
-    const despesasAtualizadas = await getDespesas(uid, dataFiltro);
-    setDespesas(despesasAtualizadas);
+    await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
   }
 
   return (
@@ -148,13 +218,56 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       <div className="section-card filter-card">
         <div className="section-header">
           <div className="section-title">Data de referencia</div>
+          <span className="section-subtitle">{subtituloReferencia}</span>
         </div>
-        <input
-          className="input"
-          type="date"
-          value={dataFiltro}
-          onChange={(e) => setDataFiltro(e.target.value)}
-        />
+        <div className="section-actions">
+          <button
+            className={`action-btn ${modoFiltro === "dia" ? "action-btn-info" : "action-btn-secondary"}`}
+            type="button"
+            onClick={() => setModoFiltro("dia")}
+          >
+            Dia unico
+          </button>
+          <button
+            className={`action-btn ${modoFiltro === "periodo" ? "action-btn-info" : "action-btn-secondary"}`}
+            type="button"
+            onClick={() => setModoFiltro("periodo")}
+          >
+            Entre datas
+          </button>
+        </div>
+        {modoFiltro === "periodo" ? (
+          <div className="stack-form">
+            <input
+              className="input"
+              type="date"
+              value={dataInicioFiltro}
+              onChange={(e) => setDataInicioFiltro(e.target.value)}
+            />
+            <input
+              className="input"
+              type="date"
+              value={dataFimFiltro}
+              onChange={(e) => setDataFimFiltro(e.target.value)}
+            />
+            {!filtroValido ? <p className="empty-state">Defina um intervalo valido.</p> : null}
+          </div>
+        ) : (
+          <input
+            className="input"
+            type="date"
+            value={dataFiltro}
+            onChange={(e) => {
+              const novaData = e.target.value;
+              setDataFiltro(novaData);
+              setDataInicioFiltro(novaData);
+              setDataFimFiltro(novaData);
+              if (!editandoId) {
+                setForm((prev) => ({ ...prev, data: novaData }));
+              }
+            }}
+          />
+        )}
       </div>
 
       <div className="stats-grid">
@@ -207,7 +320,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             <input
               className="input"
               type="date"
-              value={editandoId ? form.data : dataFiltro}
+              value={form.data}
               onChange={(e) => setForm((prev) => ({ ...prev, data: e.target.value }))}
             />
             <button className="action-btn action-btn-warning" type="submit">
@@ -218,7 +331,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
         <div className="section-card">
           <div className="section-header">
-            <div className="section-title">Saidas lancadas</div>
+            <div className="section-title">{modoFiltro === "periodo" ? "Saidas lancadas no periodo" : "Saidas lancadas"}</div>
             <span className="section-subtitle">
               {loading ? "Carregando..." : `${saidasDoDia.length} itens`}
             </span>
@@ -247,14 +360,20 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                 </div>
               </div>
             ))}
-            {!saidasDoDia.length && !loading && <p className="empty-state">Nenhuma saida cadastrada nessa data.</p>}
+            {!saidasDoDia.length && !loading && (
+              <p className="empty-state">
+                {modoFiltro === "periodo"
+                  ? "Nenhuma saida cadastrada nesse periodo."
+                  : "Nenhuma saida cadastrada nessa data."}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       <div className="section-card">
         <div className="section-header">
-          <div className="section-title">Vendas da data</div>
+          <div className="section-title">{modoFiltro === "periodo" ? "Vendas do periodo" : "Vendas da data"}</div>
           <span className="section-subtitle">{vendas.length} itens</span>
         </div>
         <div className="scroll-list">
@@ -269,7 +388,13 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               <strong className="positive">{formatMoney(item.valor)}</strong>
             </div>
           ))}
-          {!vendas.length && !loading && <p className="empty-state">Nenhuma venda encontrada nessa data.</p>}
+          {!vendas.length && !loading && (
+            <p className="empty-state">
+              {modoFiltro === "periodo"
+                ? "Nenhuma venda encontrada nesse periodo."
+                : "Nenhuma venda encontrada nessa data."}
+            </p>
+          )}
         </div>
       </div>
     </div>

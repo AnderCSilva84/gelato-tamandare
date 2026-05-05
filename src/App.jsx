@@ -661,6 +661,7 @@ export default function App() {
                           uid={user.uid}
                           dataHoje={hojeISO()}
                           accessRole={unrestrictedSetup ? "gerencia" : accessRole}
+                          accessUser={accessUser}
                         />
                       )}
                       {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}

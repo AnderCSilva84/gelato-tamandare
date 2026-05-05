@@ -21,7 +21,7 @@ export function calcularResumoFinanceiro({
   const retiradasCaixa = somarValores(retiradas);
   const gastos = despesasOperacionais + retiradasCaixa;
   const fundoCaixa = somarFundosCaixa(caixas);
-  const emCaixa = fundoCaixa + entradas - retiradasCaixa;
+  const emCaixa = fundoCaixa + entradas - despesasOperacionais - retiradasCaixa;
   const resultado = entradas - gastos;
 
   return {

@@ -23,6 +23,8 @@ const TelaRelatorio = lazy(() => import("./screens/Relatorio"));
 
 const TEMP_USER = { uid: "gelato-local" };
 const ACCESS_STORAGE_KEY = "gelato-painel-access";
+const LAST_ACCESS_STORAGE_KEY = "gelato-painel-last-access";
+const PDV_STORAGE_KEY = "gelato-caixa-atual";
 const NAV_ITEMS = [
   { id: "gerencia", label: "Gerencia", gerenciaOnly: true },
   { id: "pdv", label: "PDV" },
@@ -146,12 +148,56 @@ function clearAccessSession() {
   window.localStorage.removeItem(ACCESS_STORAGE_KEY);
 }
 
+function readLastAccessSession() {
+  try {
+    const raw = window.localStorage.getItem(LAST_ACCESS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastAccessSession(session) {
+  window.localStorage.setItem(LAST_ACCESS_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearLastAccessSession() {
+  window.localStorage.removeItem(LAST_ACCESS_STORAGE_KEY);
+}
+
+function readPdvSession() {
+  try {
+    const raw = window.localStorage.getItem(PDV_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasRestorablePdvSession(atendente) {
+  if (!atendente?.id) return false;
+
+  const pdvSession = readPdvSession();
+  if (!pdvSession?.id) return false;
+
+  const role = normalizeRole(atendente.role);
+
+  if (pdvSession.accessUserId) {
+    return pdvSession.accessUserId === atendente.id && pdvSession.accessRole === role;
+  }
+
+  return pdvSession.atendenteId === atendente.id;
+}
+
 export default function App() {
   const [user] = useState(TEMP_USER);
   const [tela, setTela] = useState("pdv");
   const [atendentes, setAtendentes] = useState([]);
   const [atendentesLoaded, setAtendentesLoaded] = useState(false);
-  const [accessForm, setAccessForm] = useState({ atendenteId: "", senha: "" });
+  const [accessForm, setAccessForm] = useState(() => ({
+    atendenteId: readLastAccessSession()?.id || "",
+    senha: "",
+  }));
   const [accessUserId, setAccessUserId] = useState(() => readAccessSession()?.id || "");
   const [accessError, setAccessError] = useState("");
   const [lancamentos, setLancamentos] = useState([]);
@@ -213,6 +259,7 @@ export default function App() {
 
     if (unrestrictedSetup) {
       clearAccessSession();
+      clearLastAccessSession();
       if (accessUserId) {
         setAccessUserId("");
       }
@@ -224,7 +271,13 @@ export default function App() {
       setAccessUserId("");
       setAccessError("Seu acesso expirou. Entre novamente.");
     }
-  }, [accessUser, accessUserId, atendentesLoaded, unrestrictedSetup]);
+
+    const lastAccess = readLastAccessSession();
+    if (lastAccess?.id && !atendentesAtivos.some((item) => item.id === lastAccess.id)) {
+      clearLastAccessSession();
+      setAccessForm((prev) => ({ ...prev, atendenteId: "" }));
+    }
+  }, [accessUser, accessUserId, atendentesAtivos, atendentesLoaded, unrestrictedSetup]);
 
   useEffect(() => {
     if (!navItems.some((item) => item.id === tela)) {
@@ -253,6 +306,21 @@ export default function App() {
 
   function abrirRetroativo() {
     navigate("/retroativo");
+  }
+
+  function ativarSessaoDeAcesso(atendente) {
+    const session = {
+      id: atendente.id,
+      nome: atendente.nome,
+      role: normalizeRole(atendente.role),
+    };
+
+    writeAccessSession(session);
+    writeLastAccessSession(session);
+    setAccessUserId(atendente.id);
+    setAccessForm({ atendenteId: "", senha: "" });
+    setAccessError("");
+    setTela(hasRestorablePdvSession(atendente) ? "pdv" : session.role === "gerencia" ? "gerencia" : "pdv");
   }
 
   function toggleFiltro() {
@@ -458,24 +526,31 @@ export default function App() {
       return;
     }
 
-    const session = {
-      id: atendente.id,
-      nome: atendente.nome,
-      role: normalizeRole(atendente.role),
-    };
-
-    writeAccessSession(session);
-    setAccessUserId(atendente.id);
-    setAccessForm({ atendenteId: "", senha: "" });
-    setAccessError("");
-    setTela(session.role === "gerencia" ? "gerencia" : "pdv");
+    ativarSessaoDeAcesso(atendente);
   }
 
   function sairDoPainel() {
     clearAccessSession();
     setAccessUserId("");
-    setAccessForm({ atendenteId: "", senha: "" });
+    setAccessForm((prev) => ({ ...prev, senha: "" }));
     setTela("pdv");
+  }
+
+  function selecionarUsuarioAcesso(atendenteId) {
+    const atendente = atendentesAtivos.find((item) => item.id === atendenteId);
+    const lastAccess = readLastAccessSession();
+
+    if (
+      atendente &&
+      lastAccess?.id === atendente.id &&
+      lastAccess?.role === normalizeRole(atendente.role)
+    ) {
+      ativarSessaoDeAcesso(atendente);
+      return;
+    }
+
+    setAccessForm({ atendenteId, senha: "" });
+    setAccessError("");
   }
 
   const extratoSection = (
@@ -602,9 +677,7 @@ export default function App() {
                         <select
                           className="input select"
                           value={accessForm.atendenteId}
-                          onChange={(e) =>
-                            setAccessForm((prev) => ({ ...prev, atendenteId: e.target.value }))
-                          }
+                          onChange={(e) => selecionarUsuarioAcesso(e.target.value)}
                         >
                           <option value="">Selecione o usuario</option>
                           {atendentesAtivos.map((atendente) => (

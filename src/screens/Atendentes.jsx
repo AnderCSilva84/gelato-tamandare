@@ -61,15 +61,16 @@ export default function Atendentes({ uid }) {
 
   return (
     <div className="dashboard-screen">
-      <div className="screen-heading">
+      <div className="screen-heading section-card team-hero">
         <div>
           <h1 className="screen-title">Atendentes</h1>
           <p className="screen-description">Cadastro, ativacao, senha e metas da equipe.</p>
         </div>
+        <span className="screen-badge">Equipe e acessos</span>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      <div className="screen-grid team-grid">
+        <div className="section-card team-form-card">
           <div className="section-header">
             <div className="section-title">{editandoId ? "Editar atendente" : "Novo atendente"}</div>
           </div>
@@ -106,7 +107,7 @@ export default function Atendentes({ uid }) {
           </form>
         </div>
 
-        <div className="section-card">
+        <div className="section-card team-list-card">
           <div className="section-header">
             <div className="section-title">Equipe</div>
             <span className="section-subtitle">

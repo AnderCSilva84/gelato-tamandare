@@ -35,11 +35,18 @@ body,
   min-height: 100%;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
+  overflow-x: hidden;
 }
 
 body::before { content: none; }
@@ -52,6 +59,7 @@ body::before { content: none; }
     radial-gradient(620px 420px at 92% 6%, rgba(245, 158, 11, 0.12), transparent 58%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(237, 242, 248, 0)),
     var(--bg);
+  overflow-x: clip;
 }
 
 .app-container {
@@ -735,6 +743,20 @@ body::before { content: none; }
   overflow-x: hidden;
 }
 
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 .sidebar-brand {
   display: flex;
   flex-direction: column;
@@ -955,20 +977,20 @@ body::before { content: none; }
 }
 
 .pdv-input {
-  min-height: 72px;
-  padding: 18px 20px;
-  font-size: 22px;
+  min-height: clamp(56px, 8vw, 72px);
+  padding: clamp(14px, 2.6vw, 18px) clamp(16px, 3vw, 20px);
+  font-size: clamp(16px, 3vw, 22px);
   font-weight: 700;
   border-radius: 16px;
 }
 
 .pdv-input::placeholder {
-  font-size: 20px;
+  font-size: clamp(15px, 2.6vw, 20px);
   font-weight: 600;
 }
 
 .pdv-card-primary .section-title {
-  font-size: 32px;
+  font-size: clamp(28px, 4.6vw, 32px);
 }
 
 .pdv-catalog-panel,
@@ -1090,6 +1112,7 @@ body::before { content: none; }
 }
 
 .pdv-product-copy strong {
+  color: #000;
   font-size: 15px;
   line-height: 1.2;
 }
@@ -1176,8 +1199,8 @@ body::before { content: none; }
 }
 
 .pdv-order-submit-row .action-btn {
-  min-height: 94px;
-  font-size: 32px;
+  min-height: clamp(64px, 9vw, 94px);
+  font-size: clamp(20px, 4vw, 32px);
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -1255,8 +1278,8 @@ body::before { content: none; }
 }
 
 .pdv-submit {
-  min-height: 94px;
-  font-size: 32px;
+  min-height: clamp(64px, 9vw, 94px);
+  font-size: clamp(20px, 4vw, 32px);
   font-weight: 800;
   letter-spacing: 0.02em;
   box-shadow: 0 20px 34px rgba(52, 120, 246, 0.28);
@@ -1426,6 +1449,12 @@ body::before { content: none; }
 .pdv-status-bar-actions .action-btn {
   width: auto;
   min-width: 140px;
+}
+
+.pdv-catalog-panel .section-header,
+.pdv-order-panel .section-header,
+.fechamento-card .section-header {
+  align-items: flex-start;
 }
 
 .pdv-item-actions {
@@ -1799,6 +1828,7 @@ body::before { content: none; }
 
 .gerencia-focus-card {
   min-width: 0;
+  overflow: hidden;
 }
 
 .gerencia-focus-list {
@@ -1826,6 +1856,7 @@ body::before { content: none; }
   font-size: 18px;
   font-weight: 800;
   font-family: var(--font-display);
+  text-align: right;
 }
 
 .gerencia-disclosure {
@@ -1865,6 +1896,10 @@ body::before { content: none; }
   margin-top: 14px;
 }
 
+.gerencia-disclosure-body .list-row {
+  align-items: flex-start;
+}
+
 .gerencia-action-card {
   border-color: rgba(245, 158, 11, 0.22);
   background:
@@ -1878,6 +1913,12 @@ body::before { content: none; }
 
 .gerencia-action-buttons {
   margin-bottom: 0;
+}
+
+.report-list-card .section-header,
+.report-list-card .list-row,
+.report-list-card .list-row-actions {
+  min-width: 0;
 }
 
 .stat-card {
@@ -1995,6 +2036,7 @@ body::before { content: none; }
   flex-direction: column;
   gap: 10px;
   padding-right: 4px;
+  min-width: 0;
 }
 
 .scroll-list::-webkit-scrollbar {
@@ -2132,6 +2174,82 @@ body::before { content: none; }
   max-width: 100%;
 }
 
+.report-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 255, 0.96));
+}
+
+.report-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-filter-actions {
+  margin-top: 14px;
+}
+
+.report-summary-grid,
+.report-result-grid {
+  align-items: stretch;
+}
+
+.report-result-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.report-dual-grid {
+  align-items: start;
+}
+
+.report-list-card {
+  min-width: 0;
+}
+
+.inventory-hero,
+.team-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 255, 0.96));
+}
+
+.inventory-grid,
+.team-grid {
+  align-items: start;
+}
+
+.inventory-form-card,
+.inventory-list-card,
+.team-form-card,
+.team-list-card {
+  min-width: 0;
+}
+
+.inventory-actions {
+  max-width: 420px;
+}
+
+.inventory-list-card .list-row,
+.team-list-card .list-row,
+.inventory-list-card .list-row-actions,
+.team-list-card .list-row-actions {
+  min-width: 0;
+}
+
+.inventory-list-card .scroll-list,
+.team-list-card .scroll-list {
+  gap: 12px;
+}
+
 .access-block-card {
   max-width: 560px;
 }
@@ -2156,11 +2274,16 @@ body::before { content: none; }
 }
 
 @media (max-width: 480px) {
-  .app-container { padding: 16px 14px 24px; }
+  .app-container { padding: 16px 14px calc(24px + env(safe-area-inset-bottom)); }
   .balance-value { font-size: 32px; }
   .section-actions { grid-template-columns: 1fr; }
   .quick-values { grid-template-columns: 1fr; }
-  .content { padding: 12px; }
+  .content {
+    padding: 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
   .section-card,
   .user-card,
   .balance-card { padding: 14px; }
@@ -2186,6 +2309,229 @@ body::before { content: none; }
   }
 }
 
+@media (max-width: 640px) {
+  .dashboard-screen {
+    gap: 16px;
+  }
+
+  .section-card,
+  .user-card,
+  .balance-card {
+    border-radius: 18px;
+  }
+
+  .sidebar {
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .sidebar-nav {
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .sidebar-nav > * {
+    scroll-snap-align: start;
+  }
+
+  .sidebar-btn {
+    white-space: nowrap;
+  }
+
+  .screen-title {
+    font-size: 22px;
+  }
+
+  .screen-description {
+    font-size: 13px;
+  }
+
+  .report-hero,
+  .inventory-hero,
+  .team-hero,
+  .gerencia-hero,
+  .pdv-hero {
+    padding: 16px 14px;
+    gap: 12px;
+  }
+
+  .report-hero,
+  .inventory-hero,
+  .team-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .report-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-filter-actions {
+    margin-top: 12px;
+  }
+
+  .pdv-hero {
+    gap: 14px;
+  }
+
+  .pdv-status-bar {
+    top: calc(10px + env(safe-area-inset-top));
+  }
+
+  .pdv-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .pdv-product-card {
+    min-height: 156px;
+    padding: 10px;
+  }
+
+  .pdv-product-image,
+  .pdv-product-fallback {
+    width: 64px;
+    height: 64px;
+  }
+
+  .pdv-category-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pdv-order-panel .section-title,
+  .pdv-catalog-panel .section-title,
+  .fechamento-card .section-title {
+    font-size: 20px;
+  }
+
+  .pdv-cart-table {
+    overflow: hidden;
+  }
+
+  .pdv-cart-table-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .pdv-cart-table-row > :nth-child(2),
+  .pdv-cart-table-row > :nth-child(3),
+  .pdv-cart-table-row > :nth-child(4) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    font-size: 14px;
+  }
+
+  .pdv-cart-table-row > :nth-child(2)::before {
+    content: "Qtd";
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .pdv-cart-table-row > :nth-child(3)::before {
+    content: "Unit";
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .pdv-cart-table-row > :nth-child(4)::before {
+    content: "Total";
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .pdv-cart-total {
+    min-height: 96px;
+    padding: 16px;
+  }
+
+  .pdv-cart-total strong {
+    font-size: 34px;
+  }
+
+  .pdv-cash-row span,
+  .pdv-cash-row strong {
+    font-size: 16px;
+  }
+
+  .ranking-item,
+  .list-row {
+    padding: 14px;
+  }
+
+  .inventory-actions {
+    max-width: none;
+  }
+
+  .inventory-grid,
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-form-card .input,
+  .team-form-card .input,
+  .team-form-card .select {
+    font-size: 15px;
+  }
+
+  .inventory-list-card .list-row-actions,
+  .team-list-card .list-row-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .inventory-list-card .mini-btn,
+  .team-list-card .mini-btn {
+    flex: 1 1 100%;
+  }
+
+  .inventory-list-card .produto-preview {
+    padding: 10px;
+  }
+
+  .inventory-list-card .estoque-thumb-row {
+    margin-top: 10px;
+  }
+
+  .gerencia-actions {
+    gap: 10px;
+  }
+
+  .gerencia-actions .action-btn,
+  .report-filter-actions .action-btn {
+    min-height: 50px;
+  }
+
+  .gerencia-focus-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gerencia-focus-item strong {
+    text-align: left;
+  }
+
+  .gerencia-disclosure {
+    padding: 16px 14px;
+  }
+
+  .gerencia-disclosure-summary > div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .report-list-card .scroll-list,
+  .gerencia-disclosure-body {
+    gap: 8px;
+  }
+}
+
 @media (max-width: 768px) {
   .dashboard {
     grid-template-columns: 1fr;
@@ -2202,6 +2548,7 @@ body::before { content: none; }
     top: 0;
     z-index: 10;
     background: rgba(244, 246, 248, 0.94);
+    max-width: 100%;
   }
 
   .sidebar-brand {
@@ -2248,6 +2595,7 @@ body::before { content: none; }
     grid-auto-columns: minmax(132px, 1fr);
     overflow-x: auto;
     padding-bottom: 2px;
+    min-width: 0;
   }
 
   .sidebar-btn {
@@ -2355,6 +2703,10 @@ body::before { content: none; }
     display: grid;
   }
 
+  .pdv-catalog-topbar {
+    gap: 12px;
+  }
+
   .pdv-search-input {
     width: 100%;
   }
@@ -2375,7 +2727,7 @@ body::before { content: none; }
   }
 
   .pdv-cart-table-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .list-row-actions {
@@ -2422,6 +2774,17 @@ body::before { content: none; }
     text-align: center;
   }
 
+  .report-hero {
+    align-items: center;
+    text-align: center;
+  }
+
+  .inventory-hero,
+  .team-hero {
+    align-items: center;
+    text-align: center;
+  }
+
   .pdv-card-primary {
     padding: 18px 16px;
   }
@@ -2461,6 +2824,13 @@ body::before { content: none; }
     grid-template-columns: 1fr;
   }
 
+  .report-dual-grid,
+  .inventory-grid,
+  .team-grid,
+  .report-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
   .scroll-list,
   .pdv-sales-list {
     max-height: none;
@@ -2468,6 +2838,99 @@ body::before { content: none; }
 
   .system-footer {
     padding: 14px 16px 24px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .content {
+    padding: 18px;
+  }
+
+  .dashboard-screen {
+    gap: 18px;
+  }
+
+  .section-card,
+  .user-card,
+  .balance-card {
+    padding: 18px;
+  }
+
+  .pdv-shell.is-open {
+    grid-template-columns: 1fr;
+  }
+
+  .pdv-sales-column {
+    position: static;
+  }
+
+  .pdv-catalog-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    align-items: end;
+  }
+
+  .report-hero {
+    align-items: flex-start;
+  }
+
+  .inventory-hero,
+  .team-hero {
+    align-items: flex-start;
+  }
+
+  .report-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pdv-product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pdv-order-actions-row,
+  .pdv-order-submit-row,
+  .pdv-payment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pdv-live-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .stats-grid,
+  .screen-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gerencia-actions,
+  .gerencia-stats-grid,
+  .gerencia-micro-grid,
+  .ranking-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-dual-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-grid,
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-actions {
+    max-width: none;
+  }
+
+  .gerencia-focus-grid,
+  .gerencia-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fechamento-grid,
+  .fechamento-pagamentos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

@@ -498,15 +498,24 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       <div className="stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Entradas</span>
-          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
+          <strong className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.entradas)}
+          </strong>
+          <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Gastos</span>
-          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
+          <strong className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.gastos)}
+          </strong>
+          <small className="stat-note">Despesas + retiradas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.emCaixa)}</strong>
+          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.emCaixa)}
+          </strong>
+          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
         </div>
       </div>
 
@@ -516,6 +525,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
           <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
+          <small className="stat-note">Entradas - gastos.</small>
         </div>
       </div>
 

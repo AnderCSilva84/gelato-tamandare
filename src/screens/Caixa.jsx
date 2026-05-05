@@ -181,6 +181,32 @@ function clearStoredSession() {
   window.localStorage.removeItem(STORAGE_KEY);
 }
 
+function canRestoreStoredSession(session, accessUserId, accessRole) {
+  if (!session?.id || !accessUserId) return false;
+
+  if (session.accessUserId && session.accessUserId !== accessUserId) {
+    return false;
+  }
+
+  if (session.accessRole && session.accessRole !== accessRole) {
+    return false;
+  }
+
+  if (!session.accessUserId && session.atendenteId && session.atendenteId !== accessUserId) {
+    return false;
+  }
+
+  return true;
+}
+
+function bindStoredSession(session, accessUserId, accessRole) {
+  return {
+    ...session,
+    accessUserId: accessUserId || "",
+    accessRole,
+  };
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -229,12 +255,13 @@ export default function Caixa({
 }) {
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
-  const [caixaAtualId, setCaixaAtualId] = useState(() => readStoredSession()?.id || "");
-  const [caixaAtual, setCaixaAtual] = useState(() => readStoredSession());
+  const [caixaAtualId, setCaixaAtualId] = useState("");
+  const [caixaAtual, setCaixaAtual] = useState(null);
   const [vendasCaixa, setVendasCaixa] = useState([]);
   const [vendasRankingMes, setVendasRankingMes] = useState([]);
   const [caixasRankingMes, setCaixasRankingMes] = useState([]);
   const [caixasGerenciaDia, setCaixasGerenciaDia] = useState([]);
+  const [caixasDoDia, setCaixasDoDia] = useState([]);
   const [retiradasCaixa, setRetiradasCaixa] = useState([]);
   const [salvandoVenda, setSalvandoVenda] = useState(false);
   const [salvandoRetirada, setSalvandoRetirada] = useState(false);
@@ -267,20 +294,38 @@ export default function Caixa({
   });
   const [itensVenda, setItensVenda] = useState([]);
 
+  function resetCaixaState() {
+    setCaixaAtual(null);
+    setCaixaAtualId("");
+    setVendasCaixa([]);
+    setRetiradasCaixa([]);
+    setMostrandoResumoExpandido(false);
+  }
+
   useEffect(() => {
     const caixaSalvo = readStoredSession();
-    if (!caixaSalvo?.id) return;
+    if (!accessUser?.id) {
+      resetCaixaState();
+      return;
+    }
+
+    if (!canRestoreStoredSession(caixaSalvo, accessUser.id, accessRole)) {
+      resetCaixaState();
+      return;
+    }
 
     getCaixa(caixaSalvo.id).then((caixa) => {
       if (caixa?.status === "aberto") {
+        const sessao = bindStoredSession(caixa, accessUser.id, accessRole);
         setCaixaAtualId(caixa.id);
-        setCaixaAtual(caixa);
-        writeStoredSession(caixa);
+        setCaixaAtual(sessao);
+        writeStoredSession(sessao);
       } else {
         clearStoredSession();
+        resetCaixaState();
       }
     });
-  }, []);
+  }, [accessRole, accessUser?.id]);
 
   useEffect(() => {
     if (!uid) return;
@@ -302,14 +347,23 @@ export default function Caixa({
   }, [uid, dataHoje]);
 
   useEffect(() => {
-    if (accessRole !== "gerencia" || !dataHoje) {
+    if (!dataHoje) {
+      setCaixasDoDia([]);
+      return;
+    }
+
+    const unsub = subscribeCaixasPeriodo(dataHoje, dataHoje, setCaixasDoDia);
+    return () => unsub();
+  }, [dataHoje]);
+
+  useEffect(() => {
+    if (accessRole !== "gerencia") {
       setCaixasGerenciaDia([]);
       return;
     }
 
-    const unsub = subscribeCaixasPeriodo(dataHoje, dataHoje, setCaixasGerenciaDia);
-    return () => unsub();
-  }, [accessRole, dataHoje]);
+    setCaixasGerenciaDia(caixasDoDia);
+  }, [accessRole, caixasDoDia]);
 
   useEffect(() => {
     setVendaForm((prev) => {
@@ -322,23 +376,22 @@ export default function Caixa({
   }, [accessRole, dataHoje]);
 
   useEffect(() => {
+    if (!caixaAtualId) return () => {};
+
     const unsub = subscribeCaixa(caixaAtualId, (caixa) => {
       if (!caixa || caixa.status !== "aberto") {
-        setCaixaAtual(null);
-        setCaixaAtualId("");
-        setVendasCaixa([]);
-        setRetiradasCaixa([]);
-        setMostrandoResumoExpandido(false);
+        resetCaixaState();
         clearStoredSession();
         return;
       }
 
-      setCaixaAtual(caixa);
-      writeStoredSession(caixa);
+      const sessao = bindStoredSession(caixa, accessUser?.id, accessRole);
+      setCaixaAtual(sessao);
+      writeStoredSession(sessao);
     });
 
     return () => unsub();
-  }, [caixaAtualId]);
+  }, [accessRole, accessUser?.id, caixaAtualId]);
 
   useEffect(() => {
     const unsub = subscribeVendasPorCaixa(caixaAtualId, setVendasCaixa);
@@ -491,6 +544,14 @@ export default function Caixa({
     () => caixasGerenciaDia.filter((item) => item.status === "aberto"),
     [caixasGerenciaDia]
   );
+  const caixaAbertoSelecionado = useMemo(
+    () =>
+      caixasDoDia.find(
+        (item) => item.status === "aberto" && item.atendenteId === loginForm.atendenteId
+      ) || null,
+    [caixasDoDia, loginForm.atendenteId]
+  );
+  const modoEntradaCaixa = Boolean(caixaAbertoSelecionado);
 
   useEffect(() => {
     if (!categoriasDisponiveis.includes(categoriaAtiva)) {
@@ -581,17 +642,12 @@ export default function Caixa({
     e.preventDefault();
     const atendente = atendentesAtivos.find((item) => item.id === loginForm.atendenteId);
     if (!atendente) return;
-    const fundoCaixa = Number(loginForm.fundoCaixa || 0);
 
     const senhaCadastrada = String(atendente.senha || "");
     const senhaInformada = String(loginForm.senha || "");
 
     if (senhaCadastrada && senhaCadastrada !== senhaInformada) {
-      setFeedbackCaixa("Senha invalida para abrir o caixa.");
-      return;
-    }
-    if (!Number.isFinite(fundoCaixa) || fundoCaixa < 0) {
-      setFeedbackCaixa("Informe um fundo de caixa valido.");
+      setFeedbackCaixa(`Senha invalida para ${modoEntradaCaixa ? "entrar" : "abrir"} o caixa.`);
       return;
     }
 
@@ -599,6 +655,22 @@ export default function Caixa({
     setFeedbackCaixa("");
 
     try {
+      if (caixaAbertoSelecionado) {
+        const sessao = bindStoredSession(caixaAbertoSelecionado, accessUser?.id, accessRole);
+        writeStoredSession(sessao);
+        setCaixaAtualId(caixaAbertoSelecionado.id);
+        setCaixaAtual(sessao);
+        setLoginForm({ atendenteId: "", senha: "", fundoCaixa: "" });
+        setFeedbackCaixa(`Caixa retomado para ${atendente.nome}.`);
+        return;
+      }
+
+      const fundoCaixa = Number(loginForm.fundoCaixa || 0);
+      if (!Number.isFinite(fundoCaixa) || fundoCaixa < 0) {
+        setFeedbackCaixa("Informe um fundo de caixa valido.");
+        return;
+      }
+
       const docRef = await abrirCaixa(uid, {
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
@@ -606,14 +678,14 @@ export default function Caixa({
         fundoCaixa,
       });
 
-      const sessao = {
+      const sessao = bindStoredSession({
         id: docRef.id,
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
         data: dataHoje,
         fundoCaixa,
         status: "aberto",
-      };
+      }, accessUser?.id, accessRole);
 
       writeStoredSession(sessao);
       setCaixaAtualId(docRef.id);
@@ -1082,8 +1154,12 @@ export default function Caixa({
         {!caixaAtual ? (
           <div className="section-card pdv-card pdv-card-primary">
             <div className="section-header">
-              <div className="section-title">Abrir caixa</div>
-              <span className="section-subtitle">Entre com o atendente para iniciar o turno.</span>
+              <div className="section-title">{modoEntradaCaixa ? "Entrar no caixa" : "Abrir caixa"}</div>
+              <span className="section-subtitle">
+                {modoEntradaCaixa
+                  ? "Esse atendente ja possui um caixa aberto hoje."
+                  : "Entre com o atendente para iniciar o turno."}
+              </span>
             </div>
             <form className="stack-form" onSubmit={iniciarCaixa}>
               <select
@@ -1109,24 +1185,32 @@ export default function Caixa({
                 placeholder="Senha do atendente"
               />
 
-              <input
-                className="input pdv-input"
-                type="number"
-                min="0"
-                step="0.01"
-                value={loginForm.fundoCaixa}
-                onChange={(e) =>
-                  setLoginForm((prev) => ({ ...prev, fundoCaixa: e.target.value }))
-                }
-                placeholder="Fundo de caixa inicial"
-              />
+              {!modoEntradaCaixa ? (
+                <input
+                  className="input pdv-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={loginForm.fundoCaixa}
+                  onChange={(e) =>
+                    setLoginForm((prev) => ({ ...prev, fundoCaixa: e.target.value }))
+                  }
+                  placeholder="Fundo de caixa inicial"
+                />
+              ) : null}
 
               <button
                 className="action-btn action-btn-primary pdv-submit"
                 type="submit"
                 disabled={abrindoSessao}
               >
-                {abrindoSessao ? "Abrindo..." : "Entrar no caixa"}
+                {abrindoSessao
+                  ? modoEntradaCaixa
+                    ? "Entrando..."
+                    : "Abrindo..."
+                  : modoEntradaCaixa
+                    ? "Entrar no caixa"
+                    : "Abrir caixa"}
               </button>
 
               {feedbackCaixa && <p className="inline-feedback">{feedbackCaixa}</p>}

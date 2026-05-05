@@ -483,30 +483,33 @@ export default function Relatorio({ uid, dataHoje }) {
 
   return (
     <div className="dashboard-screen">
-      <div className="screen-heading">
+      <div className="screen-heading section-card report-hero">
         <div>
           <h1 className="screen-title">RelatÃ³rio</h1>
           <p className="screen-description">Resumo de vendas, despesas e lucro por data.</p>
         </div>
+        <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
       </div>
 
       <div className="section-card filter-card">
         <div className="section-header">
           <div className="section-title">Filtro por periodo</div>
         </div>
-        <input
-          className="input"
-          type="date"
-          value={dataInicioFiltro}
-          onChange={(e) => setDataInicioFiltro(e.target.value)}
-        />
-        <input
-          className="input"
-          type="date"
-          value={dataFimFiltro}
-          onChange={(e) => setDataFimFiltro(e.target.value)}
-        />
-        <div className="section-actions">
+        <div className="report-filter-grid">
+          <input
+            className="input"
+            type="date"
+            value={dataInicioFiltro}
+            onChange={(e) => setDataInicioFiltro(e.target.value)}
+          />
+          <input
+            className="input"
+            type="date"
+            value={dataFimFiltro}
+            onChange={(e) => setDataFimFiltro(e.target.value)}
+          />
+        </div>
+        <div className="section-actions report-filter-actions">
           <button className="action-btn action-btn-warning" type="button" onClick={exportarRelatorioPDF}>
             Exportar PDF
           </button>
@@ -548,34 +551,42 @@ export default function Relatorio({ uid, dataHoje }) {
         </div>
       </div>
 
-      <div className="stats-grid">
+      <div className="stats-grid report-result-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Entradas</span>
-          <strong className="stat-value positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
+          <strong className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.entradas)}
+          </strong>
+          <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Gastos</span>
-          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
+          <strong className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}>
+            {formatMoney(resumoFinanceiro.gastos)}
+          </strong>
+          <small className="stat-note">Despesas + retiradas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className="stat-value positive">
+          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
+          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
         </div>
       </div>
 
-      <div className="stats-grid">
+      <div className="stats-grid report-summary-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Resultado</span>
           <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
+          <small className="stat-note">Entradas - gastos.</small>
         </div>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      <div className="screen-grid report-dual-grid">
+        <div className="section-card report-list-card">
           <div className="section-header">
             <div className="section-title">Vendas do periodo</div>
           </div>
@@ -595,7 +606,7 @@ export default function Relatorio({ uid, dataHoje }) {
           </div>
         </div>
 
-        <div className="section-card">
+        <div className="section-card report-list-card">
           <div className="section-header">
             <div className="section-title">Saidas do periodo</div>
           </div>
@@ -614,8 +625,8 @@ export default function Relatorio({ uid, dataHoje }) {
         </div>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      <div className="screen-grid report-dual-grid">
+        <div className="section-card report-list-card">
           <div className="section-header">
             <div className="section-title">Caixas dos atendentes</div>
             <span className="section-subtitle">{caixas.length} caixas no periodo</span>
@@ -669,7 +680,7 @@ export default function Relatorio({ uid, dataHoje }) {
           </div>
         </div>
 
-        <div className="section-card">
+        <div className="section-card report-list-card">
           <div className="section-header">
             <div className="section-title">
               {caixaSelecionado

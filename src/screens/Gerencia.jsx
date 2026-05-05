@@ -220,9 +220,10 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
       <div className="stats-grid gerencia-stats-grid gerencia-stats-grid-compact">
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className="stat-value positive">
+          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
+          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Alertas</span>
@@ -235,11 +236,17 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
       <div className="gerencia-micro-grid">
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Entradas</span>
-          <strong className="positive">{formatMoney(resumoFinanceiro.entradas)}</strong>
+          <strong className={resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}>
+            {formatMoney(resumoFinanceiro.entradas)}
+          </strong>
+          <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Gastos</span>
-          <strong className="negative">{formatMoney(resumoFinanceiro.gastos)}</strong>
+          <strong className={resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}>
+            {formatMoney(resumoFinanceiro.gastos)}
+          </strong>
+          <small className="stat-note">Despesas + retiradas.</small>
         </div>
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Caixas abertos</span>

@@ -235,14 +235,15 @@ export default function Estoque({ uid }) {
 
   return (
     <div className="dashboard-screen">
-      <div className="screen-heading">
+      <div className="screen-heading section-card inventory-hero">
         <div>
           <h1 className="screen-title">Estoque</h1>
           <p className="screen-description">Cadastro, edição e controle de produtos.</p>
         </div>
+        <span className="screen-badge">Produtos e saldo</span>
       </div>
 
-      <div className="stats-grid">
+      <div className="stats-grid inventory-stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Unidades restantes</span>
           <strong className="stat-value positive">{totalUnidades}</strong>
@@ -259,7 +260,7 @@ export default function Estoque({ uid }) {
         </div>
       </div>
 
-      <div className="section-actions">
+      <div className="section-actions inventory-actions">
         <button className="action-btn action-btn-info" type="button" onClick={exportarInventarioPDF}>
           PDF Inventario
         </button>
@@ -268,8 +269,8 @@ export default function Estoque({ uid }) {
         </button>
       </div>
 
-      <div className="screen-grid">
-        <div className="section-card">
+      <div className="screen-grid inventory-grid">
+        <div className="section-card inventory-form-card">
           <div className="section-header">
             <div className="section-title">{editandoId ? "Editar produto" : "Novo produto"}</div>
           </div>
@@ -341,7 +342,7 @@ export default function Estoque({ uid }) {
           </form>
         </div>
 
-        <div className="section-card">
+        <div className="section-card inventory-list-card">
           <div className="section-header">
             <div className="section-title">Lista de produtos</div>
             <span className="section-subtitle">{loading ? "Carregando..." : `${produtos.length} itens`}</span>

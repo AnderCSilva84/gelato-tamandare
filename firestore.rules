@@ -2,8 +2,98 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /atendentes/{document=**} {
-      allow read, write: if true;
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function panelAccessPath(uid) {
+      return /databases/$(database)/documents/acessos_painel/$(uid);
+    }
+
+    function hasPanelAccess() {
+      return isSignedIn() && exists(panelAccessPath(request.auth.uid));
+    }
+
+    function myPanelAccess() {
+      return get(panelAccessPath(request.auth.uid));
+    }
+
+    function myRole() {
+      return hasPanelAccess() ? myPanelAccess().data.role : null;
+    }
+
+    function isManagement() {
+      return myRole() == "gerencia" || myRole() == "superadmin";
+    }
+
+    function isSuperadmin() {
+      return myRole() == "superadmin";
+    }
+
+    function attendeePath(id) {
+      return /databases/$(database)/documents/atendentes/$(id);
+    }
+
+    function attendeeDoc(id) {
+      return get(attendeePath(id));
+    }
+
+    function attendeeExists(id) {
+      return exists(attendeePath(id));
+    }
+
+    function isBootstrappableSuperadmin(id) {
+      return attendeeExists(id)
+        && attendeeDoc(id).data.role == "superadmin"
+        && (attendeeDoc(id).data.authUid == null || attendeeDoc(id).data.authUid == "");
+    }
+
+    function isPromotingToSuperadmin() {
+      return request.resource.data.role == "superadmin";
+    }
+
+    function isStoredSuperadmin() {
+      return resource.data.role == "superadmin";
+    }
+
+    function isBootstrapBindingUpdate() {
+      return isSignedIn()
+        && resource.data.role == "superadmin"
+        && (resource.data.authUid == null || resource.data.authUid == "")
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.nome == resource.data.nome
+        && request.resource.data.meta == resource.data.meta
+        && request.resource.data.senha == resource.data.senha
+        && request.resource.data.ativo == resource.data.ativo;
+    }
+
+    match /acessos_painel/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperadmin());
+      allow create: if isSignedIn() && (
+        isSuperadmin()
+        || (
+          request.auth.uid == uid
+          && isBootstrappableSuperadmin(request.resource.data.atendenteId)
+          && request.resource.data.role == "superadmin"
+        )
+      );
+      allow update, delete: if isSignedIn() && isSuperadmin();
+    }
+
+    match /atendentes/{document} {
+      allow read: if true;
+      allow create: if isManagement() && (!isPromotingToSuperadmin() || isSuperadmin());
+      allow update: if isBootstrapBindingUpdate()
+        || (isManagement()
+          && !isStoredSuperadmin()
+          && (!isPromotingToSuperadmin() || isSuperadmin()));
+      allow delete: if isManagement() && (!isStoredSuperadmin() || isSuperadmin());
+    }
+
+    match /configuracoes/{document} {
+      allow read: if true;
+      allow write: if isSuperadmin();
     }
 
     match /produtos/{document=**} {

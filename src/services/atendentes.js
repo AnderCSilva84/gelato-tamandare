@@ -11,12 +11,9 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { normalizeRole } from "../utils/access";
 
 const atendentesRef = collection(db, "atendentes");
-
-function normalizeRole(value) {
-  return value === "gerencia" ? "gerencia" : "atendente";
-}
 
 function cleanData(data) {
   return Object.fromEntries(
@@ -35,6 +32,8 @@ export async function addAtendente(uid, dados) {
     meta: Number(dados?.meta || 0),
     senha: String(dados?.senha || "").trim(),
     role: normalizeRole(dados?.role),
+    emailAcesso: String(dados?.emailAcesso || "").trim().toLowerCase(),
+    authUid: String(dados?.authUid || "").trim(),
     ativo: dados?.ativo ?? true,
     criadoEm: serverTimestamp(),
   });
@@ -51,6 +50,10 @@ export async function updateAtendente(id, dados) {
       meta: dados?.meta !== undefined ? Number(dados.meta) : undefined,
       senha: dados?.senha !== undefined ? String(dados.senha).trim() : undefined,
       role: dados?.role !== undefined ? normalizeRole(dados.role) : undefined,
+      emailAcesso:
+        dados?.emailAcesso !== undefined ? String(dados.emailAcesso).trim().toLowerCase() : undefined,
+      authUid: dados?.authUid !== undefined ? String(dados.authUid).trim() : undefined,
+      ativo: dados?.ativo,
     })
   );
 }

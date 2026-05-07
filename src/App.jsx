@@ -8,7 +8,11 @@ import {
   hojeISO,
   mesISO,
 } from "./services/lancamentos";
-import { subscribeAtendentes } from "./services/atendentes";
+import { subscribeAtendentes, updateAtendente } from "./services/atendentes";
+import { login as loginPainel, logout as logoutPainel, observeAuth, registerAndLogin } from "./services/auth";
+import { savePanelAccess, subscribePanelAccess } from "./services/panelAccess";
+import { DEFAULT_SYSTEM_CONFIG, subscribeSystemConfig } from "./services/sistema";
+import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "./utils/access";
 import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
 import "./styles.css";
@@ -21,10 +25,8 @@ const TelaFluxoCaixa = lazy(() => import("./screens/FluxoCaixa"));
 const TelaGerencia = lazy(() => import("./screens/Gerencia"));
 const TelaRelatorio = lazy(() => import("./screens/Relatorio"));
 
-const TEMP_USER = { uid: "gelato-local" };
-const ACCESS_STORAGE_KEY = "gelato-painel-access";
-const LAST_ACCESS_STORAGE_KEY = "gelato-painel-last-access";
-const PDV_STORAGE_KEY = "gelato-caixa-atual";
+const BUSINESS_USER = { uid: "gelato-local" };
+const LAST_LOGIN_EMAIL_KEY = "gelato-painel-last-email";
 const NAV_ITEMS = [
   { id: "gerencia", label: "Gerencia", gerenciaOnly: true },
   { id: "pdv", label: "PDV" },
@@ -127,79 +129,33 @@ function isRetroativo(mesLancamento) {
   return mesLancamento !== mesISO();
 }
 
-function normalizeRole(role) {
-  return role === "gerencia" ? "gerencia" : "atendente";
+function readLastLoginEmail() {
+  return window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) || "";
 }
 
-function readAccessSession() {
-  try {
-    const raw = window.localStorage.getItem(ACCESS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeAccessSession(session) {
-  window.localStorage.setItem(ACCESS_STORAGE_KEY, JSON.stringify(session));
-}
-
-function clearAccessSession() {
-  window.localStorage.removeItem(ACCESS_STORAGE_KEY);
-}
-
-function readLastAccessSession() {
-  try {
-    const raw = window.localStorage.getItem(LAST_ACCESS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastAccessSession(session) {
-  window.localStorage.setItem(LAST_ACCESS_STORAGE_KEY, JSON.stringify(session));
-}
-
-function clearLastAccessSession() {
-  window.localStorage.removeItem(LAST_ACCESS_STORAGE_KEY);
-}
-
-function readPdvSession() {
-  try {
-    const raw = window.localStorage.getItem(PDV_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function hasRestorablePdvSession(atendente) {
-  if (!atendente?.id) return false;
-
-  const pdvSession = readPdvSession();
-  if (!pdvSession?.id) return false;
-
-  const role = normalizeRole(atendente.role);
-
-  if (pdvSession.accessUserId) {
-    return pdvSession.accessUserId === atendente.id && pdvSession.accessRole === role;
-  }
-
-  return pdvSession.atendenteId === atendente.id;
+function writeLastLoginEmail(email) {
+  window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, String(email || "").trim().toLowerCase());
 }
 
 export default function App() {
-  const [user] = useState(TEMP_USER);
+  const [user] = useState(BUSINESS_USER);
   const [tela, setTela] = useState("pdv");
   const [atendentes, setAtendentes] = useState([]);
-  const [atendentesLoaded, setAtendentesLoaded] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [panelAccess, setPanelAccess] = useState(null);
   const [accessForm, setAccessForm] = useState(() => ({
-    atendenteId: readLastAccessSession()?.id || "",
+    email: readLastLoginEmail(),
     senha: "",
   }));
-  const [accessUserId, setAccessUserId] = useState(() => readAccessSession()?.id || "");
+  const [bootstrapForm, setBootstrapForm] = useState({
+    atendenteId: "",
+    email: "",
+    senha: "",
+    confirmarSenha: "",
+  });
   const [accessError, setAccessError] = useState("");
+  const [systemConfig, setSystemConfig] = useState(DEFAULT_SYSTEM_CONFIG);
   const [lancamentos, setLancamentos] = useState([]);
   const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [mesSelecionado, setMesSelecionado] = useState(mesISO());
@@ -228,62 +184,88 @@ export default function App() {
   useEffect(() => {
     const unsub = subscribeAtendentes(user.uid, (items) => {
       setAtendentes(items);
-      setAtendentesLoaded(true);
     });
     return () => unsub && unsub();
   }, [user.uid]);
+
+  useEffect(() => {
+    const unsub = observeAuth((nextUser) => {
+      setAuthUser(nextUser);
+      setAuthLoaded(true);
+    });
+    return () => unsub && unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribePanelAccess(authUser?.uid, setPanelAccess);
+    return () => unsub && unsub();
+  }, [authUser?.uid]);
+
+  useEffect(() => {
+    const unsub = subscribeSystemConfig(setSystemConfig);
+    return () => unsub && unsub();
+  }, []);
 
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
     [atendentes]
   );
   const hasGerencia = useMemo(
-    () => atendentesAtivos.some((item) => normalizeRole(item.role) === "gerencia"),
+    () => atendentesAtivos.some((item) => isManagementRole(item.role)),
+    [atendentesAtivos]
+  );
+  const superadminsSemAcesso = useMemo(
+    () =>
+      atendentesAtivos.filter(
+        (item) => isSuperAdminRole(item.role) && !String(item.authUid || "").trim()
+      ),
     [atendentesAtivos]
   );
   const unrestrictedSetup = !hasGerencia;
   const accessUser = useMemo(
-    () => atendentesAtivos.find((item) => item.id === accessUserId) || null,
-    [accessUserId, atendentesAtivos]
+    () => atendentesAtivos.find((item) => item.id === panelAccess?.atendenteId) || null,
+    [atendentesAtivos, panelAccess?.atendenteId]
   );
-  const accessRole = normalizeRole(accessUser?.role);
-  const painelLiberado = unrestrictedSetup || Boolean(accessUser);
+  const accessRole = normalizeRole(panelAccess?.role || accessUser?.role);
+  const painelLiberado = Boolean(authUser && panelAccess && accessUser && accessUser.ativo !== false);
   const navItems = useMemo(
     () =>
-      NAV_ITEMS.filter((item) => unrestrictedSetup || accessRole === "gerencia" || !item.gerenciaOnly),
-    [accessRole, unrestrictedSetup]
+      NAV_ITEMS.filter((item) => item.id === "pdv" || painelLiberado),
+    [painelLiberado]
   );
+  const maintenanceAdmins = useMemo(
+    () => atendentesAtivos.filter((item) => isSuperAdminRole(item.role)),
+    [atendentesAtivos]
+  );
+  const maintenanceModeEnabled = systemConfig.maintenanceMode === true;
+  const canBypassMaintenance = isSuperAdminRole(accessRole);
+  const maintenanceLocked = maintenanceModeEnabled && !canBypassMaintenance;
+  const maintenanceTitle = systemConfig.maintenanceTitle || DEFAULT_SYSTEM_CONFIG.maintenanceTitle;
+  const maintenanceMessage = systemConfig.maintenanceMessage || DEFAULT_SYSTEM_CONFIG.maintenanceMessage;
+  const shouldShowBootstrap = !authUser && superadminsSemAcesso.length > 0;
 
   useEffect(() => {
-    if (!atendentesLoaded) return;
+    if (!authLoaded) return;
 
-    if (unrestrictedSetup) {
-      clearAccessSession();
-      clearLastAccessSession();
-      if (accessUserId) {
-        setAccessUserId("");
-      }
-      return;
+    if (authUser && panelAccess && !accessUser) {
+      setAccessError("Seu acesso ao painel nao esta mais vinculado a um usuario ativo.");
     }
-
-    if (accessUserId && !accessUser) {
-      clearAccessSession();
-      setAccessUserId("");
-      setAccessError("Seu acesso expirou. Entre novamente.");
-    }
-
-    const lastAccess = readLastAccessSession();
-    if (lastAccess?.id && !atendentesAtivos.some((item) => item.id === lastAccess.id)) {
-      clearLastAccessSession();
-      setAccessForm((prev) => ({ ...prev, atendenteId: "" }));
-    }
-  }, [accessUser, accessUserId, atendentesAtivos, atendentesLoaded, unrestrictedSetup]);
+  }, [accessUser, authLoaded, authUser, panelAccess]);
 
   useEffect(() => {
     if (!navItems.some((item) => item.id === tela)) {
       setTela("pdv");
     }
   }, [navItems, tela]);
+
+  useEffect(() => {
+    if (!maintenanceModeEnabled || !authUser || !panelAccess) return;
+    if (isSuperAdminRole(panelAccess.role)) return;
+
+    logoutPainel().catch((error) => console.error(error));
+    setAccessError("Sistema em manutencao. Somente o superadmin pode acessar o painel.");
+    setTela("pdv");
+  }, [authUser, maintenanceModeEnabled, panelAccess]);
 
   const lancamentosFiltrados = useMemo(() => {
     if (!buscaDataAtiva || !dataInicio || !dataFim) return lancamentos;
@@ -306,21 +288,6 @@ export default function App() {
 
   function abrirRetroativo() {
     navigate("/retroativo");
-  }
-
-  function ativarSessaoDeAcesso(atendente) {
-    const session = {
-      id: atendente.id,
-      nome: atendente.nome,
-      role: normalizeRole(atendente.role),
-    };
-
-    writeAccessSession(session);
-    writeLastAccessSession(session);
-    setAccessUserId(atendente.id);
-    setAccessForm({ atendenteId: "", senha: "" });
-    setAccessError("");
-    setTela(hasRestorablePdvSession(atendente) ? "pdv" : session.role === "gerencia" ? "gerencia" : "pdv");
   }
 
   function toggleFiltro() {
@@ -509,48 +476,79 @@ export default function App() {
     });
   }
 
-  function entrarNoPainel(e) {
+  async function entrarNoPainel(e) {
     e.preventDefault();
-    const atendente = atendentesAtivos.find((item) => item.id === accessForm.atendenteId);
+    const email = String(accessForm.email || "").trim().toLowerCase();
+    const senha = String(accessForm.senha || "");
 
-    if (!atendente) {
-      setAccessError("Selecione um usuario ativo.");
+    if (!email || !senha) {
+      setAccessError("Informe email e senha para entrar.");
       return;
     }
 
-    const senhaCadastrada = String(atendente.senha || "");
-    const senhaInformada = String(accessForm.senha || "");
-
-    if (senhaCadastrada && senhaCadastrada !== senhaInformada) {
-      setAccessError("Senha invalida.");
-      return;
+    try {
+      await loginPainel(email, senha);
+      writeLastLoginEmail(email);
+      setAccessForm((prev) => ({ ...prev, senha: "" }));
+      setAccessError("");
+      setTela("gerencia");
+    } catch (error) {
+      console.error(error);
+      setAccessError("Nao foi possivel entrar. Verifique email, senha e o acesso do painel.");
     }
-
-    ativarSessaoDeAcesso(atendente);
   }
 
-  function sairDoPainel() {
-    clearAccessSession();
-    setAccessUserId("");
+  async function sairDoPainel() {
+    await logoutPainel();
+    setPanelAccess(null);
     setAccessForm((prev) => ({ ...prev, senha: "" }));
     setTela("pdv");
   }
 
-  function selecionarUsuarioAcesso(atendenteId) {
-    const atendente = atendentesAtivos.find((item) => item.id === atendenteId);
-    const lastAccess = readLastAccessSession();
+  async function configurarSuperadminInicial(e) {
+    e.preventDefault();
 
-    if (
-      atendente &&
-      lastAccess?.id === atendente.id &&
-      lastAccess?.role === normalizeRole(atendente.role)
-    ) {
-      ativarSessaoDeAcesso(atendente);
+    const atendente = atendentesAtivos.find((item) => item.id === bootstrapForm.atendenteId);
+    const email = String(bootstrapForm.email || "").trim().toLowerCase();
+    const senha = String(bootstrapForm.senha || "");
+    const confirmarSenha = String(bootstrapForm.confirmarSenha || "");
+
+    if (!atendente || !isSuperAdminRole(atendente.role)) {
+      setAccessError("Selecione um usuario superadmin para o acesso inicial.");
       return;
     }
 
-    setAccessForm({ atendenteId, senha: "" });
-    setAccessError("");
+    if (!email || !senha) {
+      setAccessError("Informe email e senha para criar o acesso inicial.");
+      return;
+    }
+
+    if (senha !== confirmarSenha) {
+      setAccessError("A confirmacao de senha nao confere.");
+      return;
+    }
+
+    try {
+      const cred = await registerAndLogin(email, senha);
+      await savePanelAccess(cred.user.uid, {
+        atendenteId: atendente.id,
+        nome: atendente.nome,
+        role: atendente.role,
+        ativo: atendente.ativo !== false,
+        email,
+      });
+      await updateAtendente(atendente.id, {
+        authUid: cred.user.uid,
+        emailAcesso: email,
+      });
+      writeLastLoginEmail(email);
+      setBootstrapForm({ atendenteId: "", email: "", senha: "", confirmarSenha: "" });
+      setAccessError("");
+      setTela("gerencia");
+    } catch (error) {
+      console.error(error);
+      setAccessError("Nao foi possivel configurar o acesso inicial do superadmin.");
+    }
   }
 
   const extratoSection = (
@@ -654,17 +652,69 @@ export default function App() {
                     <div className="section-header section-header-main">
                       <div className="section-title mobile-hide">Acesso</div>
                       <span className="section-subtitle">
-                        {unrestrictedSetup
-                          ? "Modo configuracao ativo"
+                        {maintenanceModeEnabled && !accessUser
+                          ? "Modo manutencao ativo"
+                          : shouldShowBootstrap
+                            ? "Configurar superadmin inicial"
+                          : unrestrictedSetup
+                            ? "Modo configuracao ativo"
                           : accessUser
-                            ? `${accessUser.nome} - ${accessRole === "gerencia" ? "Gerencia" : "Atendente"}`
-                            : "Entre para liberar o painel"}
+                            ? `${accessUser.nome} - ${getRoleLabel(accessRole)}`
+                            : "Entre para liberar a gerencia"}
                       </span>
                     </div>
 
-                    {unrestrictedSetup ? (
+                    {shouldShowBootstrap ? (
+                      <form className="stack-form" onSubmit={configurarSuperadminInicial}>
+                        <select
+                          className="input select"
+                          value={bootstrapForm.atendenteId}
+                          onChange={(e) =>
+                            setBootstrapForm((prev) => ({ ...prev, atendenteId: e.target.value }))
+                          }
+                        >
+                          <option value="">Selecione o superadmin</option>
+                          {superadminsSemAcesso.map((atendente) => (
+                            <option key={atendente.id} value={atendente.id}>
+                              {atendente.nome} - Superadmin
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="input"
+                          type="email"
+                          value={bootstrapForm.email}
+                          onChange={(e) =>
+                            setBootstrapForm((prev) => ({ ...prev, email: e.target.value }))
+                          }
+                          placeholder="Email do superadmin"
+                        />
+                        <input
+                          className="input"
+                          type="password"
+                          value={bootstrapForm.senha}
+                          onChange={(e) =>
+                            setBootstrapForm((prev) => ({ ...prev, senha: e.target.value }))
+                          }
+                          placeholder="Senha de acesso ao painel"
+                        />
+                        <input
+                          className="input"
+                          type="password"
+                          value={bootstrapForm.confirmarSenha}
+                          onChange={(e) =>
+                            setBootstrapForm((prev) => ({ ...prev, confirmarSenha: e.target.value }))
+                          }
+                          placeholder="Confirmar senha"
+                        />
+                        <button className="action-btn action-btn-primary" type="submit">
+                          Criar acesso inicial
+                        </button>
+                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                      </form>
+                    ) : unrestrictedSetup ? (
                       <p className="sidebar-access-note">
-                        Cadastre pelo menos um usuario com role gerencia em Atendentes para ativar o controle de acesso.
+                        Cadastre pelo menos um usuario com role gerencia ou superadmin em Atendentes para ativar o controle de acesso.
                       </p>
                     ) : accessUser ? (
                       <div className="sidebar-access-actions">
@@ -674,24 +724,19 @@ export default function App() {
                       </div>
                     ) : (
                       <form className="stack-form" onSubmit={entrarNoPainel}>
-                        <select
-                          className="input select"
-                          value={accessForm.atendenteId}
-                          onChange={(e) => selecionarUsuarioAcesso(e.target.value)}
-                        >
-                          <option value="">Selecione o usuario</option>
-                          {atendentesAtivos.map((atendente) => (
-                            <option key={atendente.id} value={atendente.id}>
-                              {atendente.nome} - {normalizeRole(atendente.role) === "gerencia" ? "Gerencia" : "Atendente"}
-                            </option>
-                          ))}
-                        </select>
+                        <input
+                          className="input"
+                          type="email"
+                          value={accessForm.email}
+                          onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                          placeholder="Email de acesso"
+                        />
                         <input
                           className="input"
                           type="password"
                           value={accessForm.senha}
                           onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
-                          placeholder="Senha"
+                          placeholder="Senha de acesso"
                         />
                         <button className="action-btn action-btn-primary" type="submit">
                           Entrar no painel
@@ -709,7 +754,7 @@ export default function App() {
                           className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
                           onClick={() => setTela(item.id)}
                           type="button"
-                          disabled={!painelLiberado}
+                          disabled={item.id !== "pdv" && !painelLiberado}
                         >
                           {item.label}
                         </button>
@@ -719,7 +764,55 @@ export default function App() {
                 </aside>
 
                 <main className="content">
-                  {painelLiberado ? (
+                  {maintenanceLocked ? (
+                    <div className="dashboard-screen maintenance-screen">
+                      <div className="section-card access-block-card maintenance-card">
+                        <div className="section-header section-header-main">
+                          <div className="section-title">{maintenanceTitle}</div>
+                          <span className="section-subtitle">Acesso temporariamente restrito</span>
+                        </div>
+                        <p className="screen-description">{maintenanceMessage}</p>
+                        {maintenanceAdmins.length ? (
+                          <>
+                            <p className="helper-text">O superadmin ainda pode entrar para reativar o sistema.</p>
+                            <form className="stack-form" onSubmit={entrarNoPainel}>
+                              <input
+                                className="input"
+                                type="email"
+                                value={accessForm.email}
+                                onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                                placeholder="Email do superadmin"
+                              />
+                              <input
+                                className="input"
+                                type="password"
+                                value={accessForm.senha}
+                                onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                                placeholder="Senha do superadmin"
+                                />
+                                <button className="action-btn action-btn-primary" type="submit">
+                                  Entrar como superadmin
+                                </button>
+                              {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                            </form>
+                          </>
+                          ) : (
+                            <p className="inline-feedback">
+                              Nenhum usuario superadmin esta disponivel para desativar a manutencao pelo painel.
+                            </p>
+                          )}
+                      </div>
+                    </div>
+                  ) : tela === "pdv" ? (
+                    <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
+                      <TelaCaixa
+                        uid={user.uid}
+                        dataHoje={hojeISO()}
+                        accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
+                        accessUser={accessUser}
+                      />
+                    </Suspense>
+                  ) : painelLiberado ? (
                     <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                       {tela === "gerencia" && (
                         <TelaGerencia
@@ -727,19 +820,15 @@ export default function App() {
                           dataHoje={hojeISO()}
                           onNavigate={setTela}
                           accessUser={accessUser}
+                          systemConfig={systemConfig}
                         />
                       )}
                       {tela === "pdv" && (
-                        <TelaCaixa
-                          uid={user.uid}
-                          dataHoje={hojeISO()}
-                          accessRole={unrestrictedSetup ? "gerencia" : accessRole}
-                          accessUser={accessUser}
-                        />
+                        <TelaCaixa uid={user.uid} dataHoje={hojeISO()} accessRole={accessRole} accessUser={accessUser} />
                       )}
                       {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
                       {tela === "estoque" && <TelaEstoque uid={user.uid} />}
-                      {tela === "atendentes" && <TelaAtendentes uid={user.uid} />}
+                      {tela === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
                       {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
                     </Suspense>
                   ) : (
@@ -747,10 +836,10 @@ export default function App() {
                       <div className="section-card access-block-card">
                         <div className="section-header section-header-main">
                           <div className="section-title">Painel bloqueado</div>
-                          <span className="section-subtitle">Entre com um usuario cadastrado para continuar</span>
+                          <span className="section-subtitle">Entre com um usuario autenticado para continuar</span>
                         </div>
                         <p className="screen-description">
-                          Usuarios com role atendente acessam apenas o PDV. Usuarios com role gerencia acessam todo o sistema.
+                          O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha.
                         </p>
                       </div>
                     </div>

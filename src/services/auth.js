@@ -1,5 +1,6 @@
-import { auth } from "./firebase";
+import { auth, secondaryAuth } from "./firebase";
 import {
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut,
@@ -15,4 +16,14 @@ export function login(email, senha) {
 
 export function logout() {
   return signOut(auth);
+}
+
+export async function createPanelAuthUser(email, senha) {
+  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, senha);
+  await signOut(secondaryAuth);
+  return cred.user;
+}
+
+export function registerAndLogin(email, senha) {
+  return createUserWithEmailAndPassword(auth, email, senha);
 }

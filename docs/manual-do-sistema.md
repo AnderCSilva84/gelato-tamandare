@@ -17,6 +17,13 @@ O sistema Gelato Tamandare foi feito para operar o dia a dia da loja. Ele organi
 - Gera relatorios
 - Controla despesas e historico financeiro
 
+### Superadmin
+- Tem todos os acessos da gerencia
+- Pode ativar e desativar o modo manutencao
+- Pode definir o titulo e a mensagem exibidos quando o sistema estiver fora do ar
+- Pode criar o primeiro acesso autenticado do painel
+- Pode promover novos superadmins
+
 ## Modulos
 ### 1. PDV / Caixa
 Serve para abrir o caixa e registrar as vendas do turno.
@@ -52,6 +59,12 @@ Tela de visao rapida do dia.
 - Saidas do dia
 - Alertas de estoque
 
+#### Controle de manutencao
+- O superadmin pode ativar o modo manutencao
+- Pode definir o titulo e a mensagem que aparecerao na tela de bloqueio
+- Quando a manutencao estiver ativa, somente usuarios com role superadmin conseguem entrar no sistema
+- O proprio superadmin pode desativar a manutencao pelo painel
+
 ### 3. Fluxo de caixa
 Area administrativa de movimentacao financeira.
 
@@ -79,10 +92,11 @@ Controle de usuarios do sistema.
 
 #### O que faz
 - Cadastrar atendente
-- Definir senha
+- Definir senha operacional
 - Definir role
 - Definir meta
 - Ativar ou desativar
+- Vincular email e senha de acesso ao painel para gerencia e superadmin
 
 ### 6. Relatorios
 Analise por periodo.
@@ -129,9 +143,15 @@ Entradas - gastos.
 6. Exportar PDF de fechamento.
 7. Fechar caixa.
 
+## Acesso ao painel
+- O PDV continua disponivel mesmo sem login na gerencia
+- As telas de gerencia, estoque, atendentes, fluxo e relatorios exigem email e senha de acesso ao painel
+- A senha operacional do atendente continua separada e e usada no fluxo do caixa
+- Se ainda nao existir nenhum acesso autenticado, o sistema mostra a configuracao inicial do superadmin na barra lateral
+
 ## Observacoes importantes
 - Retirada e despesa nao sao a mesma coisa.
 - Retirada afeta diretamente o valor disponivel em caixa.
 - Despesa entra no gasto total.
 - O sistema busca evitar redundancia entre indicadores.
-
+- O modo manutencao e indicado para tirar o sistema do ar sem desligar a hospedagem.

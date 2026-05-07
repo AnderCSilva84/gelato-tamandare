@@ -12,6 +12,7 @@ import {
 } from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
+import { isManagementRole } from "../utils/access";
 import {
   addVenda,
   getVendasPorCaixa,
@@ -357,7 +358,7 @@ export default function Caixa({
   }, [dataHoje]);
 
   useEffect(() => {
-    if (accessRole !== "gerencia") {
+    if (!isManagementRole(accessRole)) {
       setCaixasGerenciaDia([]);
       return;
     }
@@ -368,7 +369,7 @@ export default function Caixa({
   useEffect(() => {
     setVendaForm((prev) => {
       if (prev.data === dataHoje) return prev;
-      if (accessRole !== "gerencia") {
+      if (!isManagementRole(accessRole)) {
         return { ...prev, data: dataHoje };
       }
       return prev.data ? prev : { ...prev, data: dataHoje };
@@ -585,7 +586,7 @@ export default function Caixa({
       quantidade: 1,
       formaPagamento: "PIX",
       valorRecebido: "",
-      data: accessRole === "gerencia" ? vendaForm.data || dataHoje : dataHoje,
+      data: isManagementRole(accessRole) ? vendaForm.data || dataHoje : dataHoje,
     });
     setItensVenda([]);
   }
@@ -979,7 +980,7 @@ export default function Caixa({
       const formaPagamento = vendaForm.formaPagamento;
       const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
       const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
-      const dataVenda = accessRole === "gerencia" ? String(vendaForm.data || "").trim() : dataHoje;
+      const dataVenda = isManagementRole(accessRole) ? String(vendaForm.data || "").trim() : dataHoje;
 
       if (!dataVenda) {
         setFeedbackVenda("Selecione uma data valida para a venda.");
@@ -1116,7 +1117,7 @@ export default function Caixa({
         </div>
       ) : null}
 
-      {accessRole === "gerencia" && caixasAbertosGerencia.length ? (
+      {isManagementRole(accessRole) && caixasAbertosGerencia.length ? (
         <div className="section-card">
           <div className="section-header">
             <div className="section-title">Fechamento pela gerencia</div>
@@ -1403,7 +1404,7 @@ export default function Caixa({
               ) : null}
 
               <form className="pdv-order-form" onSubmit={registrarVenda}>
-                {accessRole === "gerencia" ? (
+                {isManagementRole(accessRole) ? (
                   <input
                     className="input pdv-panel-input"
                     type="date"
@@ -1719,7 +1720,7 @@ export default function Caixa({
 
       {toastVenda ? <div className="toast-popup">{toastVenda}</div> : null}
 
-      {accessRole === "gerencia" ? (
+      {isManagementRole(accessRole) ? (
       <div className="section-card ranking-card ranking-card-footer">
         <div className="section-header">
           <div className="section-title">Ranking do Mes</div>

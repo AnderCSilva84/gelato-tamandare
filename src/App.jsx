@@ -168,8 +168,60 @@ export default function App() {
   const [retroDescricao, setRetroDescricao] = useState("");
   const [retroValor, setRetroValor] = useState("");
   const [retroTipo, setRetroTipo] = useState("SAIDA");
+  const [isTabletPortrait, setIsTabletPortrait] = useState(false);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+
+    function isTabletViewport() {
+      const menorLado = Math.min(window.innerWidth, window.innerHeight);
+      return mediaQuery.matches && menorLado >= 600;
+    }
+
+    async function tentarPaisagem() {
+      if (!isTabletViewport()) return;
+
+      try {
+        if (window.screen?.orientation?.lock) {
+          await window.screen.orientation.lock("landscape");
+        }
+      } catch {
+        // Ignora navegadores que nao permitem lock programatico fora do contexto suportado.
+      }
+    }
+
+    function atualizarOrientacao() {
+      const tablet = isTabletViewport();
+      const retrato = window.innerHeight > window.innerWidth;
+      setIsTabletPortrait(tablet && retrato);
+      document.body.classList.toggle("tablet-device", tablet);
+      document.body.classList.toggle("tablet-portrait", tablet && retrato);
+    }
+
+    const tentarPaisagemAoInteragir = () => {
+      tentarPaisagem();
+    };
+
+    atualizarOrientacao();
+    tentarPaisagem();
+
+    window.addEventListener("resize", atualizarOrientacao);
+    window.addEventListener("orientationchange", atualizarOrientacao);
+    window.addEventListener("focus", tentarPaisagemAoInteragir);
+    window.addEventListener("pointerdown", tentarPaisagemAoInteragir, { passive: true });
+
+    return () => {
+      window.removeEventListener("resize", atualizarOrientacao);
+      window.removeEventListener("orientationchange", atualizarOrientacao);
+      window.removeEventListener("focus", tentarPaisagemAoInteragir);
+      window.removeEventListener("pointerdown", tentarPaisagemAoInteragir);
+      document.body.classList.remove("tablet-device", "tablet-portrait");
+    };
+  }, []);
 
   useEffect(() => {
     const unsub = escutarLancamentosMes(user.uid, mesSelecionado, setLancamentos);
@@ -635,6 +687,17 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {isTabletPortrait ? (
+        <div className="tablet-orientation-guard" role="alert" aria-live="assertive">
+          <div className="tablet-orientation-card">
+            <div className="tablet-orientation-icon" aria-hidden="true">
+              ↺
+            </div>
+            <strong>Gire o tablet para o modo paisagem</strong>
+            <span>O GELATO foi ajustado para ocupar a tela inteira na horizontal, com zoom desativado.</span>
+          </div>
+        </div>
+      ) : null}
       <Routes>
         <Route
           path="/"

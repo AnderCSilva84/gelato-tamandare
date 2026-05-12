@@ -237,7 +237,7 @@ export default function Estoque({ uid }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card inventory-hero">
         <div>
-          <h1 className="screen-title">Estoque</h1>
+          <h1 className="screen-title app-hero-title-blue">Estoque</h1>
           <p className="screen-description">Cadastro, edição e controle de produtos.</p>
         </div>
         <span className="screen-badge">Produtos e saldo</span>
@@ -366,7 +366,7 @@ export default function Estoque({ uid }) {
                       </div>
                     ) : null}
                     <small>
-                      custo {formatMoney(produto.precoCusto || 0)} • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)} • estoque {produto.estoque} •{" "}
+                      custo <span className="positive">{formatMoney(produto.precoCusto || 0)}</span> • venda <span className="positive">{formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</span> • estoque {produto.estoque} •{" "}
                       {produto.ativo === false ? "inativo" : "ativo"}
                     </small>
                     {produto.notaFiscal ? <small>NF: {produto.notaFiscal}</small> : null}

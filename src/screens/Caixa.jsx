@@ -1078,8 +1078,8 @@ export default function Caixa({
     <div className="dashboard-screen">
       <div className="pdv-hero section-card">
         <div className="pdv-hero-copy">
-          <span className="pdv-eyebrow">Gelato Tamandare</span>
-          <h1 className="screen-title">Registrar venda</h1>
+          <span className="pdv-eyebrow pdv-eyebrow-hero">Gelato Tamandare</span>
+          <h1 className="screen-title pdv-hero-title">Registrar venda</h1>
           <p className="screen-description pdv-hero-description">
             Mantenha o foco na venda. Indicadores e acoes de conferencia ficam em segundo plano.
           </p>
@@ -1226,7 +1226,7 @@ export default function Caixa({
                     <div className="section-card stat-card">
                       <span className="stat-label">Fundo inicial</span>
                       <small className="stat-note">entrada inicial do caixa</small>
-                      <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+                      <strong className="stat-value positive">{formatMoney(fundoCaixaAtual)}</strong>
                     </div>
                     <div className="section-card stat-card">
                       <span className="stat-label">Saidas / retiradas</span>
@@ -1256,7 +1256,7 @@ export default function Caixa({
                 </div>
                 <div className="section-card stat-card">
                   <span className="stat-label">Ticket medio turno</span>
-                  <strong className="stat-value">
+                  <strong className="stat-value positive">
                     {formatMoney(totalItens ? totalVendas / totalItens : 0)}
                   </strong>
                 </div>
@@ -1335,7 +1335,7 @@ export default function Caixa({
                         </div>
                         <div className="pdv-product-copy">
                           <strong>{produto.nome}</strong>
-                          <small>{formatMoney(preco)}</small>
+                          <small className="positive">{formatMoney(preco)}</small>
                           <span className={semEstoque ? "negative" : ""}>
                             Estoque {produto.estoque}
                           </span>
@@ -1389,7 +1389,7 @@ export default function Caixa({
                   <div className="pdv-cash-summary">
                     <div className="pdv-cash-row">
                       <span>Disponivel no caixa</span>
-                      <strong>{formatMoney(totalDisponivelEmCaixa)}</strong>
+                      <strong className="positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
                     </div>
                   </div>
                   <button
@@ -1445,12 +1445,12 @@ export default function Caixa({
                       src={getProdutoImagem(produtoSelecionado)}
                       alt={produtoSelecionado.nome}
                     />
-                    <div className="produto-preview-info">
-                      <strong>{produtoSelecionado.nome}</strong>
-                      <small>{formatMoney(getProdutoPreco(produtoSelecionado))}</small>
-                    </div>
-                  </div>
-                ) : null}
+                        <div className="produto-preview-info">
+                          <strong>{produtoSelecionado.nome}</strong>
+                          <small className="positive">{formatMoney(getProdutoPreco(produtoSelecionado))}</small>
+                        </div>
+                      </div>
+                    ) : null}
 
                 <div className="pdv-order-actions-row">
                   <button
@@ -1512,7 +1512,7 @@ export default function Caixa({
                     <div className="pdv-cash-summary">
                       <div className="pdv-cash-row">
                         <span>Troco</span>
-                        <strong>{formatMoney(trocoAtual)}</strong>
+                        <strong className="positive">{formatMoney(trocoAtual)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1539,8 +1539,8 @@ export default function Caixa({
                           </button>
                         </div>
                         <span>{item.quantidade}</span>
-                        <span>{formatMoney(item.precoUnitario)}</span>
-                        <strong>{formatMoney(item.subtotal)}</strong>
+                        <span className="positive">{formatMoney(item.precoUnitario)}</span>
+                        <strong className="positive">{formatMoney(item.subtotal)}</strong>
                       </div>
                     ))}
                     {!itensVendaDetalhados.length ? (
@@ -1551,7 +1551,7 @@ export default function Caixa({
 
                 <div className="pdv-cart-total pdv-cart-total-emphasis">
                   <span>{quantidadeCarrinho} item(ns)</span>
-                  <strong>{formatMoney(totalCarrinho)}</strong>
+                  <strong className="positive">{formatMoney(totalCarrinho)}</strong>
                 </div>
 
                 <div className="pdv-order-submit-row">
@@ -1625,7 +1625,7 @@ export default function Caixa({
             <div className="stat-card">
               <span className="stat-label">Fundo inicial</span>
               <small className="stat-note">entrada inicial do caixa</small>
-              <strong className="stat-value">{formatMoney(fundoCaixaAtual)}</strong>
+              <strong className="stat-value positive">{formatMoney(fundoCaixaAtual)}</strong>
             </div>
             <div className="stat-card">
               <span className="stat-label">Saidas / retiradas</span>
@@ -1655,19 +1655,19 @@ export default function Caixa({
           <div className="fechamento-pagamentos">
             <div className="fechamento-pagamento">
               <span>PIX</span>
-              <strong>{formatMoney(resumoPagamentos.PIX)}</strong>
+              <strong className="positive">{formatMoney(resumoPagamentos.PIX)}</strong>
             </div>
             <div className="fechamento-pagamento">
               <span>Dinheiro</span>
-              <strong>{formatMoney(resumoPagamentos.Dinheiro)}</strong>
+              <strong className="positive">{formatMoney(resumoPagamentos.Dinheiro)}</strong>
             </div>
             <div className="fechamento-pagamento">
               <span>Cartao de debito</span>
-              <strong>{formatMoney(resumoPagamentos.Debito)}</strong>
+              <strong className="positive">{formatMoney(resumoPagamentos.Debito)}</strong>
             </div>
             <div className="fechamento-pagamento">
               <span>Cartao de credito</span>
-              <strong>{formatMoney(resumoPagamentos.Credito)}</strong>
+              <strong className="positive">{formatMoney(resumoPagamentos.Credito)}</strong>
             </div>
           </div>
 

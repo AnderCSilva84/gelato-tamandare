@@ -171,7 +171,7 @@ export default function Atendentes({ uid, accessUser }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card team-hero">
         <div>
-          <h1 className="screen-title">Atendentes</h1>
+          <h1 className="screen-title app-hero-title-blue">Atendentes</h1>
           <p className="screen-description">Cadastro, ativacao, senha operacional e acessos do painel.</p>
         </div>
         <span className="screen-badge">Equipe e acessos</span>
@@ -256,7 +256,7 @@ export default function Atendentes({ uid, accessUser }) {
                   <strong>{atendente.nome}</strong>
                   <small>
                     {atendente.ativo === false ? "Inativo" : "Ativo"} - {getRoleLabel(atendente.role)} - Meta{" "}
-                    {formatMoney(atendente.meta || 0)}
+                    <span className="positive">{formatMoney(atendente.meta || 0)}</span>
                   </small>
                   <small>{atendente.senha ? "Senha operacional cadastrada" : "Sem senha operacional"}</small>
                   <small>

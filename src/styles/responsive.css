@@ -4,7 +4,7 @@
 
 .app-container {
   width: 100%;
-  max-width: 420px;
+  max-width: 480px;
   margin: 0 auto;
   padding: 16px;
 }
@@ -16,7 +16,7 @@
 @media (min-width: 768px) {
 
   .app-container {
-    max-width: 900px;
+    max-width: 100%;
     padding: 24px;
   }
 
@@ -32,6 +32,14 @@
 
   .total-card {
     grid-column: span 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) and (orientation: landscape) {
+  .app-container {
+    max-width: 100%;
+    min-height: 100dvh;
+    padding: 18px;
   }
 }
 

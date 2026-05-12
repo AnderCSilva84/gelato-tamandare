@@ -242,7 +242,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       <div className="gerencia-hero section-card">
         <div>
           <span className="pdv-eyebrow">Resumo Gerencial</span>
-          <h1 className="screen-title">Operacao do dia</h1>
+          <h1 className="screen-title app-hero-title-blue">Operacao do dia</h1>
           <p className="screen-description">
             Priorize caixa, resultado e alertas. Os detalhes ficam logo abaixo, sob demanda.
           </p>
@@ -253,7 +253,10 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       <div className="stats-grid gerencia-stats-grid gerencia-stats-grid-compact">
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
           <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
@@ -269,14 +272,20 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       <div className="gerencia-micro-grid">
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Entradas</span>
-          <strong className={resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}>
+          <strong
+            className={resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}
+            style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
           <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Gastos</span>
-          <strong className={resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}>
+          <strong
+            className={resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}
+            style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.gastos)}
           </strong>
           <small className="stat-note">Despesas + retiradas.</small>
@@ -388,7 +397,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
               <div className="list-row" key={caixa.id}>
                 <div>
                   <strong>{caixa.atendenteNome}</strong>
-                  <small>Fundo {formatMoney(caixa.fundoCaixa || 0)} • {formatDateLabel(caixa.data)}</small>
+                  <small>Fundo <span className="positive">{formatMoney(caixa.fundoCaixa || 0)}</span> • {formatDateLabel(caixa.data)}</small>
                 </div>
                 <div className="list-row-actions">
                   <strong className={caixa.status === "aberto" ? "positive" : ""}>
@@ -477,7 +486,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
             <div className="list-row stock-low" key={`zero-${produto.id}`}>
               <div>
                 <strong>{produto.nome}</strong>
-                <small>Sem estoque • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
+                <small>Sem estoque • venda <span className="positive">{formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</span></small>
               </div>
               <strong className="negative">0</strong>
             </div>
@@ -486,7 +495,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
             <div className="list-row stock-low" key={`low-${produto.id}`}>
               <div>
                 <strong>{produto.nome}</strong>
-                <small>Estoque baixo • venda {formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</small>
+                <small>Estoque baixo • venda <span className="positive">{formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</span></small>
               </div>
               <strong className="negative">{produto.estoque}</strong>
             </div>

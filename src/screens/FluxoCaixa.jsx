@@ -430,7 +430,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     <div className="dashboard-screen">
       <div className="screen-heading">
         <div>
-          <h1 className="screen-title">Fluxo de caixa</h1>
+          <h1 className="screen-title app-hero-title-blue">Fluxo de caixa</h1>
           <p className="screen-description">
             Area administrativa para despesas, retiradas, saldos e conferencia diaria.
           </p>
@@ -498,21 +498,30 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       <div className="stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Entradas</span>
-          <strong className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
           <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Gastos</span>
-          <strong className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.gastos)}
           </strong>
           <small className="stat-note">Despesas + retiradas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
           <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
@@ -522,7 +531,10 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       <div className="stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Resultado</span>
-          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.resultado >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
           <small className="stat-note">Entradas - gastos.</small>

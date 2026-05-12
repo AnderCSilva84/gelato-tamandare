@@ -485,7 +485,7 @@ export default function Relatorio({ uid, dataHoje }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card report-hero">
         <div>
-          <h1 className="screen-title">RelatÃ³rio</h1>
+          <h1 className="screen-title app-hero-title-blue">Relatório</h1>
           <p className="screen-description">Resumo de vendas, despesas e lucro por data.</p>
         </div>
         <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
@@ -554,21 +554,30 @@ export default function Relatorio({ uid, dataHoje }) {
       <div className="stats-grid report-result-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Entradas</span>
-          <strong className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
           <small className="stat-note">Soma das vendas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Gastos</span>
-          <strong className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.gastos)}
           </strong>
           <small className="stat-note">Despesas + retiradas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
-          <strong className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
           <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
@@ -578,7 +587,10 @@ export default function Relatorio({ uid, dataHoje }) {
       <div className="stats-grid report-summary-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Resultado</span>
-          <strong className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}>
+          <strong
+            className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}
+            style={{ color: resumoFinanceiro.resultado >= 0 ? "var(--green-dark)" : "var(--red)" }}
+          >
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
           <small className="stat-note">Entradas - gastos.</small>
@@ -648,9 +660,11 @@ export default function Relatorio({ uid, dataHoje }) {
                     </strong>
                     <small>
                       {caixa.data} - {Number(caixa.totalItens || 0)} itens -{" "}
-                      {caixa.status === "fechado"
-                        ? `Fechado com ${formatMoney(caixa.totalVendas || 0)}`
-                        : formatMoney(caixa.totalVendas || 0)}
+                      {caixa.status === "fechado" ? (
+                        <>Fechado com <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span></>
+                      ) : (
+                        <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span>
+                      )}
                     </small>
                     {caixa.status === "fechado" && formatDateTimeLabel(caixa.fechadoEm) ? (
                       <small>Fechado em {formatDateTimeLabel(caixa.fechadoEm)}</small>

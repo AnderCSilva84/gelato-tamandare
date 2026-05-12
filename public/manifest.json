@@ -2,6 +2,7 @@
   "name": "Gelato Tamandare",
   "short_name": "Gelato",
   "start_url": ".",
+  "display_override": ["fullscreen", "standalone"],
   "display": "standalone",
   "background_color": "#f5f6f8",
   "theme_color": "#111827",

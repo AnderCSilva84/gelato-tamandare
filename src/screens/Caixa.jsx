@@ -565,19 +565,35 @@ export default function Caixa({
     setFeedbackRetirada("");
   }
 
-  function selecionarProduto(produtoId) {
-    setVendaForm((prev) => ({ ...prev, produtoId, quantidade: prev.produtoId === produtoId ? prev.quantidade : 1 }));
-    setFeedbackVenda("");
-  }
+  function selecionarProduto(produto) {
+    if (!produto?.id) return;
 
-  function ajustarQuantidade(delta) {
-    setVendaForm((prev) => {
-      const quantidadeAtual = Number(prev.quantidade || 1);
-      return {
-        ...prev,
-        quantidade: Math.max(1, quantidadeAtual + delta),
-      };
+    const quantidadeNoCarrinho = itensVenda
+      .filter((item) => item.produtoId === produto.id)
+      .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
+    const estoqueDisponivel = Number(produto.estoque || 0) - quantidadeNoCarrinho;
+
+    if (estoqueDisponivel < 1) {
+      setFeedbackVenda("Estoque insuficiente para adicionar esse item.");
+      return;
+    }
+
+    setItensVenda((prev) => {
+      const index = prev.findIndex((item) => item.produtoId === produto.id);
+      if (index === -1) {
+        return [...prev, { produtoId: produto.id, quantidade: 1 }];
+      }
+
+      return prev.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, quantidade: Number(item.quantidade || 0) + 1 }
+          : item
+      );
     });
+
+    setVendaForm((prev) => ({ ...prev, produtoId: produto.id }));
+    setFeedbackVenda("");
+    setToastVenda(`${produto.nome} adicionado`);
   }
 
   function resetVendaForm() {
@@ -595,44 +611,6 @@ export default function Caixa({
     setItensVenda([]);
     setFeedbackVenda("");
     setVendaForm((prev) => ({ ...prev, valorRecebido: "" }));
-  }
-
-  function adicionarItemVenda() {
-    if (!produtoSelecionado) {
-      setFeedbackVenda("Selecione um produto para adicionar.");
-      return;
-    }
-
-    const quantidade = Number(vendaForm.quantidade || 0);
-    if (!Number.isFinite(quantidade) || quantidade <= 0) {
-      setFeedbackVenda("Informe uma quantidade valida.");
-      return;
-    }
-
-    const quantidadeNoCarrinho = itensVenda
-      .filter((item) => item.produtoId === produtoSelecionado.id)
-      .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
-    const estoqueDisponivel = Number(produtoSelecionado.estoque || 0) - quantidadeNoCarrinho;
-
-    if (estoqueDisponivel < quantidade) {
-      setFeedbackVenda("Estoque insuficiente para adicionar esse item.");
-      return;
-    }
-
-    setItensVenda((prev) => {
-      const index = prev.findIndex((item) => item.produtoId === produtoSelecionado.id);
-      if (index === -1) {
-        return [...prev, { produtoId: produtoSelecionado.id, quantidade }];
-      }
-
-      return prev.map((item, itemIndex) =>
-        itemIndex === index
-          ? { ...item, quantidade: Number(item.quantidade || 0) + quantidade }
-          : item
-      );
-    });
-    setVendaForm((prev) => ({ ...prev, produtoId: "", quantidade: 1 }));
-    setFeedbackVenda("");
   }
 
   function removerItemVenda(produtoId) {
@@ -1321,7 +1299,7 @@ export default function Caixa({
                         key={produto.id}
                         className={`pdv-product-card ${isSelected ? "is-selected" : ""}`}
                         type="button"
-                        onClick={() => selecionarProduto(produto.id)}
+                        onClick={() => selecionarProduto(produto)}
                         disabled={semEstoque}
                       >
                         <div className="pdv-product-media">
@@ -1414,28 +1392,9 @@ export default function Caixa({
                     }
                   />
                 ) : null}
-                <div className="pdv-order-topline">
-                  <div className="pdv-selected-product">
-                    <span>Produto</span>
-                    <strong>{produtoSelecionado?.nome || "Selecione no painel ao lado"}</strong>
-                  </div>
-                  <div className="pdv-qty-stepper" aria-label="Quantidade">
-                    <button type="button" onClick={() => ajustarQuantidade(-1)}>
-                      -
-                    </button>
-                    <input
-                      className="input pdv-qty-input"
-                      type="number"
-                      min="1"
-                      value={vendaForm.quantidade}
-                      onChange={(e) =>
-                        setVendaForm((prev) => ({ ...prev, quantidade: e.target.value }))
-                      }
-                    />
-                    <button type="button" onClick={() => ajustarQuantidade(1)}>
-                      +
-                    </button>
-                  </div>
+                <div className="pdv-selected-product">
+                  <span>Produto</span>
+                  <strong>{produtoSelecionado?.nome || "Toque nos produtos para somar unidades ao carrinho"}</strong>
                 </div>
 
                 {produtoSelecionado && getProdutoImagem(produtoSelecionado) ? (
@@ -1452,15 +1411,7 @@ export default function Caixa({
                       </div>
                     ) : null}
 
-                <div className="pdv-order-actions-row">
-                  <button
-                    className="action-btn action-btn-secondary"
-                    type="button"
-                    onClick={adicionarItemVenda}
-                    disabled={salvandoVenda}
-                  >
-                    Adicionar item
-                  </button>
+                <div className="pdv-order-actions-row pdv-order-actions-row-single">
                   <button
                     className="action-btn action-btn-danger"
                     type="button"

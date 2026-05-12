@@ -169,6 +169,8 @@ export default function App() {
   const [retroValor, setRetroValor] = useState("");
   const [retroTipo, setRetroTipo] = useState("SAIDA");
   const [isTabletPortrait, setIsTabletPortrait] = useState(false);
+  const [isTabletLandscape, setIsTabletLandscape] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -180,6 +182,10 @@ export default function App() {
     function isTabletViewport() {
       const menorLado = Math.min(window.innerWidth, window.innerHeight);
       return mediaQuery.matches && menorLado >= 600;
+    }
+
+    function isCompactLandscapeViewport() {
+      return window.innerWidth >= 768 && window.innerWidth <= 1366 && window.innerWidth > window.innerHeight;
     }
 
     async function tentarPaisagem() {
@@ -197,9 +203,13 @@ export default function App() {
     function atualizarOrientacao() {
       const tablet = isTabletViewport();
       const retrato = window.innerHeight > window.innerWidth;
+      const paisagem = isCompactLandscapeViewport();
       setIsTabletPortrait(tablet && retrato);
+      setIsTabletLandscape(paisagem);
+      setSidebarOpen((prev) => (paisagem ? prev : false));
       document.body.classList.toggle("tablet-device", tablet);
       document.body.classList.toggle("tablet-portrait", tablet && retrato);
+      document.body.classList.toggle("tablet-landscape", paisagem);
     }
 
     const tentarPaisagemAoInteragir = () => {
@@ -219,7 +229,7 @@ export default function App() {
       window.removeEventListener("orientationchange", atualizarOrientacao);
       window.removeEventListener("focus", tentarPaisagemAoInteragir);
       window.removeEventListener("pointerdown", tentarPaisagemAoInteragir);
-      document.body.classList.remove("tablet-device", "tablet-portrait");
+      document.body.classList.remove("tablet-device", "tablet-portrait", "tablet-landscape");
     };
   }, []);
 
@@ -375,6 +385,13 @@ export default function App() {
 
   function confirmarData() {
     setDataLancamento(dataTemp);
+  }
+
+  function handleSelectTela(nextTela) {
+    setTela(nextTela);
+    if (isTabletLandscape) {
+      setSidebarOpen(false);
+    }
   }
 
   async function registrarRetroativo() {
@@ -703,8 +720,27 @@ export default function App() {
           path="/"
           element={(
             <>
-              <div className="dashboard">
-                <aside className="sidebar">
+              <div className={`dashboard ${isTabletLandscape ? "dashboard-tablet-landscape" : ""}`}>
+                {isTabletLandscape ? (
+                  <>
+                    <button
+                      className="tablet-sidebar-toggle action-btn action-btn-secondary"
+                      type="button"
+                      onClick={() => setSidebarOpen((prev) => !prev)}
+                    >
+                      {sidebarOpen ? "Fechar menu" : "Abrir menu"}
+                    </button>
+                    {sidebarOpen ? (
+                      <button
+                        className="tablet-sidebar-backdrop"
+                        type="button"
+                        aria-label="Fechar menu lateral"
+                        onClick={() => setSidebarOpen(false)}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
                   <div className="sidebar-brand">
                     <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
                     <div className="sidebar-title">Gelato Tamandare</div>
@@ -815,7 +851,7 @@ export default function App() {
                         <button
                           key={item.id}
                           className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
-                          onClick={() => setTela(item.id)}
+                          onClick={() => handleSelectTela(item.id)}
                           type="button"
                           disabled={item.id !== "pdv" && !painelLiberado}
                         >
@@ -881,7 +917,7 @@ export default function App() {
                         <TelaGerencia
                           uid={user.uid}
                           dataHoje={hojeISO()}
-                          onNavigate={setTela}
+                          onNavigate={handleSelectTela}
                           accessUser={accessUser}
                           systemConfig={systemConfig}
                         />

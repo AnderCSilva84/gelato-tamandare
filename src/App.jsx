@@ -928,7 +928,13 @@ export default function App() {
                       {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
                       {tela === "estoque" && <TelaEstoque uid={user.uid} />}
                       {tela === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
-                      {tela === "relatorio" && <TelaRelatorio uid={user.uid} dataHoje={hojeISO()} />}
+                      {tela === "relatorio" && (
+                        <TelaRelatorio
+                          uid={user.uid}
+                          dataHoje={hojeISO()}
+                          accessUser={accessUser}
+                        />
+                      )}
                     </Suspense>
                   ) : (
                     <div className="dashboard-screen">

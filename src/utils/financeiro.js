@@ -10,13 +10,28 @@ export function somarFundosCaixa(caixas) {
   return (caixas || []).reduce((acc, caixa) => acc + Number(caixa?.fundoCaixa || 0), 0);
 }
 
+export function somarEntradasConsolidadas(itens) {
+  return (itens || []).reduce(
+    (acc, item) =>
+      acc +
+      Number(
+        item?.total ??
+          Number(item?.dinheiro || 0) + Number(item?.pix || 0) + Number(item?.cartao || 0)
+      ),
+    0
+  );
+}
+
 export function calcularResumoFinanceiro({
   vendas = [],
   despesas = [],
   retiradas = [],
   caixas = [],
+  entradasConsolidadas = [],
 }) {
-  const entradas = somarValores(vendas);
+  const entradasVendas = somarValores(vendas);
+  const entradasExtras = somarEntradasConsolidadas(entradasConsolidadas);
+  const entradas = entradasVendas + entradasExtras;
   const despesasOperacionais = somarValores(despesas);
   const retiradasCaixa = somarValores(retiradas);
   const gastos = despesasOperacionais + retiradasCaixa;
@@ -26,6 +41,8 @@ export function calcularResumoFinanceiro({
 
   return {
     entradas,
+    entradasVendas,
+    entradasExtras,
     despesasOperacionais,
     retiradasCaixa,
     gastos,

@@ -108,6 +108,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /entradas_consolidadas/{document=**} {
+      allow read, write: if true;
+    }
+
     match /caixas/{document=**} {
       allow read, write: if true;
     }

@@ -10,14 +10,18 @@ import {
 } from "../services/caixas";
 import { getProdutos } from "../services/produtos";
 import {
+  deleteVenda,
   deleteDespesa,
   getDespesas,
+  getEntradasConsolidadas,
   getVendas,
   getVendasPorCaixa,
   subscribeVendasDoDia,
   updateDespesa,
 } from "../services/vendas";
+import { criarLancamento } from "../services/lancamentos";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
+import { isManagementRole } from "../utils/access";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -74,37 +78,60 @@ function drawSummaryCard(doc, { x, y, w, h, title, value, fillColor, textColor =
   doc.text(value, x + 4, y + 16);
 }
 
-export default function Relatorio({ uid, dataHoje }) {
+function mesDaData(data) {
+  return String(data || "").slice(0, 7);
+}
+
+export default function Relatorio({ uid, dataHoje, accessUser = null }) {
   const [dataInicioFiltro, setDataInicioFiltro] = useState(dataHoje);
   const [dataFimFiltro, setDataFimFiltro] = useState(dataHoje);
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesas, setDespesas] = useState([]);
+  const [entradasConsolidadas, setEntradasConsolidadas] = useState([]);
   const [retiradas, setRetiradas] = useState([]);
   const [caixas, setCaixas] = useState([]);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
   const [vendasCaixaSelecionado, setVendasCaixaSelecionado] = useState([]);
   const [saidaEditando, setSaidaEditando] = useState(null);
   const [saidaForm, setSaidaForm] = useState({ descricao: "", valor: "", data: "" });
+  const [vendaCancelando, setVendaCancelando] = useState(null);
+  const [senhaCancelamento, setSenhaCancelamento] = useState("");
+  const [motivoCancelamento, setMotivoCancelamento] = useState("");
+  const [feedbackCancelamento, setFeedbackCancelamento] = useState("");
+  const [cancelandoVenda, setCancelandoVenda] = useState(false);
 
   const carregarPeriodoAtual = useCallback(async () => {
     setLoading(true);
-    const [vendasData, despesasData, retiradasData] = await Promise.all([
-      getVendas(uid, dataInicioFiltro, dataFimFiltro),
-      getDespesas(uid, dataInicioFiltro, dataFimFiltro),
-      getRetiradas(dataInicioFiltro, dataFimFiltro),
-    ]);
-    const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
+    try {
+      const [vendasData, despesasData, retiradasData, entradasConsolidadasData] = await Promise.all([
+        getVendas(uid, dataInicioFiltro, dataFimFiltro),
+        getDespesas(uid, dataInicioFiltro, dataFimFiltro),
+        getRetiradas(dataInicioFiltro, dataFimFiltro),
+        getEntradasConsolidadas(uid, dataInicioFiltro, dataFimFiltro),
+      ]);
+      const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
 
-    setVendas(vendasData);
-    setDespesas(despesasData);
-    setRetiradas(retiradasData);
-    setCaixas(caixasData);
-    setCaixaSelecionado((prev) =>
-      prev ? caixasData.find((item) => item.id === prev.id) || null : null
-    );
-    setLoading(false);
+      setVendas(vendasData);
+      setDespesas(despesasData);
+      setEntradasConsolidadas(entradasConsolidadasData);
+      setRetiradas(retiradasData);
+      setCaixas(caixasData);
+      setCaixaSelecionado((prev) =>
+        prev ? caixasData.find((item) => item.id === prev.id) || null : null
+      );
+    } catch (error) {
+      console.error("Erro ao carregar relatorio:", error);
+      setVendas([]);
+      setDespesas([]);
+      setEntradasConsolidadas([]);
+      setRetiradas([]);
+      setCaixas([]);
+      setCaixaSelecionado(null);
+    } finally {
+      setLoading(false);
+    }
   }, [dataFimFiltro, dataInicioFiltro, uid]);
 
   useEffect(() => {
@@ -147,6 +174,10 @@ export default function Relatorio({ uid, dataHoje }) {
     };
   }, [caixaSelecionado]);
 
+  useEffect(() => {
+    cancelarFluxoCancelamentoVenda();
+  }, [caixaSelecionado?.id]);
+
   const resumoFinanceiro = useMemo(
     () => {
       const caixaIds = new Set(caixas.map((item) => item.id));
@@ -160,9 +191,10 @@ export default function Relatorio({ uid, dataHoje }) {
         despesas,
         retiradas: retiradasVinculadas,
         caixas,
+        entradasConsolidadas,
       });
     },
-    [caixas, despesas, retiradas, vendas]
+    [caixas, despesas, entradasConsolidadas, retiradas, vendas]
   );
   const vendasPeriodoVinculadas = useMemo(() => {
     const caixaIds = new Set(caixas.map((item) => item.id));
@@ -235,6 +267,7 @@ export default function Relatorio({ uid, dataHoje }) {
       .map(([nome, total]) => ({ nome, total }))
       .sort((a, b) => b.total - a.total);
   }, [vendasPeriodoVinculadas]);
+  const podeCancelarVenda = isManagementRole(accessUser?.role) && caixaSelecionado?.status === "aberto";
 
   async function excluirCaixa(item) {
     if (!item?.id || item.status === "aberto") return;
@@ -339,6 +372,74 @@ export default function Relatorio({ uid, dataHoje }) {
     await carregarPeriodoAtual();
   }
 
+  function iniciarCancelamentoVenda(venda) {
+    setVendaCancelando(venda);
+    setSenhaCancelamento("");
+    setMotivoCancelamento("");
+    setFeedbackCancelamento("");
+  }
+
+  function cancelarFluxoCancelamentoVenda() {
+    setVendaCancelando(null);
+    setSenhaCancelamento("");
+    setMotivoCancelamento("");
+    setFeedbackCancelamento("");
+    setCancelandoVenda(false);
+  }
+
+  async function confirmarCancelamentoVenda() {
+    if (!vendaCancelando?.id || !caixaSelecionado?.id) return;
+    if (caixaSelecionado.status !== "aberto") {
+      setFeedbackCancelamento("So e possivel cancelar itens de caixa ainda aberto.");
+      return;
+    }
+
+    const senhaCadastrada = String(accessUser?.senha || "");
+    const senhaInformada = String(senhaCancelamento || "");
+    const motivoInformado = String(motivoCancelamento || "").trim();
+
+    if (!senhaCadastrada) {
+      setFeedbackCancelamento("Cadastre uma senha para a gerencia antes de cancelar itens.");
+      return;
+    }
+
+    if (senhaInformada !== senhaCadastrada) {
+      setFeedbackCancelamento("Senha de gerencia invalida.");
+      return;
+    }
+
+    if (!motivoInformado) {
+      setFeedbackCancelamento("Informe o motivo do cancelamento.");
+      return;
+    }
+
+    setCancelandoVenda(true);
+    setFeedbackCancelamento("");
+
+    try {
+      await criarLancamento({
+        uid,
+        tipo: "cancelamento_venda_caixa",
+        data: String(vendaCancelando.data || caixaSelecionado.data || dataHoje),
+        mes: mesDaData(vendaCancelando.data || caixaSelecionado.data || dataHoje),
+        descricao: `Cancelamento de item do caixa ${caixaSelecionado?.atendenteNome || ""}`.trim(),
+        motivo: motivoInformado,
+        valor: Number(vendaCancelando.valor || 0),
+        caixaId: String(caixaSelecionado?.id || ""),
+        vendaId: String(vendaCancelando.id || ""),
+        produto: String(vendaCancelando.produto || ""),
+        atendenteNome: String(vendaCancelando.atendenteNome || vendaCancelando.atendente || ""),
+        autorizadoPor: String(accessUser?.nome || accessUser?.email || "Gerencia"),
+      });
+      await deleteVenda(vendaCancelando.id);
+      cancelarFluxoCancelamentoVenda();
+      await carregarPeriodoAtual();
+    } catch {
+      setFeedbackCancelamento("Nao foi possivel cancelar esse item da venda.");
+      setCancelandoVenda(false);
+    }
+  }
+
   async function exportarRelatorioPDF() {
     const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
       import("jspdf"),
@@ -413,6 +514,8 @@ export default function Relatorio({ uid, dataHoje }) {
       body: [
         ["Fundo de caixa", formatMoney(resumoFinanceiro.fundoCaixa)],
         ["Entradas", formatMoney(resumoFinanceiro.entradas)],
+        ["Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
+        ["Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
         ["Gastos", formatMoney(resumoFinanceiro.gastos)],
         ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
         ["Resultado", formatMoney(resumoFinanceiro.resultado)],
@@ -560,7 +663,7 @@ export default function Relatorio({ uid, dataHoje }) {
           >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
-          <small className="stat-note">Soma das vendas.</small>
+          <small className="stat-note">Vendas + entradas consolidadas.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Gastos</span>
@@ -597,48 +700,8 @@ export default function Relatorio({ uid, dataHoje }) {
         </div>
       </div>
 
-      <div className="screen-grid report-dual-grid">
-        <div className="section-card report-list-card">
-          <div className="section-header">
-            <div className="section-title">Vendas do periodo</div>
-          </div>
-          <div className="scroll-list">
-            {vendas.map((item) => (
-              <div className="list-row" key={item.id}>
-                <div>
-                  <strong>{item.produto}</strong>
-                  <small>
-                    {item.quantidade} un. - {item.atendenteNome || item.atendente}
-                  </small>
-                </div>
-                <strong className="positive">{formatMoney(item.valor)}</strong>
-              </div>
-            ))}
-            {!vendas.length && !loading && <p className="empty-state">Nenhuma venda encontrada.</p>}
-          </div>
-        </div>
-
-        <div className="section-card report-list-card">
-          <div className="section-header">
-            <div className="section-title">Saidas do periodo</div>
-          </div>
-          <div className="scroll-list">
-            {saidasPeriodo.map((item) => (
-              <div className="list-row" key={`${item.origem}-${item.id}`}>
-                <div>
-                  <strong>{item.descricaoLinha}</strong>
-                  <small>{formatDateLabel(item.data)} - {item.origem}</small>
-                </div>
-                <strong className="negative">{formatMoney(item.valor)}</strong>
-              </div>
-            ))}
-            {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada.</p>}
-          </div>
-        </div>
-      </div>
-
-      <div className="screen-grid report-dual-grid">
-        <div className="section-card report-list-card">
+      <div className="screen-grid report-dual-grid report-grid-priority">
+        <div className="section-card report-list-card report-card-caixas">
           <div className="section-header">
             <div className="section-title">Caixas dos atendentes</div>
             <span className="section-subtitle">{caixas.length} caixas no periodo</span>
@@ -666,9 +729,10 @@ export default function Relatorio({ uid, dataHoje }) {
                         <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span>
                       )}
                     </small>
-                    {caixa.status === "fechado" && formatDateTimeLabel(caixa.fechadoEm) ? (
-                      <small>Fechado em {formatDateTimeLabel(caixa.fechadoEm)}</small>
-                    ) : null}
+                    <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
+                    <small>
+                      Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
+                    </small>
                   </div>
                 </button>
                 {caixa.status === "aberto" ? (
@@ -694,7 +758,7 @@ export default function Relatorio({ uid, dataHoje }) {
           </div>
         </div>
 
-        <div className="section-card report-list-card">
+        <div className="section-card report-list-card report-card-extrato">
           <div className="section-header">
             <div className="section-title">
               {caixaSelecionado
@@ -719,7 +783,18 @@ export default function Relatorio({ uid, dataHoje }) {
                     {item.atendenteNome || item.atendente}
                   </small>
                 </div>
-                <strong className="positive">{formatMoney(item.valor)}</strong>
+                <div className="list-row-actions">
+                  <strong className="positive">{formatMoney(item.valor)}</strong>
+                  {podeCancelarVenda ? (
+                    <button
+                      className="mini-btn danger"
+                      type="button"
+                      onClick={() => iniciarCancelamentoVenda(item)}
+                    >
+                      Cancelar item
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ))}
             {!vendasCaixaSelecionado.length && (
@@ -729,6 +804,110 @@ export default function Relatorio({ uid, dataHoje }) {
                   : "Selecione um caixa para ver o extrato."}
               </p>
             )}
+          </div>
+        </div>
+
+        {vendaCancelando ? (
+          <div className="section-card report-list-card report-card-extrato">
+            <div className="section-header">
+              <div className="section-title">Cancelar item do caixa</div>
+              <span className="section-subtitle">{caixaSelecionado?.atendenteNome || "Caixa aberto"}</span>
+            </div>
+            <div className="stack-form">
+              <p className="screen-description">
+                Confirme com a senha da gerencia para cancelar <strong>{vendaCancelando.produto}</strong>.
+              </p>
+              <input
+                className="input"
+                value={motivoCancelamento}
+                onChange={(e) => setMotivoCancelamento(e.target.value)}
+                placeholder="Motivo do cancelamento"
+              />
+              <input
+                className="input"
+                type="password"
+                value={senhaCancelamento}
+                onChange={(e) => setSenhaCancelamento(e.target.value)}
+                placeholder="Senha da gerencia"
+              />
+              <div className="section-actions">
+                <button
+                  className="action-btn action-btn-secondary"
+                  type="button"
+                  onClick={cancelarFluxoCancelamentoVenda}
+                  disabled={cancelandoVenda}
+                >
+                  Fechar
+                </button>
+                <button
+                  className="action-btn action-btn-danger"
+                  type="button"
+                  onClick={confirmarCancelamentoVenda}
+                  disabled={cancelandoVenda}
+                >
+                  {cancelandoVenda ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
+              </div>
+              {feedbackCancelamento ? <p className="inline-feedback">{feedbackCancelamento}</p> : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="section-card report-list-card report-card-vendas">
+          <div className="section-header">
+            <div className="section-title">Vendas do periodo</div>
+          </div>
+          <div className="scroll-list">
+            {vendas.map((item) => (
+              <div className="list-row" key={item.id}>
+                <div>
+                  <strong>{item.produto}</strong>
+                  <small>
+                    {item.quantidade} un. - {item.atendenteNome || item.atendente}
+                  </small>
+                </div>
+                <strong className="positive">{formatMoney(item.valor)}</strong>
+              </div>
+            ))}
+            {!vendas.length && !loading && <p className="empty-state">Nenhuma venda encontrada.</p>}
+          </div>
+        </div>
+
+        <div className="section-card report-list-card report-card-entradas">
+          <div className="section-header">
+            <div className="section-title">Entradas consolidadas do periodo</div>
+          </div>
+          <div className="scroll-list">
+            {entradasConsolidadas.map((item) => (
+              <div className="list-row" key={item.id}>
+                <div>
+                  <strong>{formatDateLabel(item.data)}</strong>
+                  <small>
+                    Dinheiro {formatMoney(item.dinheiro)} - Pix {formatMoney(item.pix)} - Cartao {formatMoney(item.cartao)}
+                  </small>
+                </div>
+                <strong className="positive">{formatMoney(item.total)}</strong>
+              </div>
+            ))}
+            {!entradasConsolidadas.length && !loading && <p className="empty-state">Nenhuma entrada consolidada encontrada.</p>}
+          </div>
+        </div>
+
+        <div className="section-card report-list-card report-card-saidas">
+          <div className="section-header">
+            <div className="section-title">Saidas do periodo</div>
+          </div>
+          <div className="scroll-list">
+            {saidasPeriodo.map((item) => (
+              <div className="list-row" key={`${item.origem}-${item.id}`}>
+                <div>
+                  <strong>{item.descricaoLinha}</strong>
+                  <small>{formatDateLabel(item.data)} - {item.origem}</small>
+                </div>
+                <strong className="negative">{formatMoney(item.valor)}</strong>
+              </div>
+            ))}
+            {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada.</p>}
           </div>
         </div>
       </div>

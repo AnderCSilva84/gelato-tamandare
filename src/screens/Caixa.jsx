@@ -1684,7 +1684,13 @@ export default function Caixa({
         <div className="ranking-list">
           {ranking.map((item, index) => {
             const medalha =
-              index === 0 ? "1o" : index === 1 ? "2o" : index === 2 ? "3o" : `${index + 1}o`;
+              index === 0
+                ? "1 lugar"
+                : index === 1
+                  ? "2 lugar"
+                  : index === 2
+                    ? "3 lugar"
+                    : `${index + 1} lugar`;
             const meta = Number(item.meta || 0);
             const progresso = meta > 0 ? Math.min((item.total / meta) * 100, 100) : 0;
             const medalhaIcone = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "•";
@@ -1698,13 +1704,14 @@ export default function Caixa({
                     </span>
                     <strong>{item.nome}</strong>
                   </div>
-                  <span className="ranking-value">{formatMoney(item.total)}</span>
+                  <span className="ranking-value">
+                    {meta > 0 ? `${Math.round(progresso)}%` : "Sem meta"}
+                  </span>
                 </div>
                 <div className="ranking-meta">
                   <small>
                     {formatMoney(item.total)} / {formatMoney(meta)}
                   </small>
-                  <small>{Math.round(progresso)}% da meta</small>
                 </div>
                 <div className="progress-track">
                   <div className="progress-fill" style={{ width: `${progresso}%` }} />

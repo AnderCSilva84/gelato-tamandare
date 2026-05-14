@@ -2416,6 +2416,60 @@ span.negative,
   min-width: 0;
 }
 
+.report-grid-priority {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  grid-template-areas:
+    "caixas vendas"
+    "extrato entradas"
+    "extrato saidas";
+}
+
+.report-card-caixas {
+  grid-area: caixas;
+}
+
+.report-card-extrato {
+  grid-area: extrato;
+}
+
+.report-card-vendas {
+  grid-area: vendas;
+}
+
+.report-card-entradas {
+  grid-area: entradas;
+}
+
+.report-card-saidas {
+  grid-area: saidas;
+}
+
+.report-grid-priority .scroll-list {
+  max-height: 320px;
+}
+
+.report-card-extrato .scroll-list,
+.report-card-caixas .scroll-list {
+  max-height: 420px;
+}
+
+.report-card-caixas .list-row {
+  align-items: stretch;
+}
+
+.report-card-caixas .caixa-row-content {
+  flex: 1;
+}
+
+.report-card-caixas .mini-btn {
+  align-self: stretch;
+  min-width: 92px;
+}
+
+.report-card-caixas .caixa-row-btn small {
+  line-height: 1.45;
+}
+
 .inventory-hero,
 .team-hero {
   display: flex;
@@ -3042,6 +3096,15 @@ span.negative,
   .team-grid,
   .report-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .report-grid-priority {
+    grid-template-areas:
+      "caixas"
+      "extrato"
+      "vendas"
+      "entradas"
+      "saidas";
   }
 
   .scroll-list,

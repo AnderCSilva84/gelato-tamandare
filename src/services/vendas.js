@@ -17,6 +17,7 @@ import { db } from "./firebase";
 
 const vendasRef = collection(db, "vendas");
 const despesasRef = collection(db, "despesas");
+const entradasConsolidadasRef = collection(db, "entradas_consolidadas");
 
 function cleanData(data) {
   return Object.fromEntries(
@@ -286,6 +287,91 @@ export function subscribeDespesasDoDia(uid, data, callback) {
   return onSnapshot(dayQuery(despesasRef, data), (snapshot) => {
     callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
   });
+}
+
+function normalizarEntradaConsolidada(dados = {}) {
+  const dinheiro = Number(dados?.dinheiro || 0);
+  const pix = Number(dados?.pix || 0);
+  const cartao = Number(dados?.cartao || 0);
+
+  return {
+    uid: dados?.uid ?? null,
+    data: String(dados?.data || "").trim(),
+    dinheiro,
+    pix,
+    cartao,
+    total: dinheiro + pix + cartao,
+  };
+}
+
+export async function addEntradaConsolidada(uid, dados) {
+  const entrada = {
+    ...normalizarEntradaConsolidada({ ...dados, uid }),
+    criadoEm: serverTimestamp(),
+  };
+
+  return addDoc(entradasConsolidadasRef, entrada);
+}
+
+export async function updateEntradaConsolidada(id, dados) {
+  if (!id) throw new Error("Entrada consolidada invalida.");
+
+  const ref = doc(db, "entradas_consolidadas", id);
+  const currentSnapshot = await getDoc(ref);
+  if (!currentSnapshot.exists()) throw new Error("Entrada consolidada nao encontrada.");
+
+  const current = currentSnapshot.data();
+  const next = normalizarEntradaConsolidada({
+    ...current,
+    ...dados,
+    uid: current.uid ?? null,
+  });
+
+  await updateDoc(
+    ref,
+    cleanData({
+      data: next.data,
+      dinheiro: next.dinheiro,
+      pix: next.pix,
+      cartao: next.cartao,
+      total: next.total,
+    })
+  );
+}
+
+export async function deleteEntradaConsolidada(id) {
+  if (!id) throw new Error("Entrada consolidada invalida.");
+  return deleteDoc(doc(db, "entradas_consolidadas", id));
+}
+
+export async function getEntradasConsolidadas(uid, dataInicio, dataFim = dataInicio) {
+  if (!dataInicio) return [];
+  try {
+    const snapshot = await getDocs(rangeQuery(entradasConsolidadasRef, dataInicio, dataFim));
+    return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  } catch (error) {
+    console.error("Erro ao carregar entradas consolidadas:", error);
+    return [];
+  }
+}
+
+export function subscribeEntradasConsolidadasDoDia(uid, data, callback, onError) {
+  if (!data) {
+    callback([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    dayQuery(entradasConsolidadasRef, data),
+    (snapshot) => {
+      callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+    },
+    (error) => {
+      console.error("Erro ao ouvir entradas consolidadas do dia:", error);
+      callback([]);
+      if (typeof onError === "function") onError(error);
+    }
+  );
 }
 
 export async function getResumoDiario(dataKey) {

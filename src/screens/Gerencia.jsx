@@ -3,7 +3,11 @@ import { deleteCaixa, fecharCaixa, getCaixas, subscribeRetiradasDoDia } from "..
 import { subscribeProdutos } from "../services/produtos";
 import { DEFAULT_SYSTEM_CONFIG, saveSystemConfig } from "../services/sistema";
 import { isSuperAdminRole } from "../utils/access";
-import { subscribeDespesasDoDia, subscribeVendasDoDia } from "../services/vendas";
+import {
+  subscribeDespesasDoDia,
+  subscribeEntradasConsolidadasDoDia,
+  subscribeVendasDoDia,
+} from "../services/vendas";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 
 function formatMoney(valor) {
@@ -20,9 +24,25 @@ function formatDateLabel(valor) {
   return `${dia}-${mes}-${ano}`;
 }
 
+function formatDateTimeLabel(valor) {
+  if (!valor) return "";
+
+  if (typeof valor?.toDate === "function") {
+    return valor.toDate().toLocaleString("pt-BR");
+  }
+
+  if (valor instanceof Date) {
+    return valor.toLocaleString("pt-BR");
+  }
+
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
+}
+
 export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, systemConfig }) {
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesasHoje, setDespesasHoje] = useState([]);
+  const [entradasConsolidadasHoje, setEntradasConsolidadasHoje] = useState([]);
   const [retiradasHoje, setRetiradasHoje] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
@@ -42,6 +62,11 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
 
     const unsubVendas = subscribeVendasDoDia(uid, dataHoje, setVendasHoje);
     const unsubDespesas = subscribeDespesasDoDia(uid, dataHoje, setDespesasHoje);
+    const unsubEntradasConsolidadas = subscribeEntradasConsolidadasDoDia(
+      uid,
+      dataHoje,
+      setEntradasConsolidadasHoje
+    );
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
     const unsubRetiradas = subscribeRetiradasDoDia(dataHoje, setRetiradasHoje);
 
@@ -54,6 +79,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       ativo = false;
       unsubVendas();
       unsubDespesas();
+      unsubEntradasConsolidadas();
       unsubProdutos();
       unsubRetiradas();
     };
@@ -88,8 +114,9 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
         despesas: despesasHoje,
         retiradas: retiradasHojeVinculadas,
         caixas: caixasAbertos,
+        entradasConsolidadas: entradasConsolidadasHoje,
       }),
-    [caixasAbertos, despesasHoje, retiradasHojeVinculadas, vendasHojeVinculadas]
+    [caixasAbertos, despesasHoje, entradasConsolidadasHoje, retiradasHojeVinculadas, vendasHojeVinculadas]
   );
   const estoqueBaixo = useMemo(
     () =>
@@ -200,6 +227,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                   totalItens,
                   totalDinheiro,
                   valorEmCaixa,
+                  fechadoEm: new Date(),
                 }
               : item
           )
@@ -278,7 +306,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
           >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
-          <small className="stat-note">Soma das vendas.</small>
+          <small className="stat-note">Vendas + entradas consolidadas.</small>
         </div>
         <div className="section-card gerencia-micro-card">
           <span className="stat-label">Gastos</span>
@@ -398,6 +426,10 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                 <div>
                   <strong>{caixa.atendenteNome}</strong>
                   <small>Fundo <span className="positive">{formatMoney(caixa.fundoCaixa || 0)}</span> • {formatDateLabel(caixa.data)}</small>
+                  <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
+                  <small>
+                    Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
+                  </small>
                 </div>
                 <div className="list-row-actions">
                   <strong className={caixa.status === "aberto" ? "positive" : ""}>

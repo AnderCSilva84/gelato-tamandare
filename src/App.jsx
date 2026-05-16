@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   apagarLancamento,
   criarLancamento,
@@ -13,6 +13,7 @@ import { login as loginPainel, logout as logoutPainel, observeAuth, registerAndL
 import { savePanelAccess, subscribePanelAccess } from "./services/panelAccess";
 import { DEFAULT_SYSTEM_CONFIG, subscribeSystemConfig } from "./services/sistema";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "./utils/access";
+import ChatSuporte from "./components/ChatSuporte";
 import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
 import "./styles.css";
@@ -24,6 +25,7 @@ const TelaEstoque = lazy(() => import("./screens/Estoque"));
 const TelaFluxoCaixa = lazy(() => import("./screens/FluxoCaixa"));
 const TelaGerencia = lazy(() => import("./screens/Gerencia"));
 const TelaRelatorio = lazy(() => import("./screens/Relatorio"));
+const TelaSuporte = lazy(() => import("./screens/Suporte"));
 
 const BUSINESS_USER = { uid: "gelato-local" };
 const LAST_LOGIN_EMAIL_KEY = "gelato-painel-last-email";
@@ -34,6 +36,7 @@ const NAV_ITEMS = [
   { id: "estoque", label: "Estoque", gerenciaOnly: true },
   { id: "atendentes", label: "Atendentes", gerenciaOnly: true },
   { id: "relatorio", label: "Relatorio", gerenciaOnly: true },
+  { id: "suporte", label: "Suporte", superadminOnly: true },
 ];
 
 const FilterIcon = (
@@ -173,6 +176,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -292,8 +296,14 @@ export default function App() {
   const painelLiberado = Boolean(authUser && panelAccess && accessUser && accessUser.ativo !== false);
   const navItems = useMemo(
     () =>
-      NAV_ITEMS.filter((item) => item.id === "pdv" || painelLiberado),
-    [painelLiberado]
+      NAV_ITEMS.filter(
+        (item) =>
+          item.id === "pdv" ||
+          (painelLiberado
+            && (!item.gerenciaOnly || isManagementRole(accessRole))
+            && (!item.superadminOnly || isSuperAdminRole(accessRole)))
+      ),
+    [accessRole, painelLiberado]
   );
   const maintenanceAdmins = useMemo(
     () => atendentesAtivos.filter((item) => isSuperAdminRole(item.role)),
@@ -388,10 +398,262 @@ export default function App() {
   }
 
   function handleSelectTela(nextTela) {
+    if (nextTela === "suporte") {
+      navigate("/suporte");
+      if (isTabletLandscape) {
+        setSidebarOpen(false);
+      }
+      return;
+    }
+
+    if (location.pathname === "/suporte") {
+      navigate("/");
+    }
     setTela(nextTela);
     if (isTabletLandscape) {
       setSidebarOpen(false);
     }
+  }
+
+  function renderDashboard(activeTela) {
+    const telaAtiva = activeTela === "suporte" ? "suporte" : tela;
+
+    return (
+      <>
+        <div className={`dashboard ${isTabletLandscape ? "dashboard-tablet-landscape" : ""}`}>
+          {isTabletLandscape ? (
+            <>
+              <button
+                className="tablet-sidebar-toggle action-btn action-btn-secondary"
+                type="button"
+                onClick={() => setSidebarOpen((prev) => !prev)}
+              >
+                {sidebarOpen ? "Fechar menu" : "Abrir menu"}
+              </button>
+              {sidebarOpen ? (
+                <button
+                  className="tablet-sidebar-backdrop"
+                  type="button"
+                  aria-label="Fechar menu lateral"
+                  onClick={() => setSidebarOpen(false)}
+                />
+              ) : null}
+            </>
+          ) : null}
+          <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
+            <div className="sidebar-brand">
+              <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
+              <div className="sidebar-title">Gelato Tamandare</div>
+              <div className="sidebar-subtitle">Painel de gestao</div>
+            </div>
+
+            <div className="sidebar-access section-card">
+              <div className="section-header section-header-main">
+                <div className="section-title mobile-hide">Acesso</div>
+                <span className="section-subtitle">
+                  {maintenanceModeEnabled && !accessUser
+                    ? "Modo manutencao ativo"
+                    : shouldShowBootstrap
+                      ? "Configurar superadmin inicial"
+                      : unrestrictedSetup
+                        ? "Modo configuracao ativo"
+                        : accessUser
+                          ? `${accessUser.nome} - ${getRoleLabel(accessRole)}`
+                          : "Entre para liberar a gerencia"}
+                </span>
+              </div>
+
+              {shouldShowBootstrap ? (
+                <form className="stack-form" onSubmit={configurarSuperadminInicial}>
+                  <select
+                    className="input select"
+                    value={bootstrapForm.atendenteId}
+                    onChange={(e) =>
+                      setBootstrapForm((prev) => ({ ...prev, atendenteId: e.target.value }))
+                    }
+                  >
+                    <option value="">Selecione o superadmin</option>
+                    {superadminsSemAcesso.map((atendente) => (
+                      <option key={atendente.id} value={atendente.id}>
+                        {atendente.nome} - Superadmin
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    type="email"
+                    value={bootstrapForm.email}
+                    onChange={(e) =>
+                      setBootstrapForm((prev) => ({ ...prev, email: e.target.value }))
+                    }
+                    placeholder="Email do superadmin"
+                  />
+                  <input
+                    className="input"
+                    type="password"
+                    value={bootstrapForm.senha}
+                    onChange={(e) =>
+                      setBootstrapForm((prev) => ({ ...prev, senha: e.target.value }))
+                    }
+                    placeholder="Senha de acesso ao painel"
+                  />
+                  <input
+                    className="input"
+                    type="password"
+                    value={bootstrapForm.confirmarSenha}
+                    onChange={(e) =>
+                      setBootstrapForm((prev) => ({ ...prev, confirmarSenha: e.target.value }))
+                    }
+                    placeholder="Confirmar senha"
+                  />
+                  <button className="action-btn action-btn-primary" type="submit">
+                    Criar acesso inicial
+                  </button>
+                  {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                </form>
+              ) : unrestrictedSetup ? (
+                <p className="sidebar-access-note">
+                  Cadastre pelo menos um usuario com role gerencia ou superadmin em Atendentes para ativar o controle de acesso.
+                </p>
+              ) : accessUser ? (
+                <div className="sidebar-access-actions">
+                  <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
+                    Sair do painel
+                  </button>
+                </div>
+              ) : (
+                <form className="stack-form" onSubmit={entrarNoPainel}>
+                  <input
+                    className="input"
+                    type="email"
+                    value={accessForm.email}
+                    onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="Email de acesso"
+                  />
+                  <input
+                    className="input"
+                    type="password"
+                    value={accessForm.senha}
+                    onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                    placeholder="Senha de acesso"
+                  />
+                  <button className="action-btn action-btn-primary" type="submit">
+                    Entrar no painel
+                  </button>
+                  {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                </form>
+              )}
+            </div>
+
+            {navItems.length > 1 ? (
+              <div className="sidebar-nav">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`sidebar-btn ${telaAtiva === item.id ? "is-active" : ""}`}
+                    onClick={() => handleSelectTela(item.id)}
+                    type="button"
+                    disabled={item.id !== "pdv" && !painelLiberado}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </aside>
+
+          <main className="content">
+            {maintenanceLocked ? (
+              <div className="dashboard-screen maintenance-screen">
+                <div className="section-card access-block-card maintenance-card">
+                  <div className="section-header section-header-main">
+                    <div className="section-title">{maintenanceTitle}</div>
+                    <span className="section-subtitle">Acesso temporariamente restrito</span>
+                  </div>
+                  <p className="screen-description">{maintenanceMessage}</p>
+                  {maintenanceAdmins.length ? (
+                    <>
+                      <p className="helper-text">O superadmin ainda pode entrar para reativar o sistema.</p>
+                      <form className="stack-form" onSubmit={entrarNoPainel}>
+                        <input
+                          className="input"
+                          type="email"
+                          value={accessForm.email}
+                          onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                          placeholder="Email do superadmin"
+                        />
+                        <input
+                          className="input"
+                          type="password"
+                          value={accessForm.senha}
+                          onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                          placeholder="Senha do superadmin"
+                        />
+                        <button className="action-btn action-btn-primary" type="submit">
+                          Entrar como superadmin
+                        </button>
+                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                      </form>
+                    </>
+                  ) : (
+                    <p className="inline-feedback">
+                      Nenhum usuario superadmin esta disponivel para desativar a manutencao pelo painel.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : telaAtiva === "pdv" ? (
+              <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
+                <TelaCaixa
+                  uid={user.uid}
+                  dataHoje={hojeISO()}
+                  accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
+                  accessUser={accessUser}
+                />
+              </Suspense>
+            ) : painelLiberado ? (
+              <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
+                {telaAtiva === "gerencia" && (
+                  <TelaGerencia
+                    uid={user.uid}
+                    dataHoje={hojeISO()}
+                    onNavigate={handleSelectTela}
+                    accessUser={accessUser}
+                    systemConfig={systemConfig}
+                  />
+                )}
+                {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                {telaAtiva === "estoque" && <TelaEstoque uid={user.uid} />}
+                {telaAtiva === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
+                {telaAtiva === "relatorio" && (
+                  <TelaRelatorio
+                    uid={user.uid}
+                    dataHoje={hojeISO()}
+                    accessUser={accessUser}
+                  />
+                )}
+                {telaAtiva === "suporte" && (
+                  <TelaSuporte accessRole={accessRole} authUser={authUser} />
+                )}
+              </Suspense>
+            ) : (
+              <div className="dashboard-screen">
+                <div className="section-card access-block-card">
+                  <div className="section-header section-header-main">
+                    <div className="section-title">Painel bloqueado</div>
+                    <span className="section-subtitle">Entre com um usuario autenticado para continuar</span>
+                  </div>
+                  <p className="screen-description">
+                    O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha.
+                  </p>
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+        {SystemFooter}
+      </>
+    );
   }
 
   async function registrarRetroativo() {
@@ -718,243 +980,9 @@ export default function App() {
       <Routes>
         <Route
           path="/"
-          element={(
-            <>
-              <div className={`dashboard ${isTabletLandscape ? "dashboard-tablet-landscape" : ""}`}>
-                {isTabletLandscape ? (
-                  <>
-                    <button
-                      className="tablet-sidebar-toggle action-btn action-btn-secondary"
-                      type="button"
-                      onClick={() => setSidebarOpen((prev) => !prev)}
-                    >
-                      {sidebarOpen ? "Fechar menu" : "Abrir menu"}
-                    </button>
-                    {sidebarOpen ? (
-                      <button
-                        className="tablet-sidebar-backdrop"
-                        type="button"
-                        aria-label="Fechar menu lateral"
-                        onClick={() => setSidebarOpen(false)}
-                      />
-                    ) : null}
-                  </>
-                ) : null}
-                <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
-                  <div className="sidebar-brand">
-                    <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
-                    <div className="sidebar-title">Gelato Tamandare</div>
-                    <div className="sidebar-subtitle">Painel de gestao</div>
-                  </div>
-
-                  <div className="sidebar-access section-card">
-                    <div className="section-header section-header-main">
-                      <div className="section-title mobile-hide">Acesso</div>
-                      <span className="section-subtitle">
-                        {maintenanceModeEnabled && !accessUser
-                          ? "Modo manutencao ativo"
-                          : shouldShowBootstrap
-                            ? "Configurar superadmin inicial"
-                          : unrestrictedSetup
-                            ? "Modo configuracao ativo"
-                          : accessUser
-                            ? `${accessUser.nome} - ${getRoleLabel(accessRole)}`
-                            : "Entre para liberar a gerencia"}
-                      </span>
-                    </div>
-
-                    {shouldShowBootstrap ? (
-                      <form className="stack-form" onSubmit={configurarSuperadminInicial}>
-                        <select
-                          className="input select"
-                          value={bootstrapForm.atendenteId}
-                          onChange={(e) =>
-                            setBootstrapForm((prev) => ({ ...prev, atendenteId: e.target.value }))
-                          }
-                        >
-                          <option value="">Selecione o superadmin</option>
-                          {superadminsSemAcesso.map((atendente) => (
-                            <option key={atendente.id} value={atendente.id}>
-                              {atendente.nome} - Superadmin
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          className="input"
-                          type="email"
-                          value={bootstrapForm.email}
-                          onChange={(e) =>
-                            setBootstrapForm((prev) => ({ ...prev, email: e.target.value }))
-                          }
-                          placeholder="Email do superadmin"
-                        />
-                        <input
-                          className="input"
-                          type="password"
-                          value={bootstrapForm.senha}
-                          onChange={(e) =>
-                            setBootstrapForm((prev) => ({ ...prev, senha: e.target.value }))
-                          }
-                          placeholder="Senha de acesso ao painel"
-                        />
-                        <input
-                          className="input"
-                          type="password"
-                          value={bootstrapForm.confirmarSenha}
-                          onChange={(e) =>
-                            setBootstrapForm((prev) => ({ ...prev, confirmarSenha: e.target.value }))
-                          }
-                          placeholder="Confirmar senha"
-                        />
-                        <button className="action-btn action-btn-primary" type="submit">
-                          Criar acesso inicial
-                        </button>
-                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
-                      </form>
-                    ) : unrestrictedSetup ? (
-                      <p className="sidebar-access-note">
-                        Cadastre pelo menos um usuario com role gerencia ou superadmin em Atendentes para ativar o controle de acesso.
-                      </p>
-                    ) : accessUser ? (
-                      <div className="sidebar-access-actions">
-                        <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
-                          Sair do painel
-                        </button>
-                      </div>
-                    ) : (
-                      <form className="stack-form" onSubmit={entrarNoPainel}>
-                        <input
-                          className="input"
-                          type="email"
-                          value={accessForm.email}
-                          onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
-                          placeholder="Email de acesso"
-                        />
-                        <input
-                          className="input"
-                          type="password"
-                          value={accessForm.senha}
-                          onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
-                          placeholder="Senha de acesso"
-                        />
-                        <button className="action-btn action-btn-primary" type="submit">
-                          Entrar no painel
-                        </button>
-                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
-                      </form>
-                    )}
-                  </div>
-
-                  {navItems.length > 1 ? (
-                    <div className="sidebar-nav">
-                      {navItems.map((item) => (
-                        <button
-                          key={item.id}
-                          className={`sidebar-btn ${tela === item.id ? "is-active" : ""}`}
-                          onClick={() => handleSelectTela(item.id)}
-                          type="button"
-                          disabled={item.id !== "pdv" && !painelLiberado}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </aside>
-
-                <main className="content">
-                  {maintenanceLocked ? (
-                    <div className="dashboard-screen maintenance-screen">
-                      <div className="section-card access-block-card maintenance-card">
-                        <div className="section-header section-header-main">
-                          <div className="section-title">{maintenanceTitle}</div>
-                          <span className="section-subtitle">Acesso temporariamente restrito</span>
-                        </div>
-                        <p className="screen-description">{maintenanceMessage}</p>
-                        {maintenanceAdmins.length ? (
-                          <>
-                            <p className="helper-text">O superadmin ainda pode entrar para reativar o sistema.</p>
-                            <form className="stack-form" onSubmit={entrarNoPainel}>
-                              <input
-                                className="input"
-                                type="email"
-                                value={accessForm.email}
-                                onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
-                                placeholder="Email do superadmin"
-                              />
-                              <input
-                                className="input"
-                                type="password"
-                                value={accessForm.senha}
-                                onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
-                                placeholder="Senha do superadmin"
-                                />
-                                <button className="action-btn action-btn-primary" type="submit">
-                                  Entrar como superadmin
-                                </button>
-                              {accessError ? <p className="inline-feedback">{accessError}</p> : null}
-                            </form>
-                          </>
-                          ) : (
-                            <p className="inline-feedback">
-                              Nenhum usuario superadmin esta disponivel para desativar a manutencao pelo painel.
-                            </p>
-                          )}
-                      </div>
-                    </div>
-                  ) : tela === "pdv" ? (
-                    <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
-                      <TelaCaixa
-                        uid={user.uid}
-                        dataHoje={hojeISO()}
-                        accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
-                        accessUser={accessUser}
-                      />
-                    </Suspense>
-                  ) : painelLiberado ? (
-                    <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
-                      {tela === "gerencia" && (
-                        <TelaGerencia
-                          uid={user.uid}
-                          dataHoje={hojeISO()}
-                          onNavigate={handleSelectTela}
-                          accessUser={accessUser}
-                          systemConfig={systemConfig}
-                        />
-                      )}
-                      {tela === "pdv" && (
-                        <TelaCaixa uid={user.uid} dataHoje={hojeISO()} accessRole={accessRole} accessUser={accessUser} />
-                      )}
-                      {tela === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
-                      {tela === "estoque" && <TelaEstoque uid={user.uid} />}
-                      {tela === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
-                      {tela === "relatorio" && (
-                        <TelaRelatorio
-                          uid={user.uid}
-                          dataHoje={hojeISO()}
-                          accessUser={accessUser}
-                        />
-                      )}
-                    </Suspense>
-                  ) : (
-                    <div className="dashboard-screen">
-                      <div className="section-card access-block-card">
-                        <div className="section-header section-header-main">
-                          <div className="section-title">Painel bloqueado</div>
-                          <span className="section-subtitle">Entre com um usuario autenticado para continuar</span>
-                        </div>
-                        <p className="screen-description">
-                          O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </main>
-              </div>
-              {SystemFooter}
-            </>
-          )}
+          element={renderDashboard(tela)}
         />
+        <Route path="/suporte" element={renderDashboard("suporte")} />
         <Route
           path="/extrato"
           element={(
@@ -1022,6 +1050,7 @@ export default function App() {
           )}
         />
       </Routes>
+      <ChatSuporte authUser={authUser} accessUser={accessUser} panelAccess={panelAccess} accessRole={accessRole} />
     </div>
   );
 }

@@ -52,6 +52,34 @@ function formatDateTimeLabel(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
+function formatVendaHorario(venda) {
+  const horario = String(venda?.horario || "").trim();
+  if (horario) return horario;
+
+  if (typeof venda?.criadoEm?.toDate === "function") {
+    return venda.criadoEm.toDate().toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  if (venda?.criadoEm instanceof Date) {
+    return venda.criadoEm.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  if (typeof venda?.registradoEmMs === "number" && venda.registradoEmMs > 0) {
+    return new Date(venda.registradoEmMs).toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return "";
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -779,8 +807,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 <div>
                   <strong>{item.produto}</strong>
                   <small>
-                    {item.quantidade} un. - {item.formaPagamento || "Sem forma"} -{" "}
-                    {item.atendenteNome || item.atendente}
+                    {formatVendaHorario(item) || "Sem horario"} - {item.quantidade} un. -{" "}
+                    {item.formaPagamento || "Sem forma"} - {item.atendenteNome || item.atendente}
                   </small>
                 </div>
                 <div className="list-row-actions">

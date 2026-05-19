@@ -129,6 +129,33 @@ export function escutarConversaSuporte(conversaId, callback, onError) {
   );
 }
 
+export function escutarStatusConversaSuporte(conversaId, callback, onError) {
+  if (!conversaId) {
+    callback(null);
+    return () => {};
+  }
+
+  return onSnapshot(
+    getConversaRef(conversaId),
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        callback(null);
+        return;
+      }
+
+      callback({
+        id: snapshot.id,
+        ...snapshot.data(),
+      });
+    },
+    (error) => {
+      if (typeof onError === "function") {
+        onError(error);
+      }
+    }
+  );
+}
+
 export async function buscarConversasAbertas({ status = "abertas" } = {}) {
   const snapshot = await getDocs(
     query(collection(db, CONVERSAS_COLLECTION), orderBy("ultimaMensagem", "desc"))

@@ -33,12 +33,45 @@ function dayQuery(ref, data) {
   return query(ref, where("data", "==", data));
 }
 
+function getCurrentTimeLabel() {
+  return new Date().toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getItemTimestamp(item) {
+  const registradoEmMs = Number(item?.registradoEmMs || 0);
+  if (Number.isFinite(registradoEmMs) && registradoEmMs > 0) {
+    return registradoEmMs;
+  }
+
+  if (typeof item?.criadoEm?.toDate === "function") {
+    return item.criadoEm.toDate().getTime();
+  }
+
+  if (item?.criadoEm instanceof Date) {
+    return item.criadoEm.getTime();
+  }
+
+  if (typeof item?.criadoEm === "string") {
+    const parsed = new Date(item.criadoEm).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return 0;
+}
+
 function sortByDateAndId(items) {
   return [...items].sort((a, b) => {
     const dataA = String(a?.data || "");
     const dataB = String(b?.data || "");
     const byDate = dataB.localeCompare(dataA);
     if (byDate !== 0) return byDate;
+
+    const timeA = getItemTimestamp(a);
+    const timeB = getItemTimestamp(b);
+    if (timeA !== timeB) return timeB - timeA;
 
     const idA = String(a?.id || "");
     const idB = String(b?.id || "");
@@ -127,6 +160,8 @@ export async function addVenda(uid, dados) {
     valorRecebido: Number(dados?.valorRecebido || 0),
     troco: Number(dados?.troco || 0),
     data: String(dados?.data || ""),
+    horario: String(dados?.horario || getCurrentTimeLabel()).trim(),
+    registradoEmMs: Number(dados?.registradoEmMs || Date.now()),
     criadoEm: serverTimestamp(),
   };
 

@@ -4,6 +4,7 @@ import {
   buscarConversasAbertas,
   enviarMensagemSuporte,
   escutarConversaSuporte,
+  escutarStatusConversaSuporte,
   fecharConversaSuporte,
   responderConversaSuporte,
 } from "../services/suporte";
@@ -63,6 +64,7 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
   const [sessaoPdv, setSessaoPdv] = useState(null);
   const [filtroAdmin, setFiltroAdmin] = useState("abertas");
   const [conversasAdmin, setConversasAdmin] = useState([]);
+  const [conversaCliente, setConversaCliente] = useState(null);
   const [conversaAtivaId, setConversaAtivaId] = useState(() =>
     readTextStorage(SUPPORT_ACTIVE_STORAGE_KEY, "")
   );
@@ -133,6 +135,7 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
     () => conversasAdmin.find((item) => item.id === conversaAtivaId) || null,
     [conversaAtivaId, conversasAdmin]
   );
+  const conversaClienteResolvida = conversaCliente?.ativo === false;
   const podeMostrar = superadmin ? Boolean(authUser && panelAccess) : Boolean(authUser || sessaoPdv?.id);
 
   const carregarConversasAdmin = useCallback(async () => {
@@ -187,6 +190,24 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
       unsubscribe();
     };
   }, [aberto, carregarConversasAdmin, podeMostrar, superadmin, usuarioUid]);
+
+  useEffect(() => {
+    if (superadmin || !aberto || !usuarioUid) return undefined;
+
+    const unsubscribe = escutarStatusConversaSuporte(
+      usuarioUid,
+      (item) => {
+        setConversaCliente(item);
+      },
+      (error) => {
+        console.error(error);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [aberto, superadmin, usuarioUid]);
 
   useEffect(() => {
     if (!superadmin || !aberto || !conversaAtivaId) return undefined;
@@ -440,7 +461,13 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
             </div>
           ) : (
             <>
-              <div className="chat-suporte-body">
+              <div className={`chat-suporte-body ${conversaClienteResolvida ? "is-resolved" : ""}`}>
+                {conversaClienteResolvida ? (
+                  <div className="chat-suporte-resolution-banner" role="status" aria-live="polite">
+                    <span className="chat-suporte-resolution-stamp">Resolvido</span>
+                    <small>O superadmin marcou esta solicitacao como concluida.</small>
+                  </div>
+                ) : null}
                 {carregando ? (
                   <p className="chat-suporte-empty">Carregando conversa...</p>
                 ) : mensagens.length ? (
@@ -450,11 +477,14 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
                     return (
                       <article
                         key={mensagem.id}
-                        className={`chat-suporte-bubble ${minhaMensagem ? "is-user" : "is-admin"}`}
+                        className={`chat-suporte-bubble ${minhaMensagem ? "is-user" : "is-admin"} ${conversaClienteResolvida ? "is-resolved" : ""}`}
                       >
                         <strong>{minhaMensagem ? "Voce" : "Suporte"}</strong>
                         <p>{mensagem.texto}</p>
                         <small>{formatarMensagemTimestamp(mensagem.timestamp)}</small>
+                        {conversaClienteResolvida ? (
+                          <span className="chat-suporte-bubble-stamp">Resolvido</span>
+                        ) : null}
                       </article>
                     );
                   })
@@ -501,6 +531,7 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
         onClick={() => setAberto((prev) => !prev)}
       >
         {superadmin ? <FiShield /> : <FiMessageCircle />}
+        <span>SUPORTE</span>
       </button>
     </div>
   );

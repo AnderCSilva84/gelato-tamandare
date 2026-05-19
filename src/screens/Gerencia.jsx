@@ -39,6 +39,34 @@ function formatDateTimeLabel(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
+function formatVendaHorario(venda) {
+  const horario = String(venda?.horario || "").trim();
+  if (horario) return horario;
+
+  if (typeof venda?.criadoEm?.toDate === "function") {
+    return venda.criadoEm.toDate().toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  if (venda?.criadoEm instanceof Date) {
+    return venda.criadoEm.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  if (typeof venda?.registradoEmMs === "number" && venda.registradoEmMs > 0) {
+    return new Date(venda.registradoEmMs).toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return "";
+}
+
 export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, systemConfig }) {
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesasHoje, setDespesasHoje] = useState([]);
@@ -557,7 +585,8 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                   <div>
                     <strong>{item.produto}</strong>
                     <small>
-                      {item.quantidade} un. • {item.formaPagamento || "Sem forma"} • {item.atendenteNome || item.atendente}
+                      {formatVendaHorario(item) || "Sem horario"} • {item.quantidade} un. •{" "}
+                      {item.formaPagamento || "Sem forma"} • {item.atendenteNome || item.atendente}
                     </small>
                   </div>
                   <strong className="positive">{formatMoney(item.valor)}</strong>

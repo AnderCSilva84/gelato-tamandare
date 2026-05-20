@@ -4,13 +4,17 @@ import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addEntradaConsolidada,
   addDespesa,
+  addDespesaFixa,
   deleteEntradaConsolidada,
   deleteDespesa,
+  deleteDespesaFixa,
   getEntradasConsolidadas,
   getDespesas,
+  getDespesasFixas,
   getVendas,
   updateEntradaConsolidada,
   updateDespesa,
+  updateDespesaFixa,
 } from "../services/vendas";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 
@@ -72,9 +76,17 @@ async function loadPdfTools() {
 
 function initialForm(data) {
   return {
+    despesaFixaId: "",
     descricao: "",
     valor: "",
     data,
+  };
+}
+
+function initialDespesaFixaForm() {
+  return {
+    descricao: "",
+    valorPadrao: "",
   };
 }
 
@@ -98,10 +110,15 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   const [retiradas, setRetiradas] = useState([]);
   const [caixas, setCaixas] = useState([]);
   const [entradasConsolidadas, setEntradasConsolidadas] = useState([]);
+  const [despesasFixas, setDespesasFixas] = useState([]);
   const [form, setForm] = useState(() => initialForm(dataHoje));
   const [editandoId, setEditandoId] = useState("");
   const [entradaForm, setEntradaForm] = useState(() => initialEntradaForm(dataHoje));
   const [entradaEditandoId, setEntradaEditandoId] = useState("");
+  const [despesaFixaForm, setDespesaFixaForm] = useState(() => initialDespesaFixaForm());
+  const [despesaFixaEditandoId, setDespesaFixaEditandoId] = useState("");
+  const [despesaFixaFeedback, setDespesaFixaFeedback] = useState("");
+  const [mostrarCadastroDespesasFixas, setMostrarCadastroDespesasFixas] = useState(false);
 
   const filtroValido =
     modoFiltro === "dia"
@@ -198,6 +215,22 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     };
   }, [filtroValido, modoFiltro, dataFiltro, dataInicioFiltro, dataFimFiltro, periodoReferencia.fim, periodoReferencia.inicio, uid]);
 
+  const carregarDespesasFixas = useCallback(async () => {
+    try {
+      const despesasFixasData = await getDespesasFixas();
+      setDespesasFixas(despesasFixasData.filter((item) => item.ativa !== false));
+      setDespesaFixaFeedback("");
+    } catch (error) {
+      console.error("Erro ao carregar despesas fixas:", error);
+      setDespesasFixas([]);
+      setDespesaFixaFeedback("Nao foi possivel carregar as despesas fixas. Verifique as permissoes do Firestore.");
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarDespesasFixas();
+  }, [carregarDespesasFixas]);
+
   const resumoFinanceiro = useMemo(
     () =>
       calcularResumoFinanceiro({
@@ -259,18 +292,23 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     const dataDespesa = form.data;
     const valor = Number(form.valor || 0);
     if (!form.descricao.trim() || !Number.isFinite(valor) || valor <= 0 || !dataDespesa) return;
+    const despesaFixaSelecionada = despesasFixas.find((item) => item.id === form.despesaFixaId);
 
     if (editandoId) {
       await updateDespesa(editandoId, {
         descricao: form.descricao,
         valor,
         data: dataDespesa,
+        despesaFixaId: form.despesaFixaId || "",
+        despesaFixaDescricao: despesaFixaSelecionada?.descricao || "",
       });
     } else {
       await addDespesa(uid, {
         descricao: form.descricao,
         valor,
         data: dataDespesa,
+        despesaFixaId: form.despesaFixaId || "",
+        despesaFixaDescricao: despesaFixaSelecionada?.descricao || "",
       });
     }
 
@@ -294,6 +332,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   function editarDespesa(item) {
     setEditandoId(item.id);
     setForm({
+      despesaFixaId: item.despesaFixaId || "",
       descricao: item.descricao || "",
       valor: String(item.valor ?? ""),
       data: item.data || dataFiltro,
@@ -303,6 +342,72 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   async function excluirDespesa(id) {
     await deleteDespesa(id);
     await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
+  }
+
+  function selecionarDespesaFixa(idSelecionado) {
+    const despesaFixa = despesasFixas.find((item) => item.id === idSelecionado);
+
+    setForm((prev) => ({
+      ...prev,
+      despesaFixaId: idSelecionado,
+      descricao: despesaFixa?.descricao || "",
+      valor:
+        despesaFixa && despesaFixa.valorPadrao !== null && despesaFixa.valorPadrao !== undefined
+          ? String(despesaFixa.valorPadrao)
+          : "",
+    }));
+  }
+
+  async function salvarDespesaFixa(e) {
+    e.preventDefault();
+
+    if (!despesaFixaForm.descricao.trim()) return;
+
+    try {
+      const payload = {
+        descricao: despesaFixaForm.descricao,
+        valorPadrao: despesaFixaForm.valorPadrao,
+        ativa: true,
+      };
+
+      if (despesaFixaEditandoId) {
+        await updateDespesaFixa(despesaFixaEditandoId, payload);
+      } else {
+        await addDespesaFixa(payload);
+      }
+
+      setDespesaFixaForm(initialDespesaFixaForm());
+      setDespesaFixaEditandoId("");
+      setDespesaFixaFeedback("Despesa fixa salva com sucesso.");
+      await carregarDespesasFixas();
+    } catch (error) {
+      console.error("Erro ao salvar despesa fixa:", error);
+      setDespesaFixaFeedback("Nao foi possivel salvar a despesa fixa. Se as regras mudaram hoje, publique o Firestore.");
+    }
+  }
+
+  function editarDespesaFixa(item) {
+    setMostrarCadastroDespesasFixas(true);
+    setDespesaFixaEditandoId(item.id);
+    setDespesaFixaForm({
+      descricao: item.descricao || "",
+      valorPadrao:
+        item.valorPadrao === null || item.valorPadrao === undefined ? "" : String(item.valorPadrao),
+    });
+  }
+
+  async function excluirDespesaFixa(id) {
+    try {
+      await deleteDespesaFixa(id);
+      if (form.despesaFixaId === id) {
+        setForm((prev) => ({ ...prev, despesaFixaId: "" }));
+      }
+      setDespesaFixaFeedback("Despesa fixa excluida com sucesso.");
+      await carregarDespesasFixas();
+    } catch (error) {
+      console.error("Erro ao excluir despesa fixa:", error);
+      setDespesaFixaFeedback("Nao foi possivel excluir a despesa fixa.");
+    }
   }
 
   async function exportarFluxoPDF() {
@@ -744,6 +849,21 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             </div>
           </div>
           <form className="stack-form" onSubmit={salvarDespesa}>
+            <select
+              className="input"
+              value={form.despesaFixaId}
+              onChange={(e) => selecionarDespesaFixa(e.target.value)}
+            >
+              <option value="">Despesa avulsa</option>
+              {despesasFixas.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.descricao}
+                  {item.valorPadrao !== null && item.valorPadrao !== undefined
+                    ? ` - ${formatMoney(item.valorPadrao)}`
+                    : ""}
+                </option>
+              ))}
+            </select>
             <input
               className="input"
               value={form.descricao}
@@ -768,7 +888,86 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             <button className="action-btn action-btn-warning" type="submit">
               {editandoId ? "Atualizar despesa" : "Registrar despesa"}
             </button>
+            <button
+              className="action-btn action-btn-secondary"
+              type="button"
+              onClick={() => {
+                setMostrarCadastroDespesasFixas((prev) => !prev);
+                setDespesaFixaFeedback("");
+              }}
+            >
+              {mostrarCadastroDespesasFixas ? "Ocultar despesas fixas" : "Gerenciar despesas fixas"}
+            </button>
           </form>
+        </div>
+
+        <div
+          className="section-card"
+          style={{ display: mostrarCadastroDespesasFixas ? "block" : "none" }}
+        >
+          <div className="section-header">
+            <div className="section-title">
+              {despesaFixaEditandoId ? "Editar despesa fixa" : "Despesas fixas"}
+            </div>
+            <span className="section-subtitle">{despesasFixas.length} opcoes no select</span>
+          </div>
+          <form className="stack-form" onSubmit={salvarDespesaFixa}>
+            <input
+              className="input"
+              value={despesaFixaForm.descricao}
+              onChange={(e) => setDespesaFixaForm((prev) => ({ ...prev, descricao: e.target.value }))}
+              placeholder="Descricao da despesa fixa"
+            />
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="0.01"
+              value={despesaFixaForm.valorPadrao}
+              onChange={(e) => setDespesaFixaForm((prev) => ({ ...prev, valorPadrao: e.target.value }))}
+              placeholder="Valor padrao (opcional)"
+            />
+            <button className="action-btn action-btn-secondary" type="submit">
+              {despesaFixaEditandoId ? "Atualizar despesa fixa" : "Cadastrar despesa fixa"}
+            </button>
+            <button
+              className="action-btn"
+              type="button"
+              onClick={() => {
+                setMostrarCadastroDespesasFixas(false);
+                setDespesaFixaEditandoId("");
+                setDespesaFixaForm(initialDespesaFixaForm());
+                setDespesaFixaFeedback("");
+              }}
+            >
+              Fechar
+            </button>
+          </form>
+          {despesaFixaFeedback ? <p className="inline-feedback">{despesaFixaFeedback}</p> : null}
+          <div className="scroll-list">
+            {despesasFixas.map((item) => (
+              <div className="list-row" key={item.id}>
+                <div>
+                  <strong>{item.descricao}</strong>
+                  <small>
+                    Valor padrao:{" "}
+                    {item.valorPadrao === null || item.valorPadrao === undefined
+                      ? "Nao definido"
+                      : formatMoney(item.valorPadrao)}
+                  </small>
+                </div>
+                <div className="list-row-actions">
+                  <button className="mini-btn" type="button" onClick={() => editarDespesaFixa(item)}>
+                    Editar
+                  </button>
+                  <button className="mini-btn danger" type="button" onClick={() => excluirDespesaFixa(item.id)}>
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!despesasFixas.length && <p className="empty-state">Nenhuma despesa fixa cadastrada.</p>}
+          </div>
         </div>
 
         <div className="section-card">

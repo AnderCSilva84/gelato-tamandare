@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backfill:agregados": "node scripts/backfill-agregados.mjs"
+    "backfill:agregados": "node scripts/backfill-agregados.mjs",
+    "screenshots": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "firebase": "^12.11.0",

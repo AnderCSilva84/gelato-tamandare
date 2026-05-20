@@ -3,21 +3,17 @@ import logoGelato from "../assets/gelatoimg.jpeg";
 import {
   deleteCaixa,
   fecharCaixa,
-  deleteRetiradaCaixa,
   getCaixas,
   getRetiradas,
-  updateRetiradaCaixa,
 } from "../services/caixas";
 import { getProdutos } from "../services/produtos";
 import {
   deleteVenda,
-  deleteDespesa,
   getDespesas,
   getEntradasConsolidadas,
   getVendas,
   getVendasPorCaixa,
   subscribeVendasDoDia,
-  updateDespesa,
 } from "../services/vendas";
 import { criarLancamento } from "../services/lancamentos";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
@@ -110,6 +106,84 @@ function mesDaData(data) {
   return String(data || "").slice(0, 7);
 }
 
+function formatMonthLabel(valor) {
+  const [ano, mes] = String(valor || "").split("-");
+  if (!ano || !mes) return String(valor || "");
+  return `${mes}/${ano}`;
+}
+
+function escapeCsvValue(valor) {
+  const texto = String(valor ?? "");
+  return `"${texto.replaceAll('"', '""')}"`;
+}
+
+function downloadTextFile(nomeArquivo, conteudo, tipo) {
+  const blob = new Blob([conteudo], { type: tipo });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = nomeArquivo;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function buildMonthlySummary({ vendas = [], entradasConsolidadas = [], despesas = [], retiradas = [] }) {
+  const mapa = new Map();
+
+  function ensureMes(data) {
+    const mes = mesDaData(data);
+    if (!mes) return null;
+    if (!mapa.has(mes)) {
+      mapa.set(mes, {
+        mes,
+        entradasVendas: 0,
+        entradasExtras: 0,
+        despesas: 0,
+        retiradas: 0,
+      });
+    }
+    return mapa.get(mes);
+  }
+
+  vendas.forEach((item) => {
+    const linha = ensureMes(item.data);
+    if (!linha) return;
+    linha.entradasVendas += Number(item.valor || 0);
+  });
+
+  entradasConsolidadas.forEach((item) => {
+    const linha = ensureMes(item.data);
+    if (!linha) return;
+    linha.entradasExtras += Number(item.total || 0);
+  });
+
+  despesas.forEach((item) => {
+    const linha = ensureMes(item.data);
+    if (!linha) return;
+    linha.despesas += Number(item.valor || 0);
+  });
+
+  retiradas.forEach((item) => {
+    const linha = ensureMes(item.data);
+    if (!linha) return;
+    linha.retiradas += Number(item.valor || 0);
+  });
+
+  return Array.from(mapa.values())
+    .map((item) => {
+      const entradas = item.entradasVendas + item.entradasExtras;
+      const gastos = item.despesas + item.retiradas;
+
+      return {
+        ...item,
+        entradas,
+        gastos,
+        lucro: entradas - gastos,
+      };
+    })
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
 export default function Relatorio({ uid, dataHoje, accessUser = null }) {
   const [dataInicioFiltro, setDataInicioFiltro] = useState(dataHoje);
   const [dataFimFiltro, setDataFimFiltro] = useState(dataHoje);
@@ -122,8 +196,6 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
   const [caixas, setCaixas] = useState([]);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
   const [vendasCaixaSelecionado, setVendasCaixaSelecionado] = useState([]);
-  const [saidaEditando, setSaidaEditando] = useState(null);
-  const [saidaForm, setSaidaForm] = useState({ descricao: "", valor: "", data: "" });
   const [vendaCancelando, setVendaCancelando] = useState(null);
   const [senhaCancelamento, setSenhaCancelamento] = useState("");
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
@@ -232,6 +304,10 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     const caixaIds = new Set(caixas.map((item) => item.id));
     return retiradas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
   }, [caixas, retiradas]);
+  const despesasPeriodo = useMemo(
+    () => [...despesas].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
+    [despesas]
+  );
   const saidasPeriodo = useMemo(
     () =>
       [
@@ -295,6 +371,16 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       .map(([nome, total]) => ({ nome, total }))
       .sort((a, b) => b.total - a.total);
   }, [vendasPeriodoVinculadas]);
+  const resumoMensal = useMemo(
+    () =>
+      buildMonthlySummary({
+        vendas: vendasPeriodoVinculadas,
+        entradasConsolidadas,
+        despesas,
+        retiradas: retiradasPeriodoVinculadas,
+      }),
+    [despesas, entradasConsolidadas, retiradasPeriodoVinculadas, vendasPeriodoVinculadas]
+  );
   const podeCancelarVenda = isManagementRole(accessUser?.role) && caixaSelecionado?.status === "aberto";
 
   async function excluirCaixa(item) {
@@ -340,63 +426,6 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       valorEmCaixa,
     });
 
-    await carregarPeriodoAtual();
-  }
-
-  function iniciarEdicaoSaida(item) {
-    setSaidaEditando(item);
-    setSaidaForm({
-      descricao: item.descricaoLinha || "",
-      valor: String(item.valor ?? ""),
-      data: item.data || dataHoje,
-    });
-  }
-
-  function cancelarEdicaoSaida() {
-    setSaidaEditando(null);
-    setSaidaForm({ descricao: "", valor: "", data: "" });
-  }
-
-  async function salvarSaidaEditada(e) {
-    e.preventDefault();
-    if (!saidaEditando?.id) return;
-
-    const valor = Number(saidaForm.valor || 0);
-    if (!saidaForm.descricao.trim() || !Number.isFinite(valor) || valor <= 0 || !saidaForm.data) return;
-
-    if (saidaEditando.tipoSaida === "despesa") {
-      await updateDespesa(saidaEditando.id, {
-        descricao: saidaForm.descricao,
-        valor,
-        data: saidaForm.data,
-      });
-    } else {
-      await updateRetiradaCaixa(saidaEditando.id, {
-        motivo: saidaForm.descricao,
-        valor,
-        data: saidaForm.data,
-      });
-    }
-
-    cancelarEdicaoSaida();
-    await carregarPeriodoAtual();
-  }
-
-  async function excluirSaida(item) {
-    if (!item?.id) return;
-
-    const confirmar = window.confirm(
-      `Excluir ${String(item.origem || "saida").toLowerCase()} "${item.descricaoLinha}"?`
-    );
-    if (!confirmar) return;
-
-    if (item.tipoSaida === "despesa") {
-      await deleteDespesa(item.id);
-    } else {
-      await deleteRetiradaCaixa(item.id);
-    }
-
-    if (saidaEditando?.id === item.id) cancelarEdicaoSaida();
     await carregarPeriodoAtual();
   }
 
@@ -544,9 +573,11 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
         ["Entradas", formatMoney(resumoFinanceiro.entradas)],
         ["Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
         ["Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
+        ["Despesas operacionais", formatMoney(resumoFinanceiro.despesasOperacionais)],
+        ["Retiradas de caixa", formatMoney(resumoFinanceiro.retiradasCaixa)],
         ["Gastos", formatMoney(resumoFinanceiro.gastos)],
         ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
-        ["Resultado", formatMoney(resumoFinanceiro.resultado)],
+        ["Lucro do periodo", formatMoney(resumoFinanceiro.resultado)],
       ],
       theme: "grid",
       headStyles: { fillColor: [37, 99, 235], textColor: 255 },
@@ -589,6 +620,80 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     });
     y = doc.lastAutoTable.finalY + 10;
 
+    doc.text("Resumo mensal", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Mes", "Entradas", "Despesas", "Retiradas", "Lucro mensal"]],
+      body: resumoMensal.length
+        ? resumoMensal.map((item) => [
+            formatMonthLabel(item.mes),
+            formatMoney(item.entradas),
+            formatMoney(item.despesas),
+            formatMoney(item.retiradas),
+            formatMoney(item.lucro),
+          ])
+        : [["-", "-", "-", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [14, 116, 144], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        1: { halign: "right" },
+        2: { halign: "right" },
+        3: { halign: "right" },
+        4: { halign: "right", fontStyle: "bold" },
+      },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.setFontSize(12);
+    doc.text("Entradas consolidadas", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Dinheiro", "Pix", "Cartao", "Total"]],
+      body: entradasConsolidadas.length
+        ? entradasConsolidadas.map((item) => [
+            formatDateLabel(item.data),
+            formatMoney(item.dinheiro),
+            formatMoney(item.pix),
+            formatMoney(item.cartao),
+            formatMoney(item.total),
+          ])
+        : [["-", "-", "-", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        1: { halign: "right" },
+        2: { halign: "right" },
+        3: { halign: "right" },
+        4: { halign: "right", fontStyle: "bold" },
+      },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.setFontSize(12);
+    doc.text("Despesas operacionais", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Despesa", "Tipo", "Valor"]],
+      body: despesasPeriodo.length
+        ? despesasPeriodo.map((item) => [
+            formatDateLabel(item.data),
+            item.descricao || "-",
+            item.despesaFixaDescricao ? "Fixa" : "Avulsa",
+            formatMoney(item.valor),
+          ])
+        : [["-", "Nenhuma despesa registrada no periodo.", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [220, 38, 38], textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 3: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
     doc.setFontSize(12);
     doc.text("Saidas do periodo", 14, y);
     y += 4;
@@ -610,6 +715,53 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     });
 
     doc.save(`relatorio-${String(dataInicioFiltro || "").replaceAll("-", "")}-${String(dataFimFiltro || "").replaceAll("-", "")}.pdf`);
+  }
+
+  function exportarRelatorioCSV() {
+    const linhas = [
+      ["Secao", "Campo", "Valor"],
+      ["Resumo", "Periodo inicial", formatDateLabel(dataInicioFiltro)],
+      ["Resumo", "Periodo final", formatDateLabel(dataFimFiltro)],
+      ["Resumo", "Entradas", formatMoney(resumoFinanceiro.entradas)],
+      ["Resumo", "Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
+      ["Resumo", "Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
+      ["Resumo", "Despesas operacionais", formatMoney(resumoFinanceiro.despesasOperacionais)],
+      ["Resumo", "Retiradas", formatMoney(resumoFinanceiro.retiradasCaixa)],
+      ["Resumo", "Gastos", formatMoney(resumoFinanceiro.gastos)],
+      ["Resumo", "Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
+      ["Resumo", "Lucro do periodo", formatMoney(resumoFinanceiro.resultado)],
+      ["", "", ""],
+      ["Resumo mensal", "Mes", "Entradas|Despesas|Retiradas|Lucro"],
+      ...resumoMensal.map((item) => [
+        "Resumo mensal",
+        formatMonthLabel(item.mes),
+        `${formatMoney(item.entradas)} | ${formatMoney(item.despesas)} | ${formatMoney(item.retiradas)} | ${formatMoney(item.lucro)}`,
+      ]),
+      ["", "", ""],
+      ["Despesas", "Data", "Descricao|Tipo|Valor"],
+      ...despesasPeriodo.map((item) => [
+        "Despesas",
+        formatDateLabel(item.data),
+        `${item.descricao || "-"} | ${item.despesaFixaDescricao ? "Fixa" : "Avulsa"} | ${formatMoney(item.valor)}`,
+      ]),
+      ["", "", ""],
+      ["Entradas consolidadas", "Data", "Dinheiro|Pix|Cartao|Total"],
+      ...entradasConsolidadas.map((item) => [
+        "Entradas consolidadas",
+        formatDateLabel(item.data),
+        `${formatMoney(item.dinheiro)} | ${formatMoney(item.pix)} | ${formatMoney(item.cartao)} | ${formatMoney(item.total)}`,
+      ]),
+    ];
+
+    const csv = linhas
+      .map((colunas) => colunas.map((coluna) => escapeCsvValue(coluna)).join(";"))
+      .join("\n");
+
+    downloadTextFile(
+      `relatorio-${String(dataInicioFiltro || "").replaceAll("-", "")}-${String(dataFimFiltro || "").replaceAll("-", "")}.csv`,
+      csv,
+      "text/csv;charset=utf-8;"
+    );
   }
 
   return (
@@ -641,6 +793,9 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
           />
         </div>
         <div className="section-actions report-filter-actions">
+          <button className="action-btn action-btn-secondary" type="button" onClick={exportarRelatorioCSV}>
+            Exportar CSV
+          </button>
           <button className="action-btn action-btn-warning" type="button" onClick={exportarRelatorioPDF}>
             Exportar PDF
           </button>
@@ -725,6 +880,11 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
           <small className="stat-note">Entradas - gastos.</small>
+        </div>
+        <div className="section-card stat-card">
+          <span className="stat-label">Despesas operacionais</span>
+          <strong className="stat-value negative">{formatMoney(resumoFinanceiro.despesasOperacionais)}</strong>
+          <small className="stat-note">Somatorio de todas as despesas do periodo.</small>
         </div>
       </div>
 
@@ -936,6 +1096,27 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
               </div>
             ))}
             {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada.</p>}
+          </div>
+        </div>
+
+        <div className="section-card report-list-card report-card-saidas">
+          <div className="section-header">
+            <div className="section-title">Lucro mensal</div>
+          </div>
+          <div className="scroll-list">
+            {resumoMensal.map((item) => (
+              <div className="list-row" key={item.mes}>
+                <div>
+                  <strong>{formatMonthLabel(item.mes)}</strong>
+                  <small>
+                    Entradas {formatMoney(item.entradas)} - Despesas {formatMoney(item.despesas)} - Retiradas{" "}
+                    {formatMoney(item.retiradas)}
+                  </small>
+                </div>
+                <strong className={item.lucro >= 0 ? "positive" : "negative"}>{formatMoney(item.lucro)}</strong>
+              </div>
+            ))}
+            {!resumoMensal.length && !loading && <p className="empty-state">Nenhum resumo mensal encontrado.</p>}
           </div>
         </div>
       </div>

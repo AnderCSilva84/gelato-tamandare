@@ -17,6 +17,7 @@ import { db } from "./firebase";
 
 const vendasRef = collection(db, "vendas");
 const despesasRef = collection(db, "despesas");
+const despesasFixasRef = collection(db, "despesas_fixas");
 const entradasConsolidadasRef = collection(db, "entradas_consolidadas");
 
 function cleanData(data) {
@@ -77,6 +78,14 @@ function sortByDateAndId(items) {
     const idB = String(b?.id || "");
     return idB.localeCompare(idA);
   });
+}
+
+function sortByDescricao(items) {
+  return [...items].sort((a, b) =>
+    String(a?.descricao || "").localeCompare(String(b?.descricao || ""), "pt-BR", {
+      sensitivity: "base",
+    })
+  );
 }
 
 function resumoRef(dataKey) {
@@ -268,6 +277,8 @@ export async function addDespesa(uid, dados) {
     descricao: String(dados?.descricao || "").trim(),
     valor: Number(dados?.valor || 0),
     data: String(dados?.data || ""),
+    despesaFixaId: String(dados?.despesaFixaId || "").trim(),
+    despesaFixaDescricao: String(dados?.despesaFixaDescricao || "").trim(),
     criadoEm: serverTimestamp(),
   };
 
@@ -287,12 +298,28 @@ export async function updateDespesa(id, dados) {
   const next = cleanData({
     ...current,
     ...dados,
+    descricao: dados?.descricao !== undefined ? String(dados.descricao).trim() : current.descricao,
     valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
     data: dados?.data !== undefined ? String(dados.data) : current.data,
+    despesaFixaId:
+      dados?.despesaFixaId !== undefined ? String(dados.despesaFixaId).trim() : current.despesaFixaId,
+    despesaFixaDescricao:
+      dados?.despesaFixaDescricao !== undefined
+        ? String(dados.despesaFixaDescricao).trim()
+        : current.despesaFixaDescricao,
   });
 
   await applyDespesaAggregation(current, -1);
-  await updateDoc(ref, cleanData(dados));
+  await updateDoc(
+    ref,
+    cleanData({
+      descricao: next.descricao,
+      valor: next.valor,
+      data: next.data,
+      despesaFixaId: next.despesaFixaId || "",
+      despesaFixaDescricao: next.despesaFixaDescricao || "",
+    })
+  );
   await applyDespesaAggregation(next, 1);
 }
 
@@ -322,6 +349,52 @@ export function subscribeDespesasDoDia(uid, data, callback) {
   return onSnapshot(dayQuery(despesasRef, data), (snapshot) => {
     callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
   });
+}
+
+function normalizarDespesaFixa(dados = {}) {
+  return {
+    descricao: String(dados?.descricao || "").trim(),
+    valorPadrao:
+      dados?.valorPadrao === "" || dados?.valorPadrao === undefined || dados?.valorPadrao === null
+        ? null
+        : Number(dados.valorPadrao || 0),
+    ativa: dados?.ativa !== false,
+  };
+}
+
+export async function addDespesaFixa(dados) {
+  const despesaFixa = {
+    ...normalizarDespesaFixa(dados),
+    criadoEm: serverTimestamp(),
+  };
+
+  return addDoc(despesasFixasRef, despesaFixa);
+}
+
+export async function updateDespesaFixa(id, dados) {
+  if (!id) throw new Error("Despesa fixa invalida.");
+
+  const ref = doc(db, "despesas_fixas", id);
+  const currentSnapshot = await getDoc(ref);
+  if (!currentSnapshot.exists()) throw new Error("Despesa fixa nao encontrada.");
+
+  const current = currentSnapshot.data();
+  const next = normalizarDespesaFixa({
+    ...current,
+    ...dados,
+  });
+
+  await updateDoc(ref, cleanData(next));
+}
+
+export async function deleteDespesaFixa(id) {
+  if (!id) throw new Error("Despesa fixa invalida.");
+  return deleteDoc(doc(db, "despesas_fixas", id));
+}
+
+export async function getDespesasFixas() {
+  const snapshot = await getDocs(despesasFixasRef);
+  return sortByDescricao(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
 function normalizarEntradaConsolidada(dados = {}) {

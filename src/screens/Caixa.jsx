@@ -9,10 +9,12 @@ import {
   subscribeCaixa,
   subscribeCaixasPeriodo,
   subscribeRetiradasCaixa,
+  updateCaixaData,
 } from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
 import { isManagementRole } from "../utils/access";
+import { hojeISO } from "../services/lancamentos";
 import {
   addVenda,
   getVendasPorCaixa,
@@ -44,11 +46,26 @@ function formatDateTime(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
+function extractIsoDateFromValue(valor) {
+  if (!valor) return "";
+
+  if (typeof valor?.toDate === "function") {
+    return valor.toDate().toLocaleDateString("en-CA");
+  }
+
+  if (valor instanceof Date) {
+    return valor.toLocaleDateString("en-CA");
+  }
+
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleDateString("en-CA");
+}
+
 function formatDateLabel(valor) {
   if (!valor) return "";
   const [ano, mes, dia] = String(valor).split("-");
   if (!ano || !mes || !dia) return String(valor);
-  return `${dia}-${mes}-${ano}`;
+  return `${dia}/${mes}/${ano}`;
 }
 
 function getProdutoImagem(produto) {
@@ -208,6 +225,21 @@ function bindStoredSession(session, accessUserId, accessRole) {
   };
 }
 
+async function syncCaixaDateWithOpening(caixa) {
+  const dataAbertura = extractIsoDateFromValue(caixa?.abertoEm);
+  const dataRegistrada = String(caixa?.data || "").trim();
+
+  if (!caixa?.id || !dataAbertura || dataRegistrada === dataAbertura) {
+    return caixa;
+  }
+
+  await updateCaixaData(caixa.id, dataAbertura);
+  return {
+    ...caixa,
+    data: dataAbertura,
+  };
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -315,10 +347,11 @@ export default function Caixa({
       return;
     }
 
-    getCaixa(caixaSalvo.id).then((caixa) => {
+    getCaixa(caixaSalvo.id).then(async (caixa) => {
       if (caixa?.status === "aberto") {
-        const sessao = bindStoredSession(caixa, accessUser.id, accessRole);
-        setCaixaAtualId(caixa.id);
+        const caixaSincronizado = await syncCaixaDateWithOpening(caixa);
+        const sessao = bindStoredSession(caixaSincronizado, accessUser.id, accessRole);
+        setCaixaAtualId(caixaSincronizado.id);
         setCaixaAtual(sessao);
         writeStoredSession(sessao);
       } else {
@@ -379,14 +412,15 @@ export default function Caixa({
   useEffect(() => {
     if (!caixaAtualId) return () => {};
 
-    const unsub = subscribeCaixa(caixaAtualId, (caixa) => {
+    const unsub = subscribeCaixa(caixaAtualId, async (caixa) => {
       if (!caixa || caixa.status !== "aberto") {
         resetCaixaState();
         clearStoredSession();
         return;
       }
 
-      const sessao = bindStoredSession(caixa, accessUser?.id, accessRole);
+      const caixaSincronizado = await syncCaixaDateWithOpening(caixa);
+      const sessao = bindStoredSession(caixaSincronizado, accessUser?.id, accessRole);
       setCaixaAtual(sessao);
       writeStoredSession(sessao);
     });
@@ -634,6 +668,8 @@ export default function Caixa({
     setFeedbackCaixa("");
 
     try {
+      const dataAtual = hojeISO();
+
       if (caixaAbertoSelecionado) {
         const sessao = bindStoredSession(caixaAbertoSelecionado, accessUser?.id, accessRole);
         writeStoredSession(sessao);
@@ -653,7 +689,7 @@ export default function Caixa({
       const docRef = await abrirCaixa(uid, {
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
-        data: dataHoje,
+        data: dataAtual,
         fundoCaixa,
       });
 
@@ -661,7 +697,7 @@ export default function Caixa({
         id: docRef.id,
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
-        data: dataHoje,
+        data: dataAtual,
         fundoCaixa,
         status: "aberto",
       }, accessUser?.id, accessRole);
@@ -958,7 +994,7 @@ export default function Caixa({
       const formaPagamento = vendaForm.formaPagamento;
       const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
       const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
-      const dataVenda = isManagementRole(accessRole) ? String(vendaForm.data || "").trim() : dataHoje;
+      const dataVenda = isManagementRole(accessRole) ? String(vendaForm.data || "").trim() : hojeISO();
 
       if (!dataVenda) {
         setFeedbackVenda("Selecione uma data valida para a venda.");
@@ -1030,13 +1066,14 @@ export default function Caixa({
     setFeedbackRetirada("");
 
     try {
+      const dataAtual = hojeISO();
       await addRetiradaCaixa(uid, {
         caixaId: caixaAtual.id,
         atendenteId: atendenteLogado.id,
         atendenteNome: atendenteLogado.nome,
         valor,
         motivo: motivo || "Sangria de caixa",
-        data: dataHoje,
+        data: dataAtual,
       });
       setRetiradaForm({ valor: "", motivo: "" });
       setMostrandoRetirada(false);
@@ -1239,10 +1276,10 @@ export default function Caixa({
                   </strong>
                 </div>
                 <div className="section-card stat-card stat-card-highlight">
-                  <span className="stat-label">Em caixa</span>
-                  <small className="stat-note">liquido disponivel agora</small>
+                  <span className="stat-label">Total de vendas</span>
+                  <small className="stat-note">valor vendido neste turno</small>
                   <strong className="stat-value positive">
-                    {formatMoney(totalDisponivelEmCaixa)}
+                    {formatMoney(totalVendas)}
                   </strong>
                 </div>
                 {mostrandoResumoExpandido ? (

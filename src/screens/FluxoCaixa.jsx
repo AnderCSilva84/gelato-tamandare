@@ -29,7 +29,7 @@ function formatDateLabel(valor) {
   if (!valor) return "";
   const [ano, mes, dia] = String(valor).split("-");
   if (!ano || !mes || !dia) return String(valor);
-  return `${dia}-${mes}-${ano}`;
+  return `${dia}/${mes}/${ano}`;
 }
 
 function fileToDataUrl(file) {

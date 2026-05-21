@@ -3,6 +3,7 @@ import logoGelato from "../assets/gelatoimg.jpeg";
 import {
   deleteCaixa,
   fecharCaixa,
+  getCaixasAbertos,
   getCaixas,
   getRetiradas,
 } from "../services/caixas";
@@ -13,7 +14,6 @@ import {
   getEntradasConsolidadas,
   getVendas,
   getVendasPorCaixa,
-  subscribeVendasDoDia,
 } from "../services/vendas";
 import { criarLancamento } from "../services/lancamentos";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
@@ -30,7 +30,7 @@ function formatDateLabel(valor) {
   if (!valor) return "";
   const [ano, mes, dia] = String(valor).split("-");
   if (!ano || !mes || !dia) return String(valor);
-  return `${dia}-${mes}-${ano}`;
+  return `${dia}/${mes}/${ano}`;
 }
 
 function formatDateTimeLabel(valor) {
@@ -46,6 +46,44 @@ function formatDateTimeLabel(valor) {
 
   const data = new Date(valor);
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
+}
+
+function extractIsoDateFromValue(valor) {
+  if (!valor) return "";
+
+  if (typeof valor?.toDate === "function") {
+    return valor.toDate().toLocaleDateString("en-CA");
+  }
+
+  if (valor instanceof Date) {
+    return valor.toLocaleDateString("en-CA");
+  }
+
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleDateString("en-CA");
+}
+
+function getCaixaReferenceDate(caixa) {
+  return extractIsoDateFromValue(caixa?.abertoEm) || String(caixa?.data || "");
+}
+
+function mergeItemsById(items) {
+  return Array.from(
+    new Map(
+      (items || [])
+        .filter((item) => item?.id)
+        .map((item) => [item.id, item])
+    ).values()
+  );
+}
+
+function buildVisibleCaixasForPeriod(caixasPeriodo, caixasAbertos, dataInicio, dataFim) {
+  const caixasAbertosDoPeriodo = (caixasAbertos || []).filter((item) => {
+    const dataAbertura = getCaixaReferenceDate(item);
+    return dataAbertura && dataAbertura >= dataInicio && dataAbertura <= dataFim;
+  });
+
+  return mergeItemsById([...(caixasPeriodo || []), ...caixasAbertosDoPeriodo]);
 }
 
 function formatVendaHorario(venda) {
@@ -211,9 +249,23 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
         getRetiradas(dataInicioFiltro, dataFimFiltro),
         getEntradasConsolidadas(uid, dataInicioFiltro, dataFimFiltro),
       ]);
-      const caixasData = await getCaixas(dataInicioFiltro, dataFimFiltro);
+      const [caixasPeriodo, caixasAbertos] = await Promise.all([
+        getCaixas(dataInicioFiltro, dataFimFiltro),
+        getCaixasAbertos(),
+      ]);
+      const caixasData = buildVisibleCaixasForPeriod(
+        caixasPeriodo,
+        caixasAbertos,
+        dataInicioFiltro,
+        dataFimFiltro
+      );
+      const vendasDosCaixas = await Promise.all(caixasData.map((item) => getVendasPorCaixa(item.id)));
+      const vendasMescladas = mergeItemsById([
+        ...vendasData,
+        ...vendasDosCaixas.flat(),
+      ]);
 
-      setVendas(vendasData);
+      setVendas(vendasMescladas);
       setDespesas(despesasData);
       setEntradasConsolidadas(entradasConsolidadasData);
       setRetiradas(retiradasData);
@@ -245,11 +297,43 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
   }, [carregarPeriodoAtual, uid, dataInicioFiltro, dataFimFiltro]);
 
   useEffect(() => {
-    if (!uid || !dataHoje) return;
+    let ativo = true;
 
-    const unsubVendasHoje = subscribeVendasDoDia(uid, dataHoje, setVendasHoje);
+    async function carregarVendasHoje() {
+      if (!uid || !dataHoje) return;
+
+      try {
+        const [caixasPeriodo, caixasAbertos, vendasData] = await Promise.all([
+          getCaixas(dataHoje, dataHoje),
+          getCaixasAbertos(),
+          getVendas(uid, dataHoje, dataHoje),
+        ]);
+        const caixasVisiveis = buildVisibleCaixasForPeriod(
+          caixasPeriodo,
+          caixasAbertos,
+          dataHoje,
+          dataHoje
+        );
+        const vendasDosCaixas = await Promise.all(
+          caixasVisiveis.map((item) => getVendasPorCaixa(item.id))
+        );
+        if (!ativo) return;
+        setVendasHoje(
+          mergeItemsById([
+            ...vendasData,
+            ...vendasDosCaixas.flat(),
+          ])
+        );
+      } catch (error) {
+        console.error("Erro ao carregar vendas de hoje no relatorio:", error);
+        if (ativo) setVendasHoje([]);
+      }
+    }
+
+    carregarVendasHoje();
+
     return () => {
-      unsubVendasHoje();
+      ativo = false;
     };
   }, [uid, dataHoje]);
 
@@ -280,30 +364,18 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
 
   const resumoFinanceiro = useMemo(
     () => {
-      const caixaIds = new Set(caixas.map((item) => item.id));
-      const vendasVinculadas = vendas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
-      const retiradasVinculadas = retiradas.filter(
-        (item) => item.caixaId && caixaIds.has(item.caixaId)
-      );
-
       return calcularResumoFinanceiro({
-        vendas: vendasVinculadas,
+        vendas,
         despesas,
-        retiradas: retiradasVinculadas,
+        retiradas,
         caixas,
         entradasConsolidadas,
       });
     },
     [caixas, despesas, entradasConsolidadas, retiradas, vendas]
   );
-  const vendasPeriodoVinculadas = useMemo(() => {
-    const caixaIds = new Set(caixas.map((item) => item.id));
-    return vendas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
-  }, [caixas, vendas]);
-  const retiradasPeriodoVinculadas = useMemo(() => {
-    const caixaIds = new Set(caixas.map((item) => item.id));
-    return retiradas.filter((item) => item.caixaId && caixaIds.has(item.caixaId));
-  }, [caixas, retiradas]);
+  const vendasPeriodoVisiveis = useMemo(() => vendas, [vendas]);
+  const retiradasPeriodoVisiveis = useMemo(() => retiradas, [retiradas]);
   const despesasPeriodo = useMemo(
     () => [...despesas].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
     [despesas]
@@ -317,49 +389,30 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
           origem: "Despesa",
           tipoSaida: "despesa",
         })),
-        ...retiradasPeriodoVinculadas.map((item) => ({
+        ...retiradasPeriodoVisiveis.map((item) => ({
           ...item,
           descricaoLinha: item.motivo || "Sangria de caixa",
           origem: "Retirada",
           tipoSaida: "retirada",
         })),
       ].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
-    [despesas, retiradasPeriodoVinculadas]
+    [despesas, retiradasPeriodoVisiveis]
   );
   const totalVendasHojeCalculado = useMemo(
-    () => {
-      const caixaIdsHoje = new Set(
-        caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
-      );
-      return vendasHoje
-        .filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId))
-        .reduce((acc, item) => acc + Number(item.valor || 0), 0);
-    },
-    [caixas, dataHoje, vendasHoje]
+    () => vendasHoje.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [vendasHoje]
   );
   const totalItensHojeCalculado = useMemo(
-    () => {
-      const caixaIdsHoje = new Set(
-        caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
-      );
-      return vendasHoje
-        .filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId))
-        .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
-    },
-    [caixas, dataHoje, vendasHoje]
+    () => vendasHoje.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+    [vendasHoje]
   );
   const totalVendasHoje = totalVendasHojeCalculado;
   const totalItensHoje = totalItensHojeCalculado;
-  const vendasHojeVinculadas = useMemo(() => {
-    const caixaIdsHoje = new Set(
-      caixas.filter((item) => item.data === dataHoje).map((item) => item.id)
-    );
-    return vendasHoje.filter((item) => item.caixaId && caixaIdsHoje.has(item.caixaId));
-  }, [caixas, dataHoje, vendasHoje]);
+  const vendasHojeVisiveis = useMemo(() => vendasHoje, [vendasHoje]);
   const vendasPorAtendente = useMemo(() => {
     const mapa = {};
 
-    vendasPeriodoVinculadas.forEach((venda) => {
+    vendasPeriodoVisiveis.forEach((venda) => {
       const chave = venda.atendenteNome || venda.atendente || "Sem atendente";
       if (!mapa[chave]) {
         mapa[chave] = 0;
@@ -370,16 +423,16 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     return Object.entries(mapa)
       .map(([nome, total]) => ({ nome, total }))
       .sort((a, b) => b.total - a.total);
-  }, [vendasPeriodoVinculadas]);
+  }, [vendasPeriodoVisiveis]);
   const resumoMensal = useMemo(
     () =>
       buildMonthlySummary({
-        vendas: vendasPeriodoVinculadas,
+        vendas: vendasPeriodoVisiveis,
         entradasConsolidadas,
         despesas,
-        retiradas: retiradasPeriodoVinculadas,
+        retiradas: retiradasPeriodoVisiveis,
       }),
-    [despesas, entradasConsolidadas, retiradasPeriodoVinculadas, vendasPeriodoVinculadas]
+    [despesas, entradasConsolidadas, retiradasPeriodoVisiveis, vendasPeriodoVisiveis]
   );
   const podeCancelarVenda = isManagementRole(accessUser?.role) && caixaSelecionado?.status === "aberto";
 
@@ -818,11 +871,11 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
           </div>
           <div className="stat-card">
             <span className="stat-label">Registros de venda</span>
-            <strong className="stat-value">{vendasHojeVinculadas.length}</strong>
+            <strong className="stat-value">{vendasHojeVisiveis.length}</strong>
           </div>
         </div>
         <div className="scroll-list">
-          {vendasHojeVinculadas.map((item) => (
+          {vendasHojeVisiveis.map((item) => (
             <div className="list-row" key={item.id}>
               <div>
                 <strong>{item.produto}</strong>
@@ -833,7 +886,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
               <strong className="positive">{formatMoney(item.valor)}</strong>
             </div>
           ))}
-          {!vendasHojeVinculadas.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
+          {!vendasHojeVisiveis.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
         </div>
       </div>
 
@@ -905,23 +958,32 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                   type="button"
                   onClick={() => setCaixaSelecionado(caixa)}
                 >
-                  <div>
-                    <strong>
-                      Caixa {caixa.atendenteNome} ({caixa.status === "aberto" ? "Aberto" : "Fechado"})
-                    </strong>
-                    <small>
-                      {caixa.data} - {Number(caixa.totalItens || 0)} itens -{" "}
-                      {caixa.status === "fechado" ? (
-                        <>Fechado com <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span></>
-                      ) : (
-                        <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span>
-                      )}
-                    </small>
-                    <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
-                    <small>
-                      Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
-                    </small>
-                  </div>
+                  {(() => {
+                    const dataReferencia = getCaixaReferenceDate(caixa);
+                    const dataOperacional = String(caixa.data || "");
+                    const dataDivergente =
+                      dataReferencia && dataOperacional && dataReferencia !== dataOperacional;
+
+                    return (
+                      <div>
+                        <strong>
+                          Caixa {caixa.atendenteNome} ({caixa.status === "aberto" ? "Aberto" : "Fechado"})
+                        </strong>
+                        <small>
+                          {formatDateLabel(dataReferencia) || "Sem data"} - {Number(caixa.totalItens || 0)} itens -{" "}
+                          {caixa.status === "fechado" ? (
+                            <>Fechado com <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span></>
+                          ) : (
+                            <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span>
+                          )}
+                        </small>
+                        <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
+                        <small>
+                          Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
+                        </small>
+                      </div>
+                    );
+                  })()}
                 </button>
                 {caixa.status === "aberto" ? (
                   <button

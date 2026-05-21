@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { deleteCaixa, fecharCaixa, getCaixas, subscribeRetiradasDoDia } from "../services/caixas";
+import {
+  deleteCaixa,
+  fecharCaixa,
+  getCaixas,
+  subscribeCaixasAbertos,
+  subscribeRetiradasDoDia,
+} from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
 import { DEFAULT_SYSTEM_CONFIG, saveSystemConfig } from "../services/sistema";
 import { isSuperAdminRole } from "../utils/access";
@@ -21,7 +27,7 @@ function formatDateLabel(valor) {
   if (!valor) return "";
   const [ano, mes, dia] = String(valor).split("-");
   if (!ano || !mes || !dia) return String(valor);
-  return `${dia}-${mes}-${ano}`;
+  return `${dia}/${mes}/${ano}`;
 }
 
 function formatDateTimeLabel(valor) {
@@ -74,6 +80,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
   const [retiradasHoje, setRetiradasHoje] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
+  const [caixasAbertosAtuais, setCaixasAbertosAtuais] = useState([]);
   const [acaoCaixa, setAcaoCaixa] = useState(null);
   const [senhaGerencia, setSenhaGerencia] = useState("");
   const [feedbackAcaoCaixa, setFeedbackAcaoCaixa] = useState("");
@@ -97,6 +104,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     );
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
     const unsubRetiradas = subscribeRetiradasDoDia(dataHoje, setRetiradasHoje);
+    const unsubCaixasAbertos = subscribeCaixasAbertos(setCaixasAbertosAtuais);
 
     let ativo = true;
     getCaixas(dataHoje, dataHoje).then((items) => {
@@ -110,6 +118,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       unsubEntradasConsolidadas();
       unsubProdutos();
       unsubRetiradas();
+      unsubCaixasAbertos();
     };
   }, [uid, dataHoje]);
 
@@ -120,31 +129,35 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
   }, [systemConfig]);
 
   const caixasAbertos = useMemo(
-    () => caixasHoje.filter((item) => item.status === "aberto"),
-    [caixasHoje]
+    () => caixasAbertosAtuais.filter((item) => item.status === "aberto"),
+    [caixasAbertosAtuais]
   );
-  const caixaIdsDoDia = useMemo(
-    () => new Set(caixasHoje.map((item) => item.id)),
-    [caixasHoje]
-  );
-  const vendasHojeVinculadas = useMemo(
-    () => vendasHoje.filter((item) => item.caixaId && caixaIdsDoDia.has(item.caixaId)),
-    [caixaIdsDoDia, vendasHoje]
-  );
-  const retiradasHojeVinculadas = useMemo(
-    () => retiradasHoje.filter((item) => item.caixaId && caixaIdsDoDia.has(item.caixaId)),
-    [caixaIdsDoDia, retiradasHoje]
-  );
+  const vendasHojeVisiveis = useMemo(() => vendasHoje, [vendasHoje]);
+  const retiradasHojeVisiveis = useMemo(() => retiradasHoje, [retiradasHoje]);
   const resumoFinanceiro = useMemo(
     () =>
       calcularResumoFinanceiro({
-        vendas: vendasHojeVinculadas,
+        vendas: vendasHojeVisiveis,
         despesas: despesasHoje,
-        retiradas: retiradasHojeVinculadas,
+        retiradas: retiradasHojeVisiveis,
         caixas: caixasAbertos,
         entradasConsolidadas: entradasConsolidadasHoje,
       }),
-    [caixasAbertos, despesasHoje, entradasConsolidadasHoje, retiradasHojeVinculadas, vendasHojeVinculadas]
+    [caixasAbertos, despesasHoje, entradasConsolidadasHoje, retiradasHojeVisiveis, vendasHojeVisiveis]
+  );
+  const emCaixaOperacional = useMemo(
+    () =>
+      caixasAbertos.reduce((acc, caixa) => {
+        const totalVendasCaixa = vendasHojeVisiveis
+          .filter((item) => item.caixaId === caixa.id)
+          .reduce((subtotal, item) => subtotal + Number(item.valor || 0), 0);
+        const totalRetiradasCaixa = retiradasHojeVisiveis
+          .filter((item) => item.caixaId === caixa.id)
+          .reduce((subtotal, item) => subtotal + Number(item.valor || 0), 0);
+
+        return acc + Number(caixa.fundoCaixa || 0) + totalVendasCaixa - totalRetiradasCaixa;
+      }, 0),
+    [caixasAbertos, retiradasHojeVisiveis, vendasHojeVisiveis]
   );
   const estoqueBaixo = useMemo(
     () =>
@@ -160,12 +173,12 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     [produtos]
   );
   const totalItensVendidos = useMemo(
-    () => vendasHojeVinculadas.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
-    [vendasHojeVinculadas]
+    () => vendasHojeVisiveis.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+    [vendasHojeVisiveis]
   );
-  const totalSaidasHoje = despesasHoje.length + retiradasHojeVinculadas.length;
+  const totalSaidasHoje = despesasHoje.length + retiradasHojeVisiveis.length;
   const totalAlertasEstoque = estoqueBaixo.length + semEstoque.length;
-  const ultimasVendas = vendasHojeVinculadas.slice(0, 5);
+  const ultimasVendas = vendasHojeVisiveis.slice(0, 5);
   const ultimasSaidas = useMemo(
     () =>
       [
@@ -174,13 +187,13 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
           titulo: item.descricao,
           detalhe: "Despesa operacional",
         })),
-        ...retiradasHojeVinculadas.map((item) => ({
+        ...retiradasHojeVisiveis.map((item) => ({
           ...item,
           titulo: item.motivo || "Sangria de caixa",
           detalhe: item.atendenteNome || "Sem atendente",
         })),
       ].slice(0, 5),
-    [despesasHoje, retiradasHojeVinculadas]
+    [despesasHoje, retiradasHojeVisiveis]
   );
   const caixasDoDia = useMemo(
     () =>
@@ -310,12 +323,12 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
         <div className="section-card stat-card">
           <span className="stat-label">Em caixa</span>
           <strong
-            className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
-            style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
+            className={`stat-value ${emCaixaOperacional >= 0 ? "positive" : "negative"}`}
+            style={{ color: emCaixaOperacional >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
-            {formatMoney(resumoFinanceiro.emCaixa)}
+            {formatMoney(emCaixaOperacional)}
           </strong>
-          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
+          <small className="stat-note">Mesma leitura operacional dos caixas abertos no PDV.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Alertas</span>
@@ -428,7 +441,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
             </div>
             <div className="gerencia-focus-item">
               <span>Vendas registradas</span>
-              <strong>{vendasHojeVinculadas.length}</strong>
+              <strong>{vendasHojeVisiveis.length}</strong>
             </div>
             <div className="gerencia-focus-item">
               <span>Saidas do dia</span>
@@ -577,7 +590,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
           <div>
             <div className="section-header">
               <div className="section-title">Ultimas vendas</div>
-              <span className="section-subtitle">{vendasHojeVinculadas.length} registros</span>
+              <span className="section-subtitle">{vendasHojeVisiveis.length} registros</span>
             </div>
             <div className="scroll-list gerencia-disclosure-body">
               {ultimasVendas.map((item) => (
@@ -592,7 +605,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                   <strong className="positive">{formatMoney(item.valor)}</strong>
                 </div>
               ))}
-              {!vendasHojeVinculadas.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
+              {!vendasHojeVisiveis.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
             </div>
           </div>
 
@@ -611,7 +624,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                   <strong className="negative">{formatMoney(item.valor)}</strong>
                 </div>
               ))}
-              {!despesasHoje.length && !retiradasHojeVinculadas.length && (
+              {!despesasHoje.length && !retiradasHojeVisiveis.length && (
                 <p className="empty-state">Nenhuma saida registrada hoje.</p>
               )}
             </div>

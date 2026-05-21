@@ -109,7 +109,7 @@ function formatMoney(valor, ocultar) {
 function formatarDataBR(dataISO) {
   if (!dataISO) return "";
   const [ano, mes, dia] = dataISO.split("-");
-  return `${dia}-${mes}-${ano}`;
+  return `${dia}/${mes}/${ano}`;
 }
 
 function formatarDataHeader(dataISO) {
@@ -174,9 +174,25 @@ export default function App() {
   const [isTabletPortrait, setIsTabletPortrait] = useState(false);
   const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentDate, setCurrentDate] = useState(() => hojeISO());
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    function syncCurrentDate() {
+      setCurrentDate(hojeISO());
+    }
+
+    syncCurrentDate();
+    const intervalId = window.setInterval(syncCurrentDate, 60 * 1000);
+    window.addEventListener("focus", syncCurrentDate);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncCurrentDate);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -609,7 +625,7 @@ export default function App() {
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                 <TelaCaixa
                   uid={user.uid}
-                  dataHoje={hojeISO()}
+                  dataHoje={currentDate}
                   accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
                   accessUser={accessUser}
                 />
@@ -619,19 +635,19 @@ export default function App() {
                 {telaAtiva === "gerencia" && (
                   <TelaGerencia
                     uid={user.uid}
-                    dataHoje={hojeISO()}
+                    dataHoje={currentDate}
                     onNavigate={handleSelectTela}
                     accessUser={accessUser}
                     systemConfig={systemConfig}
                   />
                 )}
-                {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={hojeISO()} />}
+                {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={currentDate} />}
                 {telaAtiva === "estoque" && <TelaEstoque uid={user.uid} />}
                 {telaAtiva === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
                 {telaAtiva === "relatorio" && (
                   <TelaRelatorio
                     uid={user.uid}
-                    dataHoje={hojeISO()}
+                    dataHoje={currentDate}
                     accessUser={accessUser}
                   />
                 )}
@@ -997,7 +1013,7 @@ export default function App() {
                   </button>
                   <div className="header-title-block">
                     <div className="app-title">Extrato</div>
-                    <div className="app-date">{formatarDataHeader(hojeISO())}</div>
+                    <div className="app-date">{formatarDataHeader(currentDate)}</div>
                   </div>
                   <div className="header-spacer" />
                 </div>
@@ -1030,7 +1046,7 @@ export default function App() {
                   </button>
                   <div className="header-title-block">
                     <div className="app-title">Lancamento Retroativo</div>
-                    <div className="app-date">{formatarDataHeader(hojeISO())}</div>
+                    <div className="app-date">{formatarDataHeader(currentDate)}</div>
                   </div>
                   <div className="header-spacer" />
                 </div>

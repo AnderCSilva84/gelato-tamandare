@@ -100,6 +100,32 @@ export function subscribeCaixasPeriodo(dataInicio, dataFim, callback) {
   });
 }
 
+export function subscribeCaixasAbertos(callback, onError) {
+  return onSnapshot(
+    query(caixasRef, where("status", "==", "aberto")),
+    (snapshot) => {
+      callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+    },
+    (error) => {
+      console.error("Erro ao ouvir caixas abertos:", error);
+      callback([]);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+export async function getCaixasAbertos() {
+  const snapshot = await getDocs(query(caixasRef, where("status", "==", "aberto")));
+  return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+}
+
+export async function updateCaixaData(id, data) {
+  if (!id) throw new Error("Caixa invalido.");
+  await updateDoc(doc(db, "caixas", id), {
+    data: String(data || "").trim(),
+  });
+}
+
 export async function getRetiradas(dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
   const snapshot = await getDocs(query(retiradasRef, where("data", ">=", dataInicio), where("data", "<=", dataFim)));

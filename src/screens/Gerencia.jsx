@@ -4,17 +4,10 @@ import {
   fecharCaixa,
   getCaixas,
   subscribeCaixasAbertos,
-  subscribeRetiradasDoDia,
 } from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
 import { DEFAULT_SYSTEM_CONFIG, saveSystemConfig } from "../services/sistema";
 import { isSuperAdminRole } from "../utils/access";
-import {
-  subscribeDespesasDoDia,
-  subscribeEntradasConsolidadasDoDia,
-  subscribeVendasDoDia,
-} from "../services/vendas";
-import { calcularResumoFinanceiro } from "../utils/financeiro";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -45,39 +38,7 @@ function formatDateTimeLabel(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
-function formatVendaHorario(venda) {
-  const horario = String(venda?.horario || "").trim();
-  if (horario) return horario;
-
-  if (typeof venda?.criadoEm?.toDate === "function") {
-    return venda.criadoEm.toDate().toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  if (venda?.criadoEm instanceof Date) {
-    return venda.criadoEm.toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  if (typeof venda?.registradoEmMs === "number" && venda.registradoEmMs > 0) {
-    return new Date(venda.registradoEmMs).toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  return "";
-}
-
 export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, systemConfig }) {
-  const [vendasHoje, setVendasHoje] = useState([]);
-  const [despesasHoje, setDespesasHoje] = useState([]);
-  const [entradasConsolidadasHoje, setEntradasConsolidadasHoje] = useState([]);
-  const [retiradasHoje, setRetiradasHoje] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
   const [caixasAbertosAtuais, setCaixasAbertosAtuais] = useState([]);
@@ -95,15 +56,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
   useEffect(() => {
     if (!uid || !dataHoje) return;
 
-    const unsubVendas = subscribeVendasDoDia(uid, dataHoje, setVendasHoje);
-    const unsubDespesas = subscribeDespesasDoDia(uid, dataHoje, setDespesasHoje);
-    const unsubEntradasConsolidadas = subscribeEntradasConsolidadasDoDia(
-      uid,
-      dataHoje,
-      setEntradasConsolidadasHoje
-    );
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
-    const unsubRetiradas = subscribeRetiradasDoDia(dataHoje, setRetiradasHoje);
     const unsubCaixasAbertos = subscribeCaixasAbertos(setCaixasAbertosAtuais);
 
     let ativo = true;
@@ -113,11 +66,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
 
     return () => {
       ativo = false;
-      unsubVendas();
-      unsubDespesas();
-      unsubEntradasConsolidadas();
       unsubProdutos();
-      unsubRetiradas();
       unsubCaixasAbertos();
     };
   }, [uid, dataHoje]);
@@ -132,33 +81,6 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     () => caixasAbertosAtuais.filter((item) => item.status === "aberto"),
     [caixasAbertosAtuais]
   );
-  const vendasHojeVisiveis = useMemo(() => vendasHoje, [vendasHoje]);
-  const retiradasHojeVisiveis = useMemo(() => retiradasHoje, [retiradasHoje]);
-  const resumoFinanceiro = useMemo(
-    () =>
-      calcularResumoFinanceiro({
-        vendas: vendasHojeVisiveis,
-        despesas: despesasHoje,
-        retiradas: retiradasHojeVisiveis,
-        caixas: caixasAbertos,
-        entradasConsolidadas: entradasConsolidadasHoje,
-      }),
-    [caixasAbertos, despesasHoje, entradasConsolidadasHoje, retiradasHojeVisiveis, vendasHojeVisiveis]
-  );
-  const emCaixaOperacional = useMemo(
-    () =>
-      caixasAbertos.reduce((acc, caixa) => {
-        const totalVendasCaixa = vendasHojeVisiveis
-          .filter((item) => item.caixaId === caixa.id)
-          .reduce((subtotal, item) => subtotal + Number(item.valor || 0), 0);
-        const totalRetiradasCaixa = retiradasHojeVisiveis
-          .filter((item) => item.caixaId === caixa.id)
-          .reduce((subtotal, item) => subtotal + Number(item.valor || 0), 0);
-
-        return acc + Number(caixa.fundoCaixa || 0) + totalVendasCaixa - totalRetiradasCaixa;
-      }, 0),
-    [caixasAbertos, retiradasHojeVisiveis, vendasHojeVisiveis]
-  );
   const estoqueBaixo = useMemo(
     () =>
       produtos.filter((produto) => {
@@ -172,29 +94,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       produtos.filter((produto) => produto.ativo !== false && Number(produto.estoque || 0) === 0),
     [produtos]
   );
-  const totalItensVendidos = useMemo(
-    () => vendasHojeVisiveis.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
-    [vendasHojeVisiveis]
-  );
-  const totalSaidasHoje = despesasHoje.length + retiradasHojeVisiveis.length;
   const totalAlertasEstoque = estoqueBaixo.length + semEstoque.length;
-  const ultimasVendas = vendasHojeVisiveis.slice(0, 5);
-  const ultimasSaidas = useMemo(
-    () =>
-      [
-        ...despesasHoje.map((item) => ({
-          ...item,
-          titulo: item.descricao,
-          detalhe: "Despesa operacional",
-        })),
-        ...retiradasHojeVisiveis.map((item) => ({
-          ...item,
-          titulo: item.motivo || "Sangria de caixa",
-          detalhe: item.atendenteNome || "Sem atendente",
-        })),
-      ].slice(0, 5),
-    [despesasHoje, retiradasHojeVisiveis]
-  );
   const caixasDoDia = useMemo(
     () =>
       [...caixasHoje].sort((a, b) => {
@@ -239,23 +139,13 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     try {
       if (acaoCaixa.tipo === "fechar") {
         const caixa = acaoCaixa.caixa;
-        const vendasDoCaixa = vendasHoje.filter((item) => item.caixaId === caixa.id);
-        const retiradasDoCaixa = retiradasHoje.filter((item) => item.caixaId === caixa.id);
-        const totalVendas = vendasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0);
-        const totalItens = vendasDoCaixa.reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
-        const totalDinheiro = vendasDoCaixa
-          .filter((item) => item.formaPagamento === "Dinheiro")
-          .reduce((acc, item) => acc + Number(item.valor || 0), 0);
-        const totalRetiradas = retiradasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0);
-        const valorEmCaixa =
-          Number(caixa.fundoCaixa || 0) + totalVendas - totalRetiradas;
 
         await fecharCaixa(caixa.id, {
-          totalVendas,
-          totalItens,
-          totalDinheiro,
-          totalRetiradas,
-          valorEmCaixa,
+          totalVendas: Number(caixa.totalVendas || 0),
+          totalItens: Number(caixa.totalItens || 0),
+          totalDinheiro: Number(caixa.totalDinheiro || 0),
+          totalRetiradas: Number(caixa.totalRetiradas || 0),
+          valorEmCaixa: Number(caixa.valorEmCaixa || 0),
         });
 
         setCaixasHoje((prev) =>
@@ -264,10 +154,6 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
               ? {
                   ...item,
                   status: "fechado",
-                  totalVendas,
-                  totalItens,
-                  totalDinheiro,
-                  valorEmCaixa,
                   fechadoEm: new Date(),
                 }
               : item
@@ -310,10 +196,10 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     <div className="dashboard-screen">
       <div className="gerencia-hero section-card">
         <div>
-          <span className="pdv-eyebrow">Resumo Gerencial</span>
-          <h1 className="screen-title app-hero-title-blue">Operacao do dia</h1>
+          <span className="pdv-eyebrow">Central Gerencial</span>
+          <h1 className="screen-title app-hero-title-blue">Hub de operacao</h1>
           <p className="screen-description">
-            Priorize caixa, resultado e alertas. Os detalhes ficam logo abaixo, sob demanda.
+            Use esta tela para acompanhar alertas, caixas abertos e acessos rapidos. Os detalhes financeiros ficam no Fluxo e no Relatorio.
           </p>
         </div>
         <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
@@ -321,51 +207,35 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
 
       <div className="stats-grid gerencia-stats-grid gerencia-stats-grid-compact">
         <div className="section-card stat-card">
-          <span className="stat-label">Em caixa</span>
-          <strong
-            className={`stat-value ${emCaixaOperacional >= 0 ? "positive" : "negative"}`}
-            style={{ color: emCaixaOperacional >= 0 ? "var(--green-dark)" : "var(--red)" }}
-          >
-            {formatMoney(emCaixaOperacional)}
-          </strong>
-          <small className="stat-note">Mesma leitura operacional dos caixas abertos no PDV.</small>
+          <span className="stat-label">Caixas abertos</span>
+          <strong className="stat-value">{caixasAbertos.length}</strong>
+          <small className="stat-note">Turnos em operacao neste momento.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Alertas</span>
           <strong className={`stat-value ${totalAlertasEstoque ? "negative" : "positive"}`}>
             {totalAlertasEstoque}
           </strong>
+          <small className="stat-note">Produtos sem estoque ou abaixo do limite.</small>
         </div>
       </div>
 
       <div className="gerencia-micro-grid">
         <div className="section-card gerencia-micro-card">
-          <span className="stat-label">Entradas</span>
-          <strong
-            className={resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}
-            style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
-          >
-            {formatMoney(resumoFinanceiro.entradas)}
-          </strong>
-          <small className="stat-note">Vendas + entradas consolidadas.</small>
+          <span className="stat-label">PDV</span>
+          <strong>{caixasAbertos.length ? "Turnos ativos" : "Sem turno aberto"}</strong>
         </div>
         <div className="section-card gerencia-micro-card">
-          <span className="stat-label">Gastos</span>
-          <strong
-            className={resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}
-            style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
-          >
-            {formatMoney(resumoFinanceiro.gastos)}
-          </strong>
-          <small className="stat-note">Despesas + retiradas.</small>
+          <span className="stat-label">Fluxo</span>
+          <strong>Conferencia financeira</strong>
         </div>
         <div className="section-card gerencia-micro-card">
-          <span className="stat-label">Caixas abertos</span>
-          <strong>{caixasAbertos.length}</strong>
+          <span className="stat-label">Estoque</span>
+          <strong>{totalAlertasEstoque ? `${totalAlertasEstoque} alertas` : "Sem alertas"}</strong>
         </div>
         <div className="section-card gerencia-micro-card">
-          <span className="stat-label">Itens vendidos</span>
-          <strong>{totalItensVendidos}</strong>
+          <span className="stat-label">Relatorio</span>
+          <strong>Analise consolidada</strong>
         </div>
       </div>
 
@@ -431,27 +301,25 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       <div className="screen-grid gerencia-focus-grid">
         <div className="section-card gerencia-focus-card">
           <div className="section-header">
-            <div className="section-title">Operacao agora</div>
-            <span className="section-subtitle">Leitura rapida</span>
+            <div className="section-title">Acoes rapidas</div>
+            <span className="section-subtitle">Atalhos principais</span>
           </div>
           <div className="gerencia-focus-list">
             <div className="gerencia-focus-item">
-              <span>Caixas em operacao</span>
-              <strong>{caixasAbertos.length}</strong>
+              <span>PDV</span>
+              <strong>{caixasAbertos.length ? "Em uso" : "Disponivel"}</strong>
             </div>
             <div className="gerencia-focus-item">
-              <span>Vendas registradas</span>
-              <strong>{vendasHojeVisiveis.length}</strong>
+              <span>Fluxo de caixa</span>
+              <strong>Conferir</strong>
             </div>
             <div className="gerencia-focus-item">
-              <span>Saidas do dia</span>
-              <strong>{totalSaidasHoje}</strong>
+              <span>Estoque</span>
+              <strong>{totalAlertasEstoque ? "Atencao" : "Normal"}</strong>
             </div>
             <div className="gerencia-focus-item">
-              <span>Alertas de estoque</span>
-              <strong className={totalAlertasEstoque ? "negative" : "positive"}>
-                {totalAlertasEstoque}
-              </strong>
+              <span>Relatorio</span>
+              <strong>Consultar</strong>
             </div>
           </div>
         </div>
@@ -466,7 +334,9 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
               <div className="list-row" key={caixa.id}>
                 <div>
                   <strong>{caixa.atendenteNome}</strong>
-                  <small>Fundo <span className="positive">{formatMoney(caixa.fundoCaixa || 0)}</span> • {formatDateLabel(caixa.data)}</small>
+                  <small>
+                    Fundo <span className="positive">{formatMoney(caixa.fundoCaixa || 0)}</span> • {formatDateLabel(caixa.data)}
+                  </small>
                   <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
                   <small>
                     Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
@@ -576,59 +446,6 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
           {!estoqueBaixo.length && !semEstoque.length && (
             <p className="empty-state">Nenhum alerta de estoque no momento.</p>
           )}
-        </div>
-      </details>
-
-      <details className="section-card gerencia-disclosure">
-        <summary className="gerencia-disclosure-summary">
-          <div>
-            <strong>Movimento do dia</strong>
-            <small>{ultimasVendas.length} vendas recentes e {ultimasSaidas.length} saidas recentes</small>
-          </div>
-        </summary>
-        <div className="screen-grid gerencia-details-grid">
-          <div>
-            <div className="section-header">
-              <div className="section-title">Ultimas vendas</div>
-              <span className="section-subtitle">{vendasHojeVisiveis.length} registros</span>
-            </div>
-            <div className="scroll-list gerencia-disclosure-body">
-              {ultimasVendas.map((item) => (
-                <div className="list-row" key={item.id}>
-                  <div>
-                    <strong>{item.produto}</strong>
-                    <small>
-                      {formatVendaHorario(item) || "Sem horario"} • {item.quantidade} un. •{" "}
-                      {item.formaPagamento || "Sem forma"} • {item.atendenteNome || item.atendente}
-                    </small>
-                  </div>
-                  <strong className="positive">{formatMoney(item.valor)}</strong>
-                </div>
-              ))}
-              {!vendasHojeVisiveis.length && <p className="empty-state">Nenhuma venda registrada hoje.</p>}
-            </div>
-          </div>
-
-          <div>
-            <div className="section-header">
-              <div className="section-title">Saidas do dia</div>
-              <span className="section-subtitle">{totalSaidasHoje} registros</span>
-            </div>
-            <div className="scroll-list gerencia-disclosure-body">
-              {ultimasSaidas.map((item, index) => (
-                <div className="list-row" key={`${item.id}-${index}`}>
-                  <div>
-                    <strong>{item.titulo || "Saida"}</strong>
-                    <small>{item.detalhe}</small>
-                  </div>
-                  <strong className="negative">{formatMoney(item.valor)}</strong>
-                </div>
-              ))}
-              {!despesasHoje.length && !retiradasHojeVisiveis.length && (
-                <p className="empty-state">Nenhuma saida registrada hoje.</p>
-              )}
-            </div>
-          </div>
         </div>
       </details>
     </div>

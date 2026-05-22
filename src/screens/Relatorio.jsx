@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import logoGelato from "../assets/gelatoimg.jpeg";
 import {
   deleteCaixa,
@@ -84,6 +84,61 @@ function buildVisibleCaixasForPeriod(caixasPeriodo, caixasAbertos, dataInicio, d
   });
 
   return mergeItemsById([...(caixasPeriodo || []), ...caixasAbertosDoPeriodo]);
+}
+
+function filterItemsByPeriod(items, dataInicio, dataFim) {
+  return (items || []).filter((item) => {
+    const dataItem = String(item?.data || "");
+    return dataItem && dataItem >= dataInicio && dataItem <= dataFim;
+  });
+}
+
+function normalizePeriodRange(dataInicio, dataFim) {
+  if (!dataInicio || !dataFim) {
+    return {
+      inicio: String(dataInicio || ""),
+      fim: String(dataFim || ""),
+    };
+  }
+
+  return dataInicio <= dataFim
+    ? { inicio: dataInicio, fim: dataFim }
+    : { inicio: dataFim, fim: dataInicio };
+}
+
+function isDateWithinPeriod(data, dataInicio, dataFim) {
+  const dataNormalizada = String(data || "");
+  return Boolean(dataNormalizada && dataNormalizada >= dataInicio && dataNormalizada <= dataFim);
+}
+
+function buildCaixasSummaryForPeriod(caixas, vendasPeriodo, retiradasPeriodo, dataInicio, dataFim) {
+  const caixasComMovimento = new Set(
+    [...(vendasPeriodo || []), ...(retiradasPeriodo || [])]
+      .map((item) => String(item?.caixaId || "").trim())
+      .filter(Boolean)
+  );
+
+  return (caixas || [])
+    .filter((caixa) => {
+      const dataOperacional = String(caixa?.data || "");
+      const dataReferencia = getCaixaReferenceDate(caixa);
+      return (
+        caixasComMovimento.has(caixa.id) ||
+        isDateWithinPeriod(dataOperacional, dataInicio, dataFim) ||
+        isDateWithinPeriod(dataReferencia, dataInicio, dataFim)
+      );
+    })
+    .map((caixa) => {
+    const vendasDoCaixa = (vendasPeriodo || []).filter((item) => item.caixaId === caixa.id);
+    const retiradasDoCaixa = (retiradasPeriodo || []).filter((item) => item.caixaId === caixa.id);
+
+    return {
+      ...caixa,
+      totalVendasPeriodo: vendasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+      totalItensPeriodo: vendasDoCaixa.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+      totalRetiradasPeriodo: retiradasDoCaixa.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    };
+  });
 }
 
 function formatVendaHorario(venda) {
@@ -233,68 +288,103 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
   const [retiradas, setRetiradas] = useState([]);
   const [caixas, setCaixas] = useState([]);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
-  const [vendasCaixaSelecionado, setVendasCaixaSelecionado] = useState([]);
   const [vendaCancelando, setVendaCancelando] = useState(null);
   const [senhaCancelamento, setSenhaCancelamento] = useState("");
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
   const [feedbackCancelamento, setFeedbackCancelamento] = useState("");
   const [cancelandoVenda, setCancelandoVenda] = useState(false);
-
-  const carregarPeriodoAtual = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [vendasData, despesasData, retiradasData, entradasConsolidadasData] = await Promise.all([
-        getVendas(uid, dataInicioFiltro, dataFimFiltro),
-        getDespesas(uid, dataInicioFiltro, dataFimFiltro),
-        getRetiradas(dataInicioFiltro, dataFimFiltro),
-        getEntradasConsolidadas(uid, dataInicioFiltro, dataFimFiltro),
-      ]);
-      const [caixasPeriodo, caixasAbertos] = await Promise.all([
-        getCaixas(dataInicioFiltro, dataFimFiltro),
-        getCaixasAbertos(),
-      ]);
-      const caixasData = buildVisibleCaixasForPeriod(
-        caixasPeriodo,
-        caixasAbertos,
-        dataInicioFiltro,
-        dataFimFiltro
-      );
-      const vendasDosCaixas = await Promise.all(caixasData.map((item) => getVendasPorCaixa(item.id)));
-      const vendasMescladas = mergeItemsById([
-        ...vendasData,
-        ...vendasDosCaixas.flat(),
-      ]);
-
-      setVendas(vendasMescladas);
-      setDespesas(despesasData);
-      setEntradasConsolidadas(entradasConsolidadasData);
-      setRetiradas(retiradasData);
-      setCaixas(caixasData);
-      setCaixaSelecionado((prev) =>
-        prev ? caixasData.find((item) => item.id === prev.id) || null : null
-      );
-    } catch (error) {
-      console.error("Erro ao carregar relatorio:", error);
-      setVendas([]);
-      setDespesas([]);
-      setEntradasConsolidadas([]);
-      setRetiradas([]);
-      setCaixas([]);
-      setCaixaSelecionado(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [dataFimFiltro, dataInicioFiltro, uid]);
+  const [reloadPeriodoKey, setReloadPeriodoKey] = useState(0);
+  const periodoRequestRef = useRef(0);
+  const periodoFiltro = useMemo(
+    () => normalizePeriodRange(dataInicioFiltro, dataFimFiltro),
+    [dataFimFiltro, dataInicioFiltro]
+  );
 
   useEffect(() => {
-    async function carregar() {
-      await carregarPeriodoAtual();
+    if (!uid || !periodoFiltro.inicio || !periodoFiltro.fim) return undefined;
+
+    let ativo = true;
+    const requestId = periodoRequestRef.current + 1;
+    periodoRequestRef.current = requestId;
+
+    async function carregarPeriodo() {
+      setLoading(true);
+      try {
+        const [vendasData, despesasData, retiradasData, entradasConsolidadasData] = await Promise.all([
+          getVendas(uid, periodoFiltro.inicio, periodoFiltro.fim),
+          getDespesas(uid, periodoFiltro.inicio, periodoFiltro.fim),
+          getRetiradas(periodoFiltro.inicio, periodoFiltro.fim),
+          getEntradasConsolidadas(uid, periodoFiltro.inicio, periodoFiltro.fim),
+        ]);
+        const [caixasPeriodo, caixasAbertos] = await Promise.all([
+          getCaixas(periodoFiltro.inicio, periodoFiltro.fim),
+          getCaixasAbertos(),
+        ]);
+        const caixasData = buildVisibleCaixasForPeriod(
+          caixasPeriodo,
+          caixasAbertos,
+          periodoFiltro.inicio,
+          periodoFiltro.fim
+        );
+        const vendasDosCaixas = await Promise.all(
+          caixasData.map((item) => getVendasPorCaixa(item.id))
+        );
+
+        if (!ativo || periodoRequestRef.current !== requestId) return;
+
+        const vendasPeriodo = filterItemsByPeriod(
+          mergeItemsById([
+            ...vendasData,
+            ...filterItemsByPeriod(vendasDosCaixas.flat(), periodoFiltro.inicio, periodoFiltro.fim),
+          ]),
+          periodoFiltro.inicio,
+          periodoFiltro.fim
+        );
+        const despesasPeriodo = filterItemsByPeriod(despesasData, periodoFiltro.inicio, periodoFiltro.fim);
+        const retiradasPeriodo = filterItemsByPeriod(retiradasData, periodoFiltro.inicio, periodoFiltro.fim);
+        const entradasPeriodo = filterItemsByPeriod(
+          entradasConsolidadasData,
+          periodoFiltro.inicio,
+          periodoFiltro.fim
+        );
+        const caixasResumoPeriodo = buildCaixasSummaryForPeriod(
+          caixasData,
+          vendasPeriodo,
+          retiradasPeriodo,
+          periodoFiltro.inicio,
+          periodoFiltro.fim
+        );
+
+        setVendas(vendasPeriodo);
+        setDespesas(despesasPeriodo);
+        setEntradasConsolidadas(entradasPeriodo);
+        setRetiradas(retiradasPeriodo);
+        setCaixas(caixasResumoPeriodo);
+        setCaixaSelecionado((prev) =>
+          prev ? caixasResumoPeriodo.find((item) => item.id === prev.id) || null : null
+        );
+      } catch (error) {
+        console.error("Erro ao carregar relatorio:", error);
+        if (!ativo || periodoRequestRef.current !== requestId) return;
+        setVendas([]);
+        setDespesas([]);
+        setEntradasConsolidadas([]);
+        setRetiradas([]);
+        setCaixas([]);
+        setCaixaSelecionado(null);
+      } finally {
+        if (ativo && periodoRequestRef.current === requestId) {
+          setLoading(false);
+        }
+      }
     }
 
-    if (uid && dataInicioFiltro && dataFimFiltro) {
-      carregar();
-    }
-  }, [carregarPeriodoAtual, uid, dataInicioFiltro, dataFimFiltro]);
+    carregarPeriodo();
+
+    return () => {
+      ativo = false;
+    };
+  }, [periodoFiltro.fim, periodoFiltro.inicio, reloadPeriodoKey, uid]);
 
   useEffect(() => {
     let ativo = true;
@@ -319,10 +409,14 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
         );
         if (!ativo) return;
         setVendasHoje(
-          mergeItemsById([
-            ...vendasData,
-            ...vendasDosCaixas.flat(),
-          ])
+          filterItemsByPeriod(
+            mergeItemsById([
+              ...vendasData,
+              ...filterItemsByPeriod(vendasDosCaixas.flat(), dataHoje, dataHoje),
+            ]),
+            dataHoje,
+            dataHoje
+          )
         );
       } catch (error) {
         console.error("Erro ao carregar vendas de hoje no relatorio:", error);
@@ -336,27 +430,6 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       ativo = false;
     };
   }, [uid, dataHoje]);
-
-  useEffect(() => {
-    let ativo = true;
-
-    async function carregarCaixaSelecionado() {
-      if (!caixaSelecionado?.id) {
-        setVendasCaixaSelecionado([]);
-        return;
-      }
-
-      const vendasData = await getVendasPorCaixa(caixaSelecionado.id);
-      if (!ativo) return;
-      setVendasCaixaSelecionado(vendasData);
-    }
-
-    carregarCaixaSelecionado();
-
-    return () => {
-      ativo = false;
-    };
-  }, [caixaSelecionado]);
 
   useEffect(() => {
     cancelarFluxoCancelamentoVenda();
@@ -375,6 +448,13 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     [caixas, despesas, entradasConsolidadas, retiradas, vendas]
   );
   const vendasPeriodoVisiveis = useMemo(() => vendas, [vendas]);
+  const vendasCaixaSelecionado = useMemo(
+    () =>
+      caixaSelecionado?.id
+        ? vendasPeriodoVisiveis.filter((item) => item.caixaId === caixaSelecionado.id)
+        : [],
+    [caixaSelecionado?.id, vendasPeriodoVisiveis]
+  );
   const retiradasPeriodoVisiveis = useMemo(() => retiradas, [retiradas]);
   const despesasPeriodo = useMemo(
     () => [...despesas].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
@@ -445,8 +525,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     if (!confirmar) return;
 
     await deleteCaixa(item.id);
-    if (caixaSelecionado?.id === item.id) setVendasCaixaSelecionado([]);
-    await carregarPeriodoAtual();
+    setCaixaSelecionado((prev) => (prev?.id === item.id ? null : prev));
+    setReloadPeriodoKey((prev) => prev + 1);
   }
 
   async function fecharCaixaManual(item) {
@@ -478,8 +558,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       totalRetiradas,
       valorEmCaixa,
     });
-
-    await carregarPeriodoAtual();
+    setReloadPeriodoKey((prev) => prev + 1);
   }
 
   function iniciarCancelamentoVenda(venda) {
@@ -543,7 +622,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       });
       await deleteVenda(vendaCancelando.id);
       cancelarFluxoCancelamentoVenda();
-      await carregarPeriodoAtual();
+      setReloadPeriodoKey((prev) => prev + 1);
     } catch {
       setFeedbackCancelamento("Nao foi possivel cancelar esse item da venda.");
       setCancelandoVenda(false);
@@ -623,14 +702,14 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       head: [["Indicador", "Valor"]],
       body: [
         ["Fundo de caixa", formatMoney(resumoFinanceiro.fundoCaixa)],
-        ["Entradas", formatMoney(resumoFinanceiro.entradas)],
+        ["Entradas do periodo", formatMoney(resumoFinanceiro.entradas)],
         ["Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
         ["Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
-        ["Despesas operacionais", formatMoney(resumoFinanceiro.despesasOperacionais)],
+        ["Despesas do periodo", formatMoney(resumoFinanceiro.despesasOperacionais)],
         ["Retiradas de caixa", formatMoney(resumoFinanceiro.retiradasCaixa)],
-        ["Gastos", formatMoney(resumoFinanceiro.gastos)],
-        ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
-        ["Lucro do periodo", formatMoney(resumoFinanceiro.resultado)],
+        ["Gastos do periodo", formatMoney(resumoFinanceiro.gastos)],
+        ["Saldo do periodo", formatMoney(resumoFinanceiro.emCaixa)],
+        ["Resultado do periodo", formatMoney(resumoFinanceiro.resultado)],
       ],
       theme: "grid",
       headStyles: { fillColor: [37, 99, 235], textColor: 255 },
@@ -673,7 +752,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     });
     y = doc.lastAutoTable.finalY + 10;
 
-    doc.text("Resumo mensal", 14, y);
+    doc.text("Resumo mensal do periodo", 14, y);
     y += 4;
     autoTable(doc, {
       startY: y,
@@ -700,7 +779,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     y = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(12);
-    doc.text("Entradas consolidadas", 14, y);
+    doc.text("Entradas consolidadas do periodo", 14, y);
     y += 4;
     autoTable(doc, {
       startY: y,
@@ -727,7 +806,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     y = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(12);
-    doc.text("Despesas operacionais", 14, y);
+    doc.text("Despesas do periodo", 14, y);
     y += 4;
     autoTable(doc, {
       startY: y,
@@ -739,7 +818,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
             item.despesaFixaDescricao ? "Fixa" : "Avulsa",
             formatMoney(item.valor),
           ])
-        : [["-", "Nenhuma despesa registrada no periodo.", "-", "-"]],
+        : [["-", "Nenhuma despesa encontrada no intervalo filtrado.", "-", "-"]],
       theme: "grid",
       headStyles: { fillColor: [220, 38, 38], textColor: 255 },
       styles: { fontSize: 10, cellPadding: 3 },
@@ -760,7 +839,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
             item.descricaoLinha,
             formatMoney(item.valor),
           ])
-        : [["-", "-", "Nenhuma saida registrada no periodo.", "-"]],
+        : [["-", "-", "Nenhuma saida encontrada no intervalo filtrado.", "-"]],
       theme: "grid",
       headStyles: { fillColor: [220, 38, 38], textColor: 255 },
       styles: { fontSize: 10, cellPadding: 3 },
@@ -775,32 +854,32 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       ["Secao", "Campo", "Valor"],
       ["Resumo", "Periodo inicial", formatDateLabel(dataInicioFiltro)],
       ["Resumo", "Periodo final", formatDateLabel(dataFimFiltro)],
-      ["Resumo", "Entradas", formatMoney(resumoFinanceiro.entradas)],
+      ["Resumo", "Entradas do periodo", formatMoney(resumoFinanceiro.entradas)],
       ["Resumo", "Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
       ["Resumo", "Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
-      ["Resumo", "Despesas operacionais", formatMoney(resumoFinanceiro.despesasOperacionais)],
+      ["Resumo", "Despesas do periodo", formatMoney(resumoFinanceiro.despesasOperacionais)],
       ["Resumo", "Retiradas", formatMoney(resumoFinanceiro.retiradasCaixa)],
-      ["Resumo", "Gastos", formatMoney(resumoFinanceiro.gastos)],
-      ["Resumo", "Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
-      ["Resumo", "Lucro do periodo", formatMoney(resumoFinanceiro.resultado)],
+      ["Resumo", "Gastos do periodo", formatMoney(resumoFinanceiro.gastos)],
+      ["Resumo", "Saldo do periodo", formatMoney(resumoFinanceiro.emCaixa)],
+      ["Resumo", "Resultado do periodo", formatMoney(resumoFinanceiro.resultado)],
       ["", "", ""],
-      ["Resumo mensal", "Mes", "Entradas|Despesas|Retiradas|Lucro"],
+      ["Resumo mensal do periodo", "Mes", "Entradas|Despesas|Retiradas|Resultado"],
       ...resumoMensal.map((item) => [
-        "Resumo mensal",
+        "Resumo mensal do periodo",
         formatMonthLabel(item.mes),
         `${formatMoney(item.entradas)} | ${formatMoney(item.despesas)} | ${formatMoney(item.retiradas)} | ${formatMoney(item.lucro)}`,
       ]),
       ["", "", ""],
-      ["Despesas", "Data", "Descricao|Tipo|Valor"],
+      ["Despesas do periodo", "Data", "Descricao|Tipo|Valor"],
       ...despesasPeriodo.map((item) => [
-        "Despesas",
+        "Despesas do periodo",
         formatDateLabel(item.data),
         `${item.descricao || "-"} | ${item.despesaFixaDescricao ? "Fixa" : "Avulsa"} | ${formatMoney(item.valor)}`,
       ]),
       ["", "", ""],
-      ["Entradas consolidadas", "Data", "Dinheiro|Pix|Cartao|Total"],
+      ["Entradas consolidadas do periodo", "Data", "Dinheiro|Pix|Cartao|Total"],
       ...entradasConsolidadas.map((item) => [
-        "Entradas consolidadas",
+        "Entradas consolidadas do periodo",
         formatDateLabel(item.data),
         `${formatMoney(item.dinheiro)} | ${formatMoney(item.pix)} | ${formatMoney(item.cartao)} | ${formatMoney(item.total)}`,
       ]),
@@ -829,7 +908,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
 
       <div className="section-card filter-card">
         <div className="section-header">
-          <div className="section-title">Filtro por periodo</div>
+          <div className="section-title">Filtro do periodo analisado</div>
         </div>
         <div className="report-filter-grid">
           <input
@@ -892,59 +971,59 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
 
       <div className="stats-grid report-result-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Entradas</span>
+          <span className="stat-label">Entradas do periodo</span>
           <strong
             className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
-          <small className="stat-note">Vendas + entradas consolidadas.</small>
+          <small className="stat-note">Vendas + entradas consolidadas dentro do intervalo filtrado.</small>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Gastos</span>
+          <span className="stat-label">Gastos do periodo</span>
           <strong
             className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.gastos)}
           </strong>
-          <small className="stat-note">Despesas + retiradas.</small>
+          <small className="stat-note">Despesas + retiradas dentro do intervalo filtrado.</small>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Em caixa</span>
+          <span className="stat-label">Saldo do periodo</span>
           <strong
             className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
-          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
+          <small className="stat-note">Fundo + entradas - despesas - retiradas apenas do intervalo filtrado.</small>
         </div>
       </div>
 
       <div className="stats-grid report-summary-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Resultado</span>
+          <span className="stat-label">Resultado do periodo</span>
           <strong
             className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.resultado >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
-          <small className="stat-note">Entradas - gastos.</small>
+          <small className="stat-note">Entradas do periodo menos gastos do periodo.</small>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Despesas operacionais</span>
+          <span className="stat-label">Despesas do periodo</span>
           <strong className="stat-value negative">{formatMoney(resumoFinanceiro.despesasOperacionais)}</strong>
-          <small className="stat-note">Somatorio de todas as despesas do periodo.</small>
+          <small className="stat-note">Somatorio das despesas registradas dentro do intervalo filtrado.</small>
         </div>
       </div>
 
       <div className="screen-grid report-dual-grid report-grid-priority">
         <div className="section-card report-list-card report-card-caixas">
           <div className="section-header">
-            <div className="section-title">Caixas dos atendentes</div>
+            <div className="section-title">Caixas com movimento no periodo</div>
             <span className="section-subtitle">{caixas.length} caixas no periodo</span>
           </div>
           <div className="scroll-list">
@@ -960,9 +1039,6 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 >
                   {(() => {
                     const dataReferencia = getCaixaReferenceDate(caixa);
-                    const dataOperacional = String(caixa.data || "");
-                    const dataDivergente =
-                      dataReferencia && dataOperacional && dataReferencia !== dataOperacional;
 
                     return (
                       <div>
@@ -970,11 +1046,11 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                           Caixa {caixa.atendenteNome} ({caixa.status === "aberto" ? "Aberto" : "Fechado"})
                         </strong>
                         <small>
-                          {formatDateLabel(dataReferencia) || "Sem data"} - {Number(caixa.totalItens || 0)} itens -{" "}
+                          {formatDateLabel(dataReferencia) || "Sem data"} - {Number(caixa.totalItensPeriodo || 0)} itens no periodo -{" "}
                           {caixa.status === "fechado" ? (
-                            <>Fechado com <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span></>
+                            <>Fechado com <span className="positive">{formatMoney(caixa.totalVendasPeriodo || 0)}</span> no periodo</>
                           ) : (
-                            <span className="positive">{formatMoney(caixa.totalVendas || 0)}</span>
+                            <span className="positive">{formatMoney(caixa.totalVendasPeriodo || 0)}</span>
                           )}
                         </small>
                         <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
@@ -1013,7 +1089,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
             <div className="section-title">
               {caixaSelecionado
                 ? `Extrato do caixa ${caixaSelecionado.atendenteNome}`
-                : "Extrato do caixa"}
+                : "Extrato do caixa no periodo"}
             </div>
             <span className="section-subtitle">
               {caixaSelecionado
@@ -1050,8 +1126,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
             {!vendasCaixaSelecionado.length && (
               <p className="empty-state">
                 {caixaSelecionado
-                  ? "Nenhuma venda encontrada para este caixa."
-                  : "Selecione um caixa para ver o extrato."}
+                  ? "Nenhuma venda desse caixa encontrada no intervalo filtrado."
+                  : "Selecione um caixa para ver o extrato do intervalo filtrado."}
               </p>
             )}
           </div>
@@ -1119,7 +1195,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 <strong className="positive">{formatMoney(item.valor)}</strong>
               </div>
             ))}
-            {!vendas.length && !loading && <p className="empty-state">Nenhuma venda encontrada.</p>}
+            {!vendas.length && !loading && <p className="empty-state">Nenhuma venda encontrada no intervalo filtrado.</p>}
           </div>
         </div>
 
@@ -1139,7 +1215,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 <strong className="positive">{formatMoney(item.total)}</strong>
               </div>
             ))}
-            {!entradasConsolidadas.length && !loading && <p className="empty-state">Nenhuma entrada consolidada encontrada.</p>}
+            {!entradasConsolidadas.length && !loading && <p className="empty-state">Nenhuma entrada consolidada encontrada no intervalo filtrado.</p>}
           </div>
         </div>
 
@@ -1157,13 +1233,13 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 <strong className="negative">{formatMoney(item.valor)}</strong>
               </div>
             ))}
-            {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada.</p>}
+            {!saidasPeriodo.length && !loading && <p className="empty-state">Nenhuma saida encontrada no intervalo filtrado.</p>}
           </div>
         </div>
 
         <div className="section-card report-list-card report-card-saidas">
           <div className="section-header">
-            <div className="section-title">Lucro mensal</div>
+            <div className="section-title">Resumo mensal do periodo</div>
           </div>
           <div className="scroll-list">
             {resumoMensal.map((item) => (
@@ -1178,7 +1254,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
                 <strong className={item.lucro >= 0 ? "positive" : "negative"}>{formatMoney(item.lucro)}</strong>
               </div>
             ))}
-            {!resumoMensal.length && !loading && <p className="empty-state">Nenhum resumo mensal encontrado.</p>}
+            {!resumoMensal.length && !loading && <p className="empty-state">Nenhum resumo mensal encontrado para o intervalo filtrado.</p>}
           </div>
         </div>
       </div>

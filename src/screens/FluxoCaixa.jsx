@@ -432,7 +432,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       doc.text(
         modoFiltro === "periodo"
           ? `Periodo analisado: ${formatDateLabel(periodoReferencia.inicio)} ate ${formatDateLabel(periodoReferencia.fim)}`
-          : `Data analisada: ${formatDateLabel(periodoReferencia.inicio)}`,
+          : `Dia analisado: ${formatDateLabel(periodoReferencia.inicio)}`,
         42,
         y - 2
       );
@@ -489,12 +489,12 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         head: [["Indicador", "Valor"]],
         body: [
           ["Fundo de caixa", formatMoney(resumoFinanceiro.fundoCaixa)],
-          ["Entradas", formatMoney(resumoFinanceiro.entradas)],
+          [modoFiltro === "periodo" ? "Entradas do periodo" : "Entradas do dia", formatMoney(resumoFinanceiro.entradas)],
           ["Entradas manuais", formatMoney(resumoFinanceiro.entradasExtras)],
           ["Entradas por vendas", formatMoney(resumoFinanceiro.entradasVendas)],
-          ["Gastos", formatMoney(resumoFinanceiro.gastos)],
-          ["Em caixa", formatMoney(resumoFinanceiro.emCaixa)],
-          ["Resultado", formatMoney(resumoFinanceiro.resultado)],
+          [modoFiltro === "periodo" ? "Gastos do periodo" : "Gastos do dia", formatMoney(resumoFinanceiro.gastos)],
+          [modoFiltro === "periodo" ? "Saldo do periodo" : "Saldo do dia", formatMoney(resumoFinanceiro.emCaixa)],
+          [modoFiltro === "periodo" ? "Resultado do periodo" : "Resultado do dia", formatMoney(resumoFinanceiro.resultado)],
         ],
         theme: "grid",
         headStyles: { fillColor: [37, 99, 235], textColor: 255 },
@@ -503,7 +503,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
       y = doc.lastAutoTable.finalY + 10;
 
-      doc.text("Caixas considerados", 14, y);
+      doc.text(modoFiltro === "periodo" ? "Caixas com movimento no periodo" : "Caixas do dia", 14, y);
       y += 4;
       autoTable(doc, {
         startY: y,
@@ -520,7 +520,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
       y = doc.lastAutoTable.finalY + 10;
 
-      doc.text("Entradas consolidadas", 14, y);
+      doc.text(modoFiltro === "periodo" ? "Entradas consolidadas do periodo" : "Entradas consolidadas do dia", 14, y);
       y += 4;
       autoTable(doc, {
         startY: y,
@@ -533,7 +533,15 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               formatMoney(item.cartao),
               formatMoney(item.total),
             ])
-          : [["-", "-", "-", "Nenhuma entrada consolidada.", "-"]],
+          : [[
+              "-",
+              "-",
+              "-",
+              modoFiltro === "periodo"
+                ? "Nenhuma entrada consolidada no intervalo filtrado."
+                : "Nenhuma entrada consolidada no dia selecionado.",
+              "-",
+            ]],
         theme: "grid",
         headStyles: { fillColor: [37, 99, 235], textColor: 255 },
         styles: { fontSize: 10, cellPadding: 3 },
@@ -546,7 +554,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
       y = doc.lastAutoTable.finalY + 10;
 
-      doc.text("Saidas registradas", 14, y);
+      doc.text(modoFiltro === "periodo" ? "Saidas do periodo" : "Saidas do dia", 14, y);
       y += 4;
       autoTable(doc, {
         startY: y,
@@ -558,7 +566,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               item.descricao,
               formatMoney(item.valor),
             ])
-          : [["-", "-", "Nenhuma saida registrada.", "-"]],
+          : [[
+              "-",
+              "-",
+              modoFiltro === "periodo"
+                ? "Nenhuma saida no intervalo filtrado."
+                : "Nenhuma saida no dia selecionado.",
+              "-",
+            ]],
         theme: "grid",
         headStyles: { fillColor: [220, 38, 38], textColor: 255 },
         styles: { fontSize: 10, cellPadding: 3 },
@@ -566,7 +581,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
       y = doc.lastAutoTable.finalY + 10;
 
-      doc.text("Vendas registradas", 14, y);
+      doc.text(modoFiltro === "periodo" ? "Vendas do periodo" : "Vendas do dia", 14, y);
       y += 4;
       autoTable(doc, {
         startY: y,
@@ -579,7 +594,15 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               item.atendenteNome || item.atendente || "-",
               formatMoney(item.valor),
             ])
-          : [["-", "Nenhuma venda registrada.", "-", "-", "-"]],
+          : [[
+              "-",
+              modoFiltro === "periodo"
+                ? "Nenhuma venda no intervalo filtrado."
+                : "Nenhuma venda no dia selecionado.",
+              "-",
+              "-",
+              "-",
+            ]],
         theme: "grid",
         headStyles: { fillColor: [22, 101, 52], textColor: 255 },
         styles: { fontSize: 10, cellPadding: 3 },
@@ -590,7 +613,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       });
       y = doc.lastAutoTable.finalY + 10;
 
-      doc.text("Caixas do periodo", 14, y);
+      doc.text(modoFiltro === "periodo" ? "Caixas com movimento no periodo" : "Caixas do dia", 14, y);
       y += 4;
       autoTable(doc, {
         startY: y,
@@ -632,7 +655,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         <div>
           <h1 className="screen-title app-hero-title-blue">Fluxo de caixa</h1>
           <p className="screen-description">
-            Area administrativa para despesas, retiradas, saldos e conferencia diaria.
+            Acompanhamento de entradas, saidas, saldos e conferencias no intervalo filtrado.
           </p>
         </div>
         <button className="action-btn action-btn-info" type="button" onClick={exportarFluxoPDF} disabled={!filtroValido || loading}>
@@ -642,7 +665,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
       <div className="section-card filter-card">
         <div className="section-header">
-          <div className="section-title">Data de referencia</div>
+          <div className="section-title">Filtro do periodo analisado</div>
           <span className="section-subtitle">{subtituloReferencia}</span>
         </div>
         <div className="section-actions">
@@ -700,47 +723,63 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
       <div className="stats-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Entradas</span>
+          <span className="stat-label">{modoFiltro === "periodo" ? "Entradas do periodo" : "Entradas do dia"}</span>
           <strong
             className={`stat-value ${resumoFinanceiro.entradas >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.entradas >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.entradas)}
           </strong>
-          <small className="stat-note">Vendas + entradas consolidadas do dia.</small>
+          <small className="stat-note">
+            {modoFiltro === "periodo"
+              ? "Vendas + entradas consolidadas dentro do intervalo filtrado."
+              : "Vendas + entradas consolidadas do dia selecionado."}
+          </small>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Gastos</span>
+          <span className="stat-label">{modoFiltro === "periodo" ? "Gastos do periodo" : "Gastos do dia"}</span>
           <strong
             className={`stat-value ${resumoFinanceiro.gastos >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.gastos >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.gastos)}
           </strong>
-          <small className="stat-note">Despesas + retiradas.</small>
+          <small className="stat-note">
+            {modoFiltro === "periodo"
+              ? "Despesas + retiradas dentro do intervalo filtrado."
+              : "Despesas + retiradas do dia selecionado."}
+          </small>
         </div>
         <div className="section-card stat-card">
-          <span className="stat-label">Em caixa</span>
+          <span className="stat-label">{modoFiltro === "periodo" ? "Saldo do periodo" : "Saldo do dia"}</span>
           <strong
             className={`stat-value ${resumoFinanceiro.emCaixa >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.emCaixa >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
-          <small className="stat-note">Fundo + entradas - despesas - retiradas.</small>
+          <small className="stat-note">
+            {modoFiltro === "periodo"
+              ? "Fundo + entradas - despesas - retiradas apenas do intervalo filtrado."
+              : "Fundo + entradas - despesas - retiradas do dia selecionado."}
+          </small>
         </div>
       </div>
 
       <div className="stats-grid">
         <div className="section-card stat-card">
-          <span className="stat-label">Resultado</span>
+          <span className="stat-label">{modoFiltro === "periodo" ? "Resultado do periodo" : "Resultado do dia"}</span>
           <strong
             className={`stat-value ${resumoFinanceiro.resultado >= 0 ? "positive" : "negative"}`}
             style={{ color: resumoFinanceiro.resultado >= 0 ? "var(--green-dark)" : "var(--red)" }}
           >
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
-          <small className="stat-note">Entradas - gastos.</small>
+          <small className="stat-note">
+            {modoFiltro === "periodo"
+              ? "Entradas do periodo menos gastos do periodo."
+              : "Entradas do dia menos gastos do dia."}
+          </small>
         </div>
       </div>
 
@@ -972,7 +1011,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
         <div className="section-card">
           <div className="section-header">
-            <div className="section-title">{modoFiltro === "periodo" ? "Saidas lancadas no periodo" : "Saidas lancadas"}</div>
+            <div className="section-title">{modoFiltro === "periodo" ? "Saidas do periodo" : "Saidas do dia"}</div>
             <span className="section-subtitle">
               {loading ? "Carregando..." : `${saidasDoDia.length} itens`}
             </span>
@@ -1004,8 +1043,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             {!saidasDoDia.length && !loading && (
               <p className="empty-state">
                 {modoFiltro === "periodo"
-                  ? "Nenhuma saida cadastrada nesse periodo."
-                  : "Nenhuma saida cadastrada nessa data."}
+                  ? "Nenhuma saida encontrada no intervalo filtrado."
+                  : "Nenhuma saida encontrada no dia selecionado."}
               </p>
             )}
           </div>
@@ -1015,7 +1054,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       <div className="section-card">
         <div className="section-header">
           <div className="section-title">
-            {modoFiltro === "periodo" ? "Entradas consolidadas do periodo" : "Entradas consolidadas"}
+            {modoFiltro === "periodo" ? "Entradas consolidadas do periodo" : "Entradas consolidadas do dia"}
           </div>
           <span className="section-subtitle">
             {loading ? "Carregando..." : `${entradasConsolidadas.length} itens`}
@@ -1064,8 +1103,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
           {!entradasConsolidadas.length && !loading && (
             <p className="empty-state">
               {modoFiltro === "periodo"
-                ? "Nenhuma entrada consolidada cadastrada nesse periodo."
-                : "Nenhuma entrada consolidada cadastrada nessa data."}
+                ? "Nenhuma entrada consolidada encontrada no intervalo filtrado."
+                : "Nenhuma entrada consolidada encontrada no dia selecionado."}
             </p>
           )}
         </div>
@@ -1073,7 +1112,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
       <div className="section-card">
         <div className="section-header">
-          <div className="section-title">{modoFiltro === "periodo" ? "Vendas do periodo" : "Vendas da data"}</div>
+          <div className="section-title">{modoFiltro === "periodo" ? "Vendas do periodo" : "Vendas do dia"}</div>
           <span className="section-subtitle">{vendas.length} itens</span>
         </div>
         <div className="scroll-list">
@@ -1091,8 +1130,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
           {!vendas.length && !loading && (
             <p className="empty-state">
               {modoFiltro === "periodo"
-                ? "Nenhuma venda encontrada nesse periodo."
-                : "Nenhuma venda encontrada nessa data."}
+                ? "Nenhuma venda encontrada no intervalo filtrado."
+                : "Nenhuma venda encontrada no dia selecionado."}
             </p>
           )}
         </div>

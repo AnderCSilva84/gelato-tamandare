@@ -15,6 +15,7 @@ function initialForm() {
     precoFinal: "",
     estoque: "",
     notaFiscal: "",
+    unidadeVenda: "un",
     ativo: true,
   };
 }
@@ -97,6 +98,7 @@ export default function Estoque({ uid }) {
       precoFinal: Number(form.precoFinal || 0),
       estoque: Number(form.estoque || 0),
       notaFiscal: form.notaFiscal,
+      unidadeVenda: form.unidadeVenda,
       ativo: form.ativo,
     };
 
@@ -119,6 +121,7 @@ export default function Estoque({ uid }) {
       precoFinal: String(produto.precoFinal ?? produto.preco ?? ""),
       estoque: String(produto.estoque ?? ""),
       notaFiscal: produto.notaFiscal || "",
+      unidadeVenda: produto.unidadeVenda === "kg" ? "kg" : "un",
       ativo: produto.ativo !== false,
     });
   }
@@ -314,13 +317,22 @@ export default function Estoque({ uid }) {
               onChange={(e) => setForm((prev) => ({ ...prev, precoFinal: e.target.value }))}
               placeholder="Preço final"
             />
+            <select
+              className="input select"
+              value={form.unidadeVenda}
+              onChange={(e) => setForm((prev) => ({ ...prev, unidadeVenda: e.target.value }))}
+            >
+              <option value="un">Venda por unidade</option>
+              <option value="kg">Venda por KG</option>
+            </select>
             <input
               className="input"
               type="number"
               min="0"
+              step={form.unidadeVenda === "kg" ? "0.001" : "1"}
               value={form.estoque}
               onChange={(e) => setForm((prev) => ({ ...prev, estoque: e.target.value }))}
-              placeholder="Estoque"
+              placeholder={form.unidadeVenda === "kg" ? "Estoque em KG" : "Estoque"}
             />
             <input
               className="input"
@@ -369,6 +381,7 @@ export default function Estoque({ uid }) {
                       custo <span className="positive">{formatMoney(produto.precoCusto || 0)}</span> • venda <span className="positive">{formatMoney(produto.precoFinal ?? produto.preco ?? 0)}</span> • estoque {produto.estoque} •{" "}
                       {produto.ativo === false ? "inativo" : "ativo"}
                     </small>
+                    <small>Tipo de venda: {produto.unidadeVenda === "kg" ? "por KG" : "por unidade"}</small>
                     {produto.notaFiscal ? <small>NF: {produto.notaFiscal}</small> : null}
                     {estoqueBaixo && (
                       <small className="stock-alert">

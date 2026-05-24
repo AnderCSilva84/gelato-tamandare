@@ -161,6 +161,8 @@ export async function addVenda(uid, dados) {
     produtoId: String(dados?.produtoId || "").trim(),
     valor: Number(dados?.valor || 0),
     quantidade: Number(dados?.quantidade || 1),
+    unidadeVenda: String(dados?.unidadeVenda || "un").trim() || "un",
+    valorUnitario: Number(dados?.valorUnitario || 0),
     atendente: String(dados?.atendente || "").trim(),
     atendenteId: String(dados?.atendenteId || "").trim(),
     atendenteNome: String(dados?.atendenteNome || dados?.atendente || "").trim(),
@@ -192,6 +194,10 @@ export async function updateVenda(id, dados) {
     ...dados,
     valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
     quantidade: dados?.quantidade !== undefined ? Number(dados.quantidade) : current.quantidade,
+    unidadeVenda:
+      dados?.unidadeVenda !== undefined ? String(dados.unidadeVenda) : current.unidadeVenda,
+    valorUnitario:
+      dados?.valorUnitario !== undefined ? Number(dados.valorUnitario) : current.valorUnitario,
     produtoId: dados?.produtoId !== undefined ? String(dados.produtoId) : current.produtoId,
     atendenteId:
       dados?.atendenteId !== undefined ? String(dados.atendenteId) : current.atendenteId,

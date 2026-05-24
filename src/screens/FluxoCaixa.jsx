@@ -32,6 +32,27 @@ function formatDateLabel(valor) {
   return `${dia}/${mes}/${ano}`;
 }
 
+function normalizeText(valor) {
+  return String(valor || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function getTipoSaidaItem(item) {
+  if (item?.tipoSaida === "retirada") return "retirada";
+  if (item?.despesaFixaId || item?.despesaFixaDescricao) return "despesa_fixa";
+  return "despesa_avulsa";
+}
+
+function getRotuloSaidaFiltro(item, tipoFiltro) {
+  if (tipoFiltro === "despesa_fixa") {
+    return String(item?.despesaFixaDescricao || item?.descricao || "Sem descricao").trim();
+  }
+  return String(item?.descricao || "Sem descricao").trim();
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -119,6 +140,11 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   const [despesaFixaEditandoId, setDespesaFixaEditandoId] = useState("");
   const [despesaFixaFeedback, setDespesaFixaFeedback] = useState("");
   const [mostrarCadastroDespesasFixas, setMostrarCadastroDespesasFixas] = useState(false);
+  const [mostrarEntradaForm, setMostrarEntradaForm] = useState(false);
+  const [mostrarDespesaForm, setMostrarDespesaForm] = useState(false);
+  const [buscaSaida, setBuscaSaida] = useState("");
+  const [tipoSaidaFiltro, setTipoSaidaFiltro] = useState("todas");
+  const [saidaEspecificaFiltro, setSaidaEspecificaFiltro] = useState("todas");
 
   const filtroValido =
     modoFiltro === "dia"
@@ -231,6 +257,10 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     carregarDespesasFixas();
   }, [carregarDespesasFixas]);
 
+  useEffect(() => {
+    setSaidaEspecificaFiltro("todas");
+  }, [tipoSaidaFiltro]);
+
   const resumoFinanceiro = useMemo(
     () =>
       calcularResumoFinanceiro({
@@ -253,6 +283,64 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         })),
       ].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
     [despesas, retiradas]
+  );
+  const opcoesSaidaEspecifica = useMemo(() => {
+    if (tipoSaidaFiltro === "todas") return [];
+
+    const opcoes = saidasDoDia
+      .filter((item) => {
+        const tipoItem = getTipoSaidaItem(item);
+        return tipoSaidaFiltro === "despesa"
+          ? item.tipoSaida === "despesa"
+          : tipoSaidaFiltro === tipoItem;
+      })
+      .map((item) => getRotuloSaidaFiltro(item, tipoSaidaFiltro))
+      .filter(Boolean);
+
+    return [...new Set(opcoes)].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [saidasDoDia, tipoSaidaFiltro]);
+  const saidasFiltradas = useMemo(() => {
+    const termo = normalizeText(buscaSaida);
+
+    return saidasDoDia.filter((item) => {
+      const tipoItem = getTipoSaidaItem(item);
+      const rotuloItem = getRotuloSaidaFiltro(item, tipoSaidaFiltro);
+
+      const matchTipo =
+        tipoSaidaFiltro === "todas" ||
+        tipoSaidaFiltro === item.tipoSaida ||
+        tipoSaidaFiltro === tipoItem;
+
+      if (!matchTipo) return false;
+      if (
+        tipoSaidaFiltro !== "todas" &&
+        saidaEspecificaFiltro !== "todas" &&
+        rotuloItem !== saidaEspecificaFiltro
+      ) {
+        return false;
+      }
+      if (!termo) return true;
+
+      const descricao = normalizeText(item.descricao);
+      const despesaFixaDescricao = normalizeText(item.despesaFixaDescricao);
+      const tipoBusca = normalizeText(
+        item.tipoSaida === "retirada"
+          ? "retirada sangria caixa"
+          : tipoItem === "despesa_fixa"
+            ? "despesa fixa"
+            : "despesa avulsa"
+      );
+
+      return (
+        descricao.includes(termo) ||
+        despesaFixaDescricao.includes(termo) ||
+        tipoBusca.includes(termo)
+      );
+    });
+  }, [buscaSaida, saidaEspecificaFiltro, saidasDoDia, tipoSaidaFiltro]);
+  const totalSaidasFiltradas = useMemo(
+    () => saidasFiltradas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [saidasFiltradas]
   );
 
   const subtituloReferencia = useMemo(() => {
@@ -327,9 +415,11 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
     setForm(initialForm(dataDespesa));
     setEditandoId("");
+    setMostrarDespesaForm(false);
   }
 
   function editarDespesa(item) {
+    setMostrarDespesaForm(true);
     setEditandoId(item.id);
     setForm({
       despesaFixaId: item.despesaFixaId || "",
@@ -436,6 +526,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         42,
         y - 2
       );
+      if (buscaSaida || tipoSaidaFiltro !== "todas") {
+        doc.text(
+          `Filtro de saidas: ${tipoSaidaFiltro} ${buscaSaida ? `| busca: ${buscaSaida}` : ""}`,
+          42,
+          y + 4
+        );
+        y += 6;
+      }
       y += 8;
 
       drawSummaryCard(doc, {
@@ -559,10 +657,14 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       autoTable(doc, {
         startY: y,
         head: [["Data", "Tipo", "Descricao", "Valor"]],
-        body: saidasDoDia.length
-          ? saidasDoDia.map((item) => [
+        body: saidasFiltradas.length
+          ? saidasFiltradas.map((item) => [
               formatDateLabel(item.data),
-              item.tipoSaida === "retirada" ? "Retirada" : "Despesa",
+              item.tipoSaida === "retirada"
+                ? "Retirada"
+                : item.despesaFixaId || item.despesaFixaDescricao
+                  ? "Despesa fixa"
+                  : "Despesa avulsa",
               item.descricao,
               formatMoney(item.valor),
             ])
@@ -570,8 +672,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               "-",
               "-",
               modoFiltro === "periodo"
-                ? "Nenhuma saida no intervalo filtrado."
-                : "Nenhuma saida no dia selecionado.",
+                ? "Nenhuma saida encontrada com o filtro aplicado."
+                : "Nenhuma saida encontrada com o filtro aplicado.",
               "-",
             ]],
         theme: "grid",
@@ -721,6 +823,48 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         )}
       </div>
 
+      <div className="section-card filter-card">
+        <div className="section-header">
+          <div className="section-title">Filtro de gastos e saidas</div>
+          <span className="section-subtitle">
+            {saidasFiltradas.length} item(ns) • {formatMoney(totalSaidasFiltradas)}
+          </span>
+        </div>
+        <div className="stack-form">
+          <select
+            className="input"
+            value={tipoSaidaFiltro}
+            onChange={(e) => setTipoSaidaFiltro(e.target.value)}
+          >
+            <option value="todas">Todas as saidas</option>
+            <option value="despesa">Todas as despesas</option>
+            <option value="despesa_fixa">Somente despesas fixas</option>
+            <option value="despesa_avulsa">Somente despesas avulsas</option>
+            <option value="retirada">Somente retiradas</option>
+          </select>
+          {tipoSaidaFiltro !== "todas" ? (
+            <select
+              className="input"
+              value={saidaEspecificaFiltro}
+              onChange={(e) => setSaidaEspecificaFiltro(e.target.value)}
+            >
+              <option value="todas">Todas</option>
+              {opcoesSaidaEspecifica.map((opcao) => (
+                <option key={opcao} value={opcao}>
+                  {opcao}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <input
+            className="input"
+            value={buscaSaida}
+            onChange={(e) => setBuscaSaida(e.target.value)}
+            placeholder="Pesquisar por descricao, motivo ou tipo de saida"
+          />
+        </div>
+      </div>
+
       <div className="stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">{modoFiltro === "periodo" ? "Entradas do periodo" : "Entradas do dia"}</span>
@@ -789,96 +933,114 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             <div className="section-title">
               {entradaEditandoId ? "Editar entrada consolidada" : "Nova entrada consolidada"}
             </div>
-          </div>
-          <form
-            className="stack-form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const dataEntrada = entradaForm.data;
-              const dinheiro = Number(entradaForm.dinheiro || 0);
-              const pix = Number(entradaForm.pix || 0);
-              const cartao = Number(entradaForm.cartao || 0);
-              const total = dinheiro + pix + cartao;
-
-              if (!dataEntrada || total <= 0) return;
-
-              if (entradaEditandoId) {
-                await updateEntradaConsolidada(entradaEditandoId, {
-                  data: dataEntrada,
-                  dinheiro,
-                  pix,
-                  cartao,
-                });
-              } else {
-                await addEntradaConsolidada(uid, {
-                  data: dataEntrada,
-                  dinheiro,
-                  pix,
-                  cartao,
-                });
-              }
-
-              if (modoFiltro === "dia" && dataEntrada !== dataFiltro) {
-                setDataFiltro(dataEntrada);
-                setDataInicioFiltro(dataEntrada);
-                setDataFimFiltro(dataEntrada);
-              } else if (modoFiltro === "periodo" && !despesaDentroDoFiltro(dataEntrada)) {
-                setModoFiltro("dia");
-                setDataFiltro(dataEntrada);
-                setDataInicioFiltro(dataEntrada);
-                setDataFimFiltro(dataEntrada);
-              } else {
-                await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
-              }
-
-              setEntradaForm(initialEntradaForm(dataEntrada));
-              setEntradaEditandoId("");
-            }}
-          >
-            <input
-              className="input"
-              type="date"
-              value={entradaForm.data}
-              onChange={(e) => setEntradaForm((prev) => ({ ...prev, data: e.target.value }))}
-            />
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              value={entradaForm.dinheiro}
-              onChange={(e) => setEntradaForm((prev) => ({ ...prev, dinheiro: e.target.value }))}
-              placeholder="Dinheiro"
-            />
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              value={entradaForm.pix}
-              onChange={(e) => setEntradaForm((prev) => ({ ...prev, pix: e.target.value }))}
-              placeholder="Pix"
-            />
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              value={entradaForm.cartao}
-              onChange={(e) => setEntradaForm((prev) => ({ ...prev, cartao: e.target.value }))}
-              placeholder="Cartao (credito/debito)"
-            />
-            <input
-              className="input"
-              type="text"
-              value={formatMoney(totalEntradaForm)}
-              readOnly
-              placeholder="Total de entradas"
-            />
-            <button className="action-btn action-btn-info" type="submit">
-              {entradaEditandoId ? "Atualizar entrada" : "Registrar entrada"}
+            <button
+              className="mini-btn"
+              type="button"
+              onClick={() => {
+                const proximoEstado = !mostrarEntradaForm;
+                setMostrarEntradaForm(proximoEstado);
+                if (!proximoEstado && !entradaEditandoId) {
+                  setEntradaForm(initialEntradaForm(dataFiltro));
+                }
+              }}
+            >
+              {mostrarEntradaForm ? "Ocultar" : "Abrir"}
             </button>
-          </form>
+          </div>
+          {mostrarEntradaForm ? (
+            <form
+              className="stack-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const dataEntrada = entradaForm.data;
+                const dinheiro = Number(entradaForm.dinheiro || 0);
+                const pix = Number(entradaForm.pix || 0);
+                const cartao = Number(entradaForm.cartao || 0);
+                const total = dinheiro + pix + cartao;
+
+                if (!dataEntrada || total <= 0) return;
+
+                if (entradaEditandoId) {
+                  await updateEntradaConsolidada(entradaEditandoId, {
+                    data: dataEntrada,
+                    dinheiro,
+                    pix,
+                    cartao,
+                  });
+                } else {
+                  await addEntradaConsolidada(uid, {
+                    data: dataEntrada,
+                    dinheiro,
+                    pix,
+                    cartao,
+                  });
+                }
+
+                if (modoFiltro === "dia" && dataEntrada !== dataFiltro) {
+                  setDataFiltro(dataEntrada);
+                  setDataInicioFiltro(dataEntrada);
+                  setDataFimFiltro(dataEntrada);
+                } else if (modoFiltro === "periodo" && !despesaDentroDoFiltro(dataEntrada)) {
+                  setModoFiltro("dia");
+                  setDataFiltro(dataEntrada);
+                  setDataInicioFiltro(dataEntrada);
+                  setDataFimFiltro(dataEntrada);
+                } else {
+                  await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
+                }
+
+                setEntradaForm(initialEntradaForm(dataEntrada));
+                setEntradaEditandoId("");
+                setMostrarEntradaForm(false);
+              }}
+            >
+              <input
+                className="input"
+                type="date"
+                value={entradaForm.data}
+                onChange={(e) => setEntradaForm((prev) => ({ ...prev, data: e.target.value }))}
+              />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={entradaForm.dinheiro}
+                onChange={(e) => setEntradaForm((prev) => ({ ...prev, dinheiro: e.target.value }))}
+                placeholder="Dinheiro"
+              />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={entradaForm.pix}
+                onChange={(e) => setEntradaForm((prev) => ({ ...prev, pix: e.target.value }))}
+                placeholder="Pix"
+              />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={entradaForm.cartao}
+                onChange={(e) => setEntradaForm((prev) => ({ ...prev, cartao: e.target.value }))}
+                placeholder="Cartao (credito/debito)"
+              />
+              <input
+                className="input"
+                type="text"
+                value={formatMoney(totalEntradaForm)}
+                readOnly
+                placeholder="Total de entradas"
+              />
+              <button className="action-btn action-btn-info" type="submit">
+                {entradaEditandoId ? "Atualizar entrada" : "Registrar entrada"}
+              </button>
+            </form>
+          ) : (
+            <p className="empty-state">Formulario oculto. Clique em abrir para registrar uma entrada.</p>
+          )}
         </div>
 
         <div className="section-card">
@@ -886,58 +1048,75 @@ export default function FluxoCaixa({ uid, dataHoje }) {
             <div className="section-title">
               {editandoId ? "Editar despesa" : "Nova despesa"}
             </div>
-          </div>
-          <form className="stack-form" onSubmit={salvarDespesa}>
-            <select
-              className="input"
-              value={form.despesaFixaId}
-              onChange={(e) => selecionarDespesaFixa(e.target.value)}
-            >
-              <option value="">Despesa avulsa</option>
-              {despesasFixas.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.descricao}
-                  {item.valorPadrao !== null && item.valorPadrao !== undefined
-                    ? ` - ${formatMoney(item.valorPadrao)}`
-                    : ""}
-                </option>
-              ))}
-            </select>
-            <input
-              className="input"
-              value={form.descricao}
-              onChange={(e) => setForm((prev) => ({ ...prev, descricao: e.target.value }))}
-              placeholder="Descricao"
-            />
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.valor}
-              onChange={(e) => setForm((prev) => ({ ...prev, valor: e.target.value }))}
-              placeholder="Valor"
-            />
-            <input
-              className="input"
-              type="date"
-              value={form.data}
-              onChange={(e) => setForm((prev) => ({ ...prev, data: e.target.value }))}
-            />
-            <button className="action-btn action-btn-warning" type="submit">
-              {editandoId ? "Atualizar despesa" : "Registrar despesa"}
-            </button>
             <button
-              className="action-btn action-btn-secondary"
+              className="mini-btn"
               type="button"
               onClick={() => {
-                setMostrarCadastroDespesasFixas((prev) => !prev);
-                setDespesaFixaFeedback("");
+                const proximoEstado = !mostrarDespesaForm;
+                setMostrarDespesaForm(proximoEstado);
+                if (!proximoEstado && !editandoId) {
+                  setForm(initialForm(dataFiltro));
+                }
               }}
             >
-              {mostrarCadastroDespesasFixas ? "Ocultar despesas fixas" : "Gerenciar despesas fixas"}
+              {mostrarDespesaForm ? "Ocultar" : "Abrir"}
             </button>
-          </form>
+          </div>
+          {mostrarDespesaForm ? (
+            <form className="stack-form" onSubmit={salvarDespesa}>
+              <select
+                className="input"
+                value={form.despesaFixaId}
+                onChange={(e) => selecionarDespesaFixa(e.target.value)}
+              >
+                <option value="">Despesa avulsa</option>
+                {despesasFixas.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.descricao}
+                    {item.valorPadrao !== null && item.valorPadrao !== undefined
+                      ? ` - ${formatMoney(item.valorPadrao)}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="input"
+                value={form.descricao}
+                onChange={(e) => setForm((prev) => ({ ...prev, descricao: e.target.value }))}
+                placeholder="Descricao"
+              />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.valor}
+                onChange={(e) => setForm((prev) => ({ ...prev, valor: e.target.value }))}
+                placeholder="Valor"
+              />
+              <input
+                className="input"
+                type="date"
+                value={form.data}
+                onChange={(e) => setForm((prev) => ({ ...prev, data: e.target.value }))}
+              />
+              <button className="action-btn action-btn-warning" type="submit">
+                {editandoId ? "Atualizar despesa" : "Registrar despesa"}
+              </button>
+              <button
+                className="action-btn action-btn-secondary"
+                type="button"
+                onClick={() => {
+                  setMostrarCadastroDespesasFixas((prev) => !prev);
+                  setDespesaFixaFeedback("");
+                }}
+              >
+                {mostrarCadastroDespesasFixas ? "Ocultar despesas fixas" : "Gerenciar despesas fixas"}
+              </button>
+            </form>
+          ) : (
+            <p className="empty-state">Formulario oculto. Clique em abrir para registrar uma despesa.</p>
+          )}
         </div>
 
         <div
@@ -1013,11 +1192,11 @@ export default function FluxoCaixa({ uid, dataHoje }) {
           <div className="section-header">
             <div className="section-title">{modoFiltro === "periodo" ? "Saidas do periodo" : "Saidas do dia"}</div>
             <span className="section-subtitle">
-              {loading ? "Carregando..." : `${saidasDoDia.length} itens`}
+              {loading ? "Carregando..." : `${saidasFiltradas.length} itens filtrados`}
             </span>
           </div>
           <div className="scroll-list">
-            {saidasDoDia.map((item) => (
+            {saidasFiltradas.map((item) => (
               <div className="list-row" key={`${item.tipoSaida}-${item.id}`}>
                 <div>
                   <strong>{item.descricao}</strong>
@@ -1040,11 +1219,9 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                 </div>
               </div>
             ))}
-            {!saidasDoDia.length && !loading && (
+            {!saidasFiltradas.length && !loading && (
               <p className="empty-state">
-                {modoFiltro === "periodo"
-                  ? "Nenhuma saida encontrada no intervalo filtrado."
-                  : "Nenhuma saida encontrada no dia selecionado."}
+                Nenhuma saida encontrada com os filtros informados.
               </p>
             )}
           </div>
@@ -1076,6 +1253,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                   className="mini-btn"
                   type="button"
                   onClick={() => {
+                    setMostrarEntradaForm(true);
                     setEntradaEditandoId(item.id);
                     setEntradaForm({
                       data: item.data || dataFiltro,

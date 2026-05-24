@@ -28,6 +28,7 @@ export async function addProduto(uid, produto) {
   const precoCusto = Number(produto?.precoCusto || 0);
   const precoFinalBase = produto?.precoFinal ?? produto?.preco ?? 0;
   const precoFinal = Number(precoFinalBase);
+  const unidadeVenda = String(produto?.unidadeVenda || "un").trim().toLowerCase() === "kg" ? "kg" : "un";
 
   return addDoc(produtosRef, {
     uid: uid || null,
@@ -38,6 +39,7 @@ export async function addProduto(uid, produto) {
     precoFinal,
     estoque: Number(produto?.estoque || 0),
     notaFiscal: String(produto?.notaFiscal || "").trim(),
+    unidadeVenda,
     ativo: produto?.ativo ?? true,
     criadoEm: serverTimestamp(),
   });
@@ -68,6 +70,12 @@ export async function updateProduto(id, dados) {
       estoque: dados?.estoque !== undefined ? Number(dados.estoque) : undefined,
       notaFiscal:
         dados?.notaFiscal !== undefined ? String(dados.notaFiscal).trim() : undefined,
+      unidadeVenda:
+        dados?.unidadeVenda !== undefined
+          ? String(dados.unidadeVenda).trim().toLowerCase() === "kg"
+            ? "kg"
+            : "un"
+          : undefined,
     })
   );
 }

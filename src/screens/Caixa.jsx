@@ -31,6 +31,17 @@ function formatMoney(valor) {
   });
 }
 
+function parseDecimalInput(valor) {
+  if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
+  const texto = String(valor ?? "").trim();
+  if (!texto) return 0;
+  const normalizado = texto.includes(",")
+    ? texto.replace(/\./g, "").replace(",", ".")
+    : texto;
+  const numero = Number(normalizado);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
 function formatDateTime(valor) {
   if (!valor) return "";
 
@@ -83,6 +94,12 @@ function getProdutoImagem(produto) {
 
 function getProdutoPreco(produto) {
   return Number(produto?.precoFinal ?? produto?.preco ?? 0);
+}
+
+function getProdutoPrecoKg(produto) {
+  const precoVenda = Number(produto?.precoFinal ?? produto?.preco ?? 0);
+  if (precoVenda > 0) return precoVenda;
+  return Number(produto?.precoCusto || 0);
 }
 
 function getProdutoUnidadeVenda(produto) {
@@ -501,13 +518,18 @@ export default function Caixa({
           if (!produto) return null;
           const unidadeVenda = getProdutoUnidadeVenda(produto);
           const precoPadrao = getProdutoPreco(produto);
-          const precoCusto = Number(produto.precoCusto || 0);
           const precoUnitario =
             unidadeVenda === "kg"
-              ? precoCusto
+              ? getProdutoPrecoKg(produto)
               : Number(item.precoUnitario ?? precoPadrao);
-          const quantidade = Number(item.quantidade || 0);
-          const subtotal = precoUnitario * quantidade;
+          const subtotal =
+            unidadeVenda === "kg"
+              ? parseDecimalInput(item.valor || 0)
+              : precoUnitario * parseDecimalInput(item.quantidade || 0);
+          const quantidade =
+            unidadeVenda === "kg" && precoUnitario > 0
+              ? subtotal / precoUnitario
+              : parseDecimalInput(item.quantidade || 0);
 
           return {
             ...item,
@@ -515,8 +537,13 @@ export default function Caixa({
             nome: produto.nome,
             unidadeVenda,
             precoUnitario,
+            quantidade,
             subtotal,
-            subtotalValido: Number.isFinite(subtotal) && subtotal > 0,
+            subtotalValido:
+              Number.isFinite(subtotal) &&
+              subtotal > 0 &&
+              Number.isFinite(quantidade) &&
+              quantidade > 0,
           };
         })
         .filter(Boolean),
@@ -594,20 +621,16 @@ export default function Caixa({
     () => itensVendaDetalhados.reduce((acc, item) => acc + Number(item.subtotal || 0), 0),
     [itensVendaDetalhados]
   );
-  const quantidadeCarrinho = useMemo(
-    () => itensVendaDetalhados.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
-    [itensVendaDetalhados]
-  );
   const carrinhoTemPendencias = useMemo(
     () =>
       itensVendaDetalhados.some((item) => {
         if (!item.subtotalValido) return true;
-        const quantidade = Number(item.quantidade || 0);
+        const quantidade = parseDecimalInput(item.quantidade || 0);
         return !Number.isFinite(quantidade) || quantidade <= 0;
       }),
     [itensVendaDetalhados]
   );
-  const valorRecebidoAtual = Number(vendaForm.valorRecebido || 0);
+  const valorRecebidoAtual = parseDecimalInput(vendaForm.valorRecebido || 0);
   const trocoAtual = useMemo(() => {
     if (vendaForm.formaPagamento !== "Dinheiro") return 0;
     return Math.max(valorRecebidoAtual - totalCarrinho, 0);
@@ -646,7 +669,7 @@ export default function Caixa({
     const vendaPorPeso = isProdutoPorPeso(produto);
     const quantidadeNoCarrinho = itensVenda
       .filter((item) => item.produtoId === produto.id)
-      .reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
+      .reduce((acc, item) => acc + parseDecimalInput(item.quantidade || 0), 0);
     const estoqueDisponivel = Number(produto.estoque || 0) - quantidadeNoCarrinho;
 
     if (estoqueDisponivel <= 0) {
@@ -660,7 +683,7 @@ export default function Caixa({
         return [
           ...prev,
           vendaPorPeso
-            ? { produtoId: produto.id, quantidade: "" }
+            ? { produtoId: produto.id, quantidade: "", valor: "" }
             : { produtoId: produto.id, quantidade: 1 },
         ];
       }
@@ -671,14 +694,16 @@ export default function Caixa({
 
       return prev.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, quantidade: Number(item.quantidade || 0) + 1 }
+          ? { ...item, quantidade: parseDecimalInput(item.quantidade || 0) + 1 }
           : item
       );
     });
 
     setVendaForm((prev) => ({ ...prev, produtoId: produto.id }));
     setFeedbackVenda("");
-    setToastVenda(vendaPorPeso ? `${produto.nome} pronto para informar KG` : `${produto.nome} adicionado`);
+    setToastVenda(
+      vendaPorPeso ? `${produto.nome} pronto para informar valor` : `${produto.nome} adicionado`
+    );
   }
 
   function resetVendaForm() {
@@ -1049,7 +1074,8 @@ export default function Caixa({
 
     try {
       const formaPagamento = vendaForm.formaPagamento;
-      const valorRecebido = formaPagamento === "Dinheiro" ? Number(vendaForm.valorRecebido || 0) : 0;
+      const valorRecebido =
+        formaPagamento === "Dinheiro" ? parseDecimalInput(vendaForm.valorRecebido || 0) : 0;
       const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
       const dataVenda = isManagementRole(accessRole) ? String(vendaForm.data || "").trim() : hojeISO();
 
@@ -1071,13 +1097,13 @@ export default function Caixa({
         if (!item.subtotalValido) {
           throw new Error(
             item.unidadeVenda === "kg"
-              ? `Informe o peso em KG para ${item.nome}.`
+              ? `Informe o valor para ${item.nome}.`
               : `Valor invalido para ${item.nome}.`
           );
         }
 
         const estoqueAtual = Number(item.produto.estoque || 0);
-        if (estoqueAtual < Number(item.quantidade || 0)) {
+        if (estoqueAtual < parseDecimalInput(item.quantidade || 0)) {
           throw new Error(`Estoque insuficiente para ${item.nome}.`);
         }
       }
@@ -1100,7 +1126,7 @@ export default function Caixa({
           data: dataVenda,
         });
         await updateProduto(item.produto.id, {
-          estoque: Number(item.produto.estoque || 0) - Number(item.quantidade || 0),
+          estoque: Number(item.produto.estoque || 0) - parseDecimalInput(item.quantidade || 0),
         });
       }
       resetVendaForm();
@@ -1116,7 +1142,7 @@ export default function Caixa({
     e.preventDefault();
     if (!caixaAtual || !atendenteLogado) return;
 
-    const valor = Number(retiradaForm.valor || 0);
+    const valor = parseDecimalInput(retiradaForm.valor || 0);
     const motivo = String(retiradaForm.motivo || "").trim();
 
     if (!Number.isFinite(valor) || valor <= 0) {
@@ -1420,7 +1446,7 @@ export default function Caixa({
                           <strong>{produto.nome}</strong>
                           <small className="positive">
                             {vendaPorPeso
-                              ? `Custo/KG ${formatMoney(produto.precoCusto || 0)}`
+                              ? `Valor/KG ${formatMoney(getProdutoPrecoKg(produto))}`
                               : formatMoney(preco)}
                           </small>
                           <span className={semEstoque ? "negative" : ""}>
@@ -1517,7 +1543,7 @@ export default function Caixa({
                           <strong>{produtoSelecionado.nome}</strong>
                           <small className="positive">
                             {isProdutoPorPeso(produtoSelecionado)
-                              ? `Custo/KG ${formatMoney(produtoSelecionado.precoCusto || 0)}`
+                              ? `Valor/KG ${formatMoney(getProdutoPrecoKg(produtoSelecionado))}`
                               : formatMoney(getProdutoPreco(produtoSelecionado))}
                           </small>
                         </div>
@@ -1599,9 +1625,6 @@ export default function Caixa({
                       >
                         <div className="pdv-cart-table-product">
                           <strong>{item.nome}</strong>
-                          {item.unidadeVenda === "kg" ? (
-                            <small>Informe apenas o peso. O valor/KG usa o custo cadastrado.</small>
-                          ) : null}
                           <button
                             className="mini-btn danger"
                             type="button"
@@ -1612,17 +1635,17 @@ export default function Caixa({
                         </div>
                         {item.unidadeVenda === "kg" ? (
                           <div className="pdv-cart-metric-field">
-                            <span className="pdv-cart-metric-label">Peso (KG)</span>
+                            <span className="pdv-cart-metric-label">Valor</span>
                             <input
                               className="input pdv-panel-input pdv-cart-metric-input"
                               type="number"
-                              min="0.001"
-                              step="0.001"
-                              value={item.quantidade}
+                              min="0.01"
+                              step="0.01"
+                              value={item.valor || ""}
                               onChange={(e) =>
-                                atualizarItemVenda(item.produtoId, "quantidade", e.target.value)
+                                atualizarItemVenda(item.produtoId, "valor", e.target.value)
                               }
-                              placeholder="0,000"
+                              placeholder="0,00"
                             />
                           </div>
                         ) : (
@@ -1630,9 +1653,12 @@ export default function Caixa({
                         )}
                         {item.unidadeVenda === "kg" ? (
                           <div className="pdv-cart-metric-field">
-                            <span className="pdv-cart-metric-label">Valor/KG</span>
+                            <span className="pdv-cart-metric-label">Peso (KG)</span>
                             <div className="input pdv-panel-input pdv-cart-metric-input pdv-cart-metric-value">
-                              {formatMoney(item.precoUnitario)}
+                              {Number(item.quantidade || 0).toLocaleString("pt-BR", {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 3,
+                              })}
                             </div>
                           </div>
                         ) : (
@@ -1648,12 +1674,7 @@ export default function Caixa({
                 </div>
 
                 <div className="pdv-cart-total pdv-cart-total-emphasis">
-                  <span>
-                    {itensVendaDetalhados.length} produto(s) • qtd total {Number(quantidadeCarrinho || 0).toLocaleString("pt-BR", {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
-                    })}
-                  </span>
+                  <span>{itensVendaDetalhados.length} produto(s)</span>
                   <strong className="positive">{formatMoney(totalCarrinho)}</strong>
                 </div>
 
@@ -1677,7 +1698,7 @@ export default function Caixa({
 
                 {carrinhoTemPendencias ? (
                   <p className="inline-feedback">
-                    Complete os campos de KG dos itens por peso antes de finalizar.
+                    Complete os valores dos itens vendidos por KG antes de finalizar.
                   </p>
                 ) : null}
                 {feedbackVenda ? <p className="inline-feedback">{feedbackVenda}</p> : null}

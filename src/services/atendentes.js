@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -25,11 +26,25 @@ function atendentesQuery() {
   return query(atendentesRef, orderBy("nome", "asc"));
 }
 
+function getCurrentMonthKey(referenceDate = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(referenceDate);
+  const year = parts.find((item) => item.type === "year")?.value || "0000";
+  const month = parts.find((item) => item.type === "month")?.value || "01";
+  return `${year}-${month}`;
+}
+
 export async function addAtendente(uid, dados) {
+  const meta = Number(dados?.meta || 0);
   return addDoc(atendentesRef, {
     uid: uid || null,
     nome: String(dados?.nome || "").trim(),
-    meta: Number(dados?.meta || 0),
+    meta,
+    metasMensais: {
+      [getCurrentMonthKey()]: meta,
+    },
     senha: String(dados?.senha || "").trim(),
     role: normalizeRole(dados?.role),
     emailAcesso: String(dados?.emailAcesso || "").trim().toLowerCase(),
@@ -42,6 +57,17 @@ export async function addAtendente(uid, dados) {
 export async function updateAtendente(id, dados) {
   if (!id) throw new Error("Atendente invalido.");
 
+  let metasMensais = dados?.metasMensais;
+
+  if (dados?.meta !== undefined && metasMensais === undefined) {
+    const snapshot = await getDoc(doc(db, "atendentes", id));
+    const atual = snapshot.exists() ? snapshot.data() : {};
+    metasMensais = {
+      ...(atual?.metasMensais || {}),
+      [getCurrentMonthKey()]: Number(dados.meta || 0),
+    };
+  }
+
   return updateDoc(
     doc(db, "atendentes", id),
     cleanData({
@@ -53,6 +79,7 @@ export async function updateAtendente(id, dados) {
       emailAcesso:
         dados?.emailAcesso !== undefined ? String(dados.emailAcesso).trim().toLowerCase() : undefined,
       authUid: dados?.authUid !== undefined ? String(dados.authUid).trim() : undefined,
+      metasMensais,
       ativo: dados?.ativo,
     })
   );

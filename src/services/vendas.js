@@ -281,6 +281,7 @@ export async function addDespesa(uid, dados) {
   const despesa = {
     uid: uid || null,
     descricao: String(dados?.descricao || "").trim(),
+    observacao: String(dados?.observacao || "").trim(),
     valor: Number(dados?.valor || 0),
     data: String(dados?.data || ""),
     despesaFixaId: String(dados?.despesaFixaId || "").trim(),
@@ -305,6 +306,8 @@ export async function updateDespesa(id, dados) {
     ...current,
     ...dados,
     descricao: dados?.descricao !== undefined ? String(dados.descricao).trim() : current.descricao,
+    observacao:
+      dados?.observacao !== undefined ? String(dados.observacao).trim() : current.observacao,
     valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
     data: dados?.data !== undefined ? String(dados.data) : current.data,
     despesaFixaId:
@@ -320,6 +323,7 @@ export async function updateDespesa(id, dados) {
     ref,
     cleanData({
       descricao: next.descricao,
+      observacao: next.observacao || "",
       valor: next.valor,
       data: next.data,
       despesaFixaId: next.despesaFixaId || "",

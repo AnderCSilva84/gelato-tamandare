@@ -79,6 +79,28 @@ function formatDateLabel(valor) {
   return `${dia}/${mes}/${ano}`;
 }
 
+function formatMonthLabel(valor) {
+  const [ano, mes] = String(valor || "").split("-");
+  if (!ano || !mes) return "Mes atual";
+  return new Date(Number(ano), Number(mes) - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function buildMonthPeriod(valor) {
+  const [ano, mes] = String(valor || "").split("-");
+  if (!ano || !mes) return { inicio: "", fim: "" };
+  return {
+    inicio: `${ano}-${mes}-01`,
+    fim: `${ano}-${mes}-31`,
+  };
+}
+
+function getMetaForMonth(atendente, mesReferencia) {
+  return Number(atendente?.metasMensais?.[mesReferencia] ?? atendente?.meta ?? 0);
+}
+
 function getProdutoImagem(produto) {
   return (
     produto?.imagem ||
@@ -193,7 +215,17 @@ function inferProductCategory(produto) {
   return "outros";
 }
 
-function buildRanking(vendas, atendentes) {
+function buildRanking(vendas, atendentes, mesReferencia) {
+  const metas = Object.fromEntries(
+    atendentes.map((atendente) => [atendente.id, getMetaForMonth(atendente, mesReferencia)])
+  );
+  const mapaInicial = atendentes.reduce((acc, atendente) => {
+    acc[atendente.id] = {
+      nome: atendente?.nome || "Sem atendente",
+      total: 0,
+    };
+    return acc;
+  }, {});
   const mapa = vendas.reduce((acc, venda) => {
     const id = String(venda?.atendenteId || venda?.atendente || "").trim();
     if (!id) return acc;
@@ -207,10 +239,7 @@ function buildRanking(vendas, atendentes) {
 
     acc[id].total += Number(venda?.valor || 0);
     return acc;
-  }, {});
-  const metas = Object.fromEntries(
-    atendentes.map((atendente) => [atendente.id, Number(atendente.meta || 0)])
-  );
+  }, mapaInicial);
 
   return Object.entries(mapa)
     .map(([id, item]) => ({
@@ -366,6 +395,9 @@ export default function Caixa({
     motivo: "",
   });
   const [itensVenda, setItensVenda] = useState([]);
+  const [rankingMesSelecionado, setRankingMesSelecionado] = useState(() =>
+    String(dataHoje || "").slice(0, 7)
+  );
 
   function resetCaixaState() {
     setCaixaAtual(null);
@@ -406,11 +438,18 @@ export default function Caixa({
 
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
     const unsubAtendentes = subscribeAtendentes(uid, setAtendentes);
-    const mesAtual = String(dataHoje || "").slice(0, 7);
-    const dataInicioMes = `${mesAtual}-01`;
-    const dataFimMes = `${mesAtual}-31`;
-    const unsubRanking = subscribeVendasPeriodo(uid, dataInicioMes, dataFimMes, setVendasRankingMes);
-    const unsubCaixasRanking = subscribeCaixasPeriodo(dataInicioMes, dataFimMes, setCaixasRankingMes);
+    const periodoRanking = buildMonthPeriod(rankingMesSelecionado || String(dataHoje || "").slice(0, 7));
+    const unsubRanking = subscribeVendasPeriodo(
+      uid,
+      periodoRanking.inicio,
+      periodoRanking.fim,
+      setVendasRankingMes
+    );
+    const unsubCaixasRanking = subscribeCaixasPeriodo(
+      periodoRanking.inicio,
+      periodoRanking.fim,
+      setCaixasRankingMes
+    );
 
     return () => {
       unsubProdutos();
@@ -418,7 +457,13 @@ export default function Caixa({
       unsubRanking();
       unsubCaixasRanking();
     };
-  }, [uid, dataHoje]);
+  }, [uid, dataHoje, rankingMesSelecionado]);
+
+  useEffect(() => {
+    if (!rankingMesSelecionado && dataHoje) {
+      setRankingMesSelecionado(String(dataHoje).slice(0, 7));
+    }
+  }, [dataHoje, rankingMesSelecionado]);
 
   useEffect(() => {
     if (!dataHoje) {
@@ -584,8 +629,8 @@ export default function Caixa({
     [vendasCaixa]
   );
   const ranking = useMemo(
-    () => buildRanking(vendasRankingMesVinculadas, atendentesAtivos),
-    [vendasRankingMesVinculadas, atendentesAtivos]
+    () => buildRanking(vendasRankingMesVinculadas, atendentesAtivos, rankingMesSelecionado),
+    [vendasRankingMesVinculadas, atendentesAtivos, rankingMesSelecionado]
   );
   const resumoPagamentos = useMemo(() => {
     const totais = {
@@ -1854,12 +1899,23 @@ export default function Caixa({
       {isManagementRole(accessRole) ? (
       <div className="section-card ranking-card ranking-card-footer">
         <div className="section-header">
-          <div className="section-title">Ranking do Mes</div>
+          <div>
+            <div className="section-title">Ranking de metas</div>
+            <span className="section-subtitle">{formatMonthLabel(rankingMesSelecionado)}</span>
+          </div>
           <span className="section-subtitle">
             {Number(totalVendasRankingMes || 0) > 0
               ? formatMoney(totalVendasRankingMes)
               : "Atualizacao em tempo real"}
           </span>
+        </div>
+        <div className="section-actions">
+          <input
+            className="input"
+            type="month"
+            value={rankingMesSelecionado}
+            onChange={(e) => setRankingMesSelecionado(e.target.value)}
+          />
         </div>
         <div className="ranking-list">
           {ranking.map((item, index) => {
@@ -1899,7 +1955,7 @@ export default function Caixa({
               </div>
             );
           })}
-          {!ranking.length && <p className="empty-state">Nenhuma venda por atendente registrada neste mes.</p>}
+          {!ranking.length && <p className="empty-state">Nenhuma venda por atendente registrada no mes selecionado.</p>}
         </div>
       </div>
       ) : null}

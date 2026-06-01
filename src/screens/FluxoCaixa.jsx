@@ -99,6 +99,7 @@ function initialForm(data) {
   return {
     despesaFixaId: "",
     descricao: "",
+    observacao: "",
     valor: "",
     data,
   };
@@ -322,6 +323,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       if (!termo) return true;
 
       const descricao = normalizeText(item.descricao);
+      const observacao = normalizeText(item.observacao);
       const despesaFixaDescricao = normalizeText(item.despesaFixaDescricao);
       const tipoBusca = normalizeText(
         item.tipoSaida === "retirada"
@@ -333,6 +335,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
       return (
         descricao.includes(termo) ||
+        observacao.includes(termo) ||
         despesaFixaDescricao.includes(termo) ||
         tipoBusca.includes(termo)
       );
@@ -340,6 +343,13 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   }, [buscaSaida, saidaEspecificaFiltro, saidasDoDia, tipoSaidaFiltro]);
   const totalSaidasFiltradas = useMemo(
     () => saidasFiltradas.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [saidasFiltradas]
+  );
+  const totalDespesasFiltradas = useMemo(
+    () =>
+      saidasFiltradas
+        .filter((item) => item.tipoSaida === "despesa")
+        .reduce((acc, item) => acc + Number(item.valor || 0), 0),
     [saidasFiltradas]
   );
 
@@ -385,6 +395,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     if (editandoId) {
       await updateDespesa(editandoId, {
         descricao: form.descricao,
+        observacao: form.observacao,
         valor,
         data: dataDespesa,
         despesaFixaId: form.despesaFixaId || "",
@@ -393,6 +404,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     } else {
       await addDespesa(uid, {
         descricao: form.descricao,
+        observacao: form.observacao,
         valor,
         data: dataDespesa,
         despesaFixaId: form.despesaFixaId || "",
@@ -424,6 +436,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     setForm({
       despesaFixaId: item.despesaFixaId || "",
       descricao: item.descricao || "",
+      observacao: item.observacao || "",
       valor: String(item.valor ?? ""),
       data: item.data || dataFiltro,
     });
@@ -665,7 +678,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                 : item.despesaFixaId || item.despesaFixaDescricao
                   ? "Despesa fixa"
                   : "Despesa avulsa",
-              item.descricao,
+              item.observacao ? `${item.descricao} | Obs.: ${item.observacao}` : item.descricao,
               formatMoney(item.valor),
             ])
           : [[
@@ -827,7 +840,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         <div className="section-header">
           <div className="section-title">Filtro de gastos e saidas</div>
           <span className="section-subtitle">
-            {saidasFiltradas.length} item(ns) • {formatMoney(totalSaidasFiltradas)}
+            {saidasFiltradas.length} item(ns) • Saidas {formatMoney(totalSaidasFiltradas)}
           </span>
         </div>
         <div className="stack-form">
@@ -866,6 +879,13 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       </div>
 
       <div className="stats-grid">
+        <div className="section-card stat-card stat-card-expense-highlight">
+          <span className="stat-label">Despesas filtradas</span>
+          <strong className="stat-value negative">{formatMoney(totalDespesasFiltradas)}</strong>
+          <small className="stat-note">
+            Soma apenas das despesas encontradas com os filtros selecionados acima.
+          </small>
+        </div>
         <div className="section-card stat-card">
           <span className="stat-label">{modoFiltro === "periodo" ? "Entradas do periodo" : "Entradas do dia"}</span>
           <strong
@@ -1087,6 +1107,12 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               />
               <input
                 className="input"
+                value={form.observacao}
+                onChange={(e) => setForm((prev) => ({ ...prev, observacao: e.target.value }))}
+                placeholder="Observacao da saida (opcional)"
+              />
+              <input
+                className="input"
                 type="number"
                 min="0"
                 step="0.01"
@@ -1201,8 +1227,9 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                 <div>
                   <strong>{item.descricao}</strong>
                   <small>
-                    {formatDateLabel(item.data)} • {item.tipoSaida === "retirada" ? "Retirada" : "Despesa"}
+                    {formatDateLabel(item.data)} â€¢ {item.tipoSaida === "retirada" ? "Retirada" : "Despesa"}
                   </small>
+                  {item.observacao ? <small>Obs.: {item.observacao}</small> : null}
                 </div>
                 <div className="list-row-actions">
                   <strong className="negative">{formatMoney(item.valor)}</strong>
@@ -1243,7 +1270,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               <div>
                 <strong>{formatMoney(item.total || 0)}</strong>
                 <small>
-                  {formatDateLabel(item.data)} • Dinheiro {formatMoney(item.dinheiro)} • Pix {formatMoney(item.pix)} • Cartao{" "}
+                  {formatDateLabel(item.data)} â€¢ Dinheiro {formatMoney(item.dinheiro)} â€¢ Pix {formatMoney(item.pix)} â€¢ Cartao{" "}
                   {formatMoney(item.cartao)}
                 </small>
               </div>
@@ -1299,7 +1326,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
               <div>
                 <strong>{item.produto}</strong>
                 <small>
-                  {item.quantidade} un. • {item.atendenteNome || item.atendente}
+                  {item.quantidade} un. â€¢ {item.atendenteNome || item.atendente}
                 </small>
               </div>
               <strong className="positive">{formatMoney(item.valor)}</strong>

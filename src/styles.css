@@ -2632,6 +2632,25 @@ textarea {
   border-color: rgba(37, 99, 235, 0.22);
 }
 
+.stat-card-expense-highlight {
+  background:
+    linear-gradient(180deg, rgba(255, 226, 226, 0.98), rgba(255, 242, 242, 0.96));
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  box-shadow: 0 18px 30px rgba(220, 38, 38, 0.12);
+}
+
+.stat-card-expense-highlight .stat-label {
+  color: #991b1b;
+}
+
+.stat-card-expense-highlight .stat-value {
+  font-size: 34px;
+}
+
+.stat-card-expense-highlight .stat-note {
+  color: #7f1d1d;
+}
+
 .stat-card-toggle {
   appearance: none;
   width: 100%;

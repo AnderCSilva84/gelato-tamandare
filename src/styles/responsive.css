@@ -105,6 +105,78 @@ h1 {
   font-size: 20px;
 }
 
+/* Navegacao responsiva do aplicativo */
+.mobile-bottom-nav,
+.mobile-sidebar-close { display: none; }
+
+@media (max-width: 1023px) {
+  body { overflow-x: hidden; }
+  .dashboard { display: block; min-height: 100dvh; }
+  .sidebar,
+  .sidebar.sidebar-tablet-drawer {
+    display: flex;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(320px, 88vw);
+    max-width: 88vw;
+    height: 100dvh;
+    z-index: 80;
+    transform: translateX(-105%);
+    transition: transform .22s ease;
+    background: #fff;
+    border-right: 1px solid #e5eaf3;
+    border-bottom: 0;
+    overflow-y: auto;
+  }
+  .sidebar.is-open,
+  .sidebar.sidebar-tablet-drawer.is-open { transform: translateX(0); }
+  .mobile-sidebar-close { display: grid; place-items: center; position: absolute; top: 12px; right: 12px; width: 42px; height: 42px; border: 0; border-radius: 50%; background: #eef3ff; color: #2947a8; font-size: 21px; z-index: 2; }
+  .sidebar-brand { padding-right: 44px; }
+  .sidebar-nav { display: flex; grid-auto-flow: initial; overflow: visible; }
+  .sidebar-btn { text-align: left; }
+  .app-topbar { position: sticky; top: 0; z-index: 40; width: 100%; }
+  .content { width: 100%; padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .mobile-bottom-nav { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; inset: auto 0 0 0; z-index: 60; min-height: 68px; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.98); border-top: 1px solid #e1e7f1; box-shadow: 0 -8px 24px rgba(35,52,91,.08); }
+  .mobile-bottom-nav button { width: auto; min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; border: 0; border-radius: 10px; background: transparent; color: #64708c; font-size: 18px; }
+  .mobile-bottom-nav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .mobile-bottom-nav button.is-active { color: #fff; background: linear-gradient(135deg,#3155d0,#6d36e8); box-shadow: 0 7px 16px rgba(62,63,204,.22); }
+  .theme-cafe-guajara .mobile-bottom-nav { background: rgba(255,250,243,.98); border-top-color: #e4d3bf; }
+  .theme-cafe-guajara .mobile-bottom-nav button { color: #806b5d; }
+  .theme-cafe-guajara .mobile-bottom-nav button.is-active { background: linear-gradient(135deg,#7a4b2a,#4a2c1b); box-shadow: 0 7px 16px rgba(74,44,27,.24); color: #fff !important; }
+  .theme-cafe-guajara .mobile-bottom-nav button.is-active span,
+  .theme-cafe-guajara .mobile-bottom-nav button.is-active svg { color: #fff !important; opacity: 1; }
+  .theme-cafe-guajara .mobile-sidebar-close { background: #f3e7d7; color: #694126; }
+  .tablet-orientation-guard { display: none !important; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+  .app-topbar { min-height: 72px; padding: 12px 24px; }
+  .content { padding: 20px 24px 100px; }
+  .pdv-hero, .pdv-hero.pdv-hero-has-cover { min-height: 128px; }
+  .pdv-shell, .screen-grid, .team-grid, .inventory-grid { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+
+@media (max-width: 767px) {
+  .app-topbar { min-height: 62px; padding: 9px 12px; gap: 10px; }
+  .topbar-greeting strong { font-size: 14px; }
+  .topbar-greeting span, .topbar-date { display: none; }
+  .topbar-actions { gap: 8px; }
+  .content { padding: 14px 12px 92px; }
+  .dashboard-screen { gap: 14px; }
+  .section-card { border-radius: 14px; padding: 16px; }
+  .pdv-hero, .pdv-hero.pdv-hero-has-cover { min-height: 110px; padding: 16px; border-radius: 14px; }
+  .pdv-hero-side { display: none; }
+  .pdv-hero-copy, .pdv-hero-has-cover .pdv-hero-copy { align-items: flex-start; text-align: left; }
+  .pdv-eyebrow-hero { font-size: 20px; }
+  .pdv-hero-description { font-size: 11px; line-height: 1.45; }
+  .stats-grid, .screen-grid, .pdv-shell, .team-grid, .inventory-grid, .gerencia-micro-grid { grid-template-columns: 1fr; }
+  .list-row { align-items: flex-start; gap: 10px; }
+  .list-row-actions, .section-actions { width: 100%; }
+  .list-row-actions > *, .section-actions > * { flex: 1 1 120px; }
+  input, select, textarea { font-size: 16px; }
+}
+
 @media (min-width: 768px) {
   h1 {
     font-size: 24px;

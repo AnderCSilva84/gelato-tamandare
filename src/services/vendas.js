@@ -26,12 +26,16 @@ function cleanData(data) {
   );
 }
 
-function rangeQuery(ref, dataInicio, dataFim) {
-  return query(ref, where("data", ">=", dataInicio), where("data", "<=", dataFim));
+function rangeQuery(ref, uid) {
+  return query(ref, where("uid", "==", uid));
 }
 
-function dayQuery(ref, data) {
-  return query(ref, where("data", "==", data));
+function dayQuery(ref, uid) {
+  return query(ref, where("uid", "==", uid));
+}
+
+function filterPeriod(items, dataInicio, dataFim = dataInicio) {
+  return items.filter((item) => String(item?.data || "") >= dataInicio && String(item?.data || "") <= dataFim);
 }
 
 function getCurrentTimeLabel() {
@@ -88,30 +92,34 @@ function sortByDescricao(items) {
   );
 }
 
-function resumoRef(dataKey) {
-  return doc(db, "resumo_diario", dataKey);
+function resumoRef(uid, dataKey) {
+  return doc(db, "resumo_diario", `${uid}__${dataKey}`);
 }
 
-function rankingRef(dataKey) {
-  return doc(db, "ranking_diario", dataKey);
+function rankingRef(uid, dataKey) {
+  return doc(db, "ranking_diario", `${uid}__${dataKey}`);
 }
 
-async function ensureDailyDocs(dataKey) {
+async function ensureDailyDocs(uid, dataKey) {
   await setDoc(
-    resumoRef(dataKey),
+    resumoRef(uid, dataKey),
     {
       totalVendas: 0,
       totalDespesas: 0,
       lucro: 0,
       totalItens: 0,
+      uid,
+      data: dataKey,
     },
     { merge: true }
   );
 
   await setDoc(
-    rankingRef(dataKey),
+    rankingRef(uid, dataKey),
     {
       atendentes: {},
+      uid,
+      data: dataKey,
     },
     { merge: true }
   );
@@ -119,22 +127,23 @@ async function ensureDailyDocs(dataKey) {
 
 async function applyVendaAggregation(venda, multiplier = 1) {
   const dataKey = String(venda?.data || "");
-  if (!dataKey) return;
+  const uid = String(venda?.uid || "");
+  if (!dataKey || !uid) return;
 
   const valor = Number(venda?.valor || 0) * multiplier;
   const quantidade = Number(venda?.quantidade || 0) * multiplier;
   const atendenteId = String(venda?.atendenteId || venda?.atendente || "");
   const atendenteNome = String(venda?.atendenteNome || venda?.atendente || "");
 
-  await ensureDailyDocs(dataKey);
-  await updateDoc(resumoRef(dataKey), {
+  await ensureDailyDocs(uid, dataKey);
+  await updateDoc(resumoRef(uid, dataKey), {
     totalVendas: increment(valor),
     lucro: increment(valor),
     totalItens: increment(quantidade),
   });
 
   if (atendenteId) {
-    await updateDoc(rankingRef(dataKey), {
+    await updateDoc(rankingRef(uid, dataKey), {
       [`atendentes.${atendenteId}.nome`]: atendenteNome,
       [`atendentes.${atendenteId}.total`]: increment(valor),
     });
@@ -143,12 +152,13 @@ async function applyVendaAggregation(venda, multiplier = 1) {
 
 async function applyDespesaAggregation(despesa, multiplier = 1) {
   const dataKey = String(despesa?.data || "");
-  if (!dataKey) return;
+  const uid = String(despesa?.uid || "");
+  if (!dataKey || !uid) return;
 
   const valor = Number(despesa?.valor || 0) * multiplier;
 
-  await ensureDailyDocs(dataKey);
-  await updateDoc(resumoRef(dataKey), {
+  await ensureDailyDocs(uid, dataKey);
+  await updateDoc(resumoRef(uid, dataKey), {
     totalDespesas: increment(valor),
     lucro: increment(-valor),
   });
@@ -234,8 +244,8 @@ export async function deleteVenda(id) {
 
 export async function getVendas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
-  const snapshot = await getDocs(rangeQuery(vendasRef, dataInicio, dataFim));
-  return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const snapshot = await getDocs(rangeQuery(vendasRef, uid, dataInicio, dataFim));
+  return sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
 }
 
 export function subscribeVendasDoDia(uid, data, callback) {
@@ -244,8 +254,8 @@ export function subscribeVendasDoDia(uid, data, callback) {
     return () => {};
   }
 
-  return onSnapshot(dayQuery(vendasRef, data), (snapshot) => {
-    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(dayQuery(vendasRef, uid, data), (snapshot) => {
+    callback(sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), data, data)));
   });
 }
 
@@ -255,26 +265,26 @@ export function subscribeVendasPeriodo(uid, dataInicio, dataFim, callback) {
     return () => {};
   }
 
-  return onSnapshot(rangeQuery(vendasRef, dataInicio, dataFim), (snapshot) => {
-    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(rangeQuery(vendasRef, uid, dataInicio, dataFim), (snapshot) => {
+    callback(sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim)));
   });
 }
 
-export function subscribeVendasPorCaixa(caixaId, callback) {
-  if (!caixaId) {
+export function subscribeVendasPorCaixa(uid, caixaId, callback) {
+  if (!uid || !caixaId) {
     callback([]);
     return () => {};
   }
 
-  return onSnapshot(query(vendasRef, where("caixaId", "==", caixaId)), (snapshot) => {
-    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(query(vendasRef, where("uid", "==", uid)), (snapshot) => {
+    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId)));
   });
 }
 
-export async function getVendasPorCaixa(caixaId) {
-  if (!caixaId) return [];
-  const snapshot = await getDocs(query(vendasRef, where("caixaId", "==", caixaId)));
-  return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+export async function getVendasPorCaixa(uid, caixaId) {
+  if (!uid || !caixaId) return [];
+  const snapshot = await getDocs(query(vendasRef, where("uid", "==", uid)));
+  return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId));
 }
 
 export async function addDespesa(uid, dados) {
@@ -346,8 +356,8 @@ export async function deleteDespesa(id) {
 
 export async function getDespesas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
-  const snapshot = await getDocs(rangeQuery(despesasRef, dataInicio, dataFim));
-  return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const snapshot = await getDocs(rangeQuery(despesasRef, uid, dataInicio, dataFim));
+  return sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
 }
 
 export function subscribeDespesasDoDia(uid, data, callback) {
@@ -356,8 +366,8 @@ export function subscribeDespesasDoDia(uid, data, callback) {
     return () => {};
   }
 
-  return onSnapshot(dayQuery(despesasRef, data), (snapshot) => {
-    callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(dayQuery(despesasRef, uid, data), (snapshot) => {
+    callback(sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), data, data)));
   });
 }
 
@@ -372,9 +382,10 @@ function normalizarDespesaFixa(dados = {}) {
   };
 }
 
-export async function addDespesaFixa(dados) {
+export async function addDespesaFixa(uid, dados) {
   const despesaFixa = {
     ...normalizarDespesaFixa(dados),
+    uid,
     criadoEm: serverTimestamp(),
   };
 
@@ -402,8 +413,8 @@ export async function deleteDespesaFixa(id) {
   return deleteDoc(doc(db, "despesas_fixas", id));
 }
 
-export async function getDespesasFixas() {
-  const snapshot = await getDocs(despesasFixasRef);
+export async function getDespesasFixas(uid) {
+  const snapshot = await getDocs(query(despesasFixasRef, where("uid", "==", uid)));
   return sortByDescricao(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
@@ -465,8 +476,8 @@ export async function deleteEntradaConsolidada(id) {
 export async function getEntradasConsolidadas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
   try {
-    const snapshot = await getDocs(rangeQuery(entradasConsolidadasRef, dataInicio, dataFim));
-    return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    const snapshot = await getDocs(rangeQuery(entradasConsolidadasRef, uid, dataInicio, dataFim));
+    return sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
   } catch (error) {
     console.error("Erro ao carregar entradas consolidadas:", error);
     return [];
@@ -480,9 +491,9 @@ export function subscribeEntradasConsolidadasDoDia(uid, data, callback, onError)
   }
 
   return onSnapshot(
-    dayQuery(entradasConsolidadasRef, data),
+    dayQuery(entradasConsolidadasRef, uid, data),
     (snapshot) => {
-      callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+      callback(sortByDateAndId(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), data, data)));
     },
     (error) => {
       console.error("Erro ao ouvir entradas consolidadas do dia:", error);
@@ -492,36 +503,36 @@ export function subscribeEntradasConsolidadasDoDia(uid, data, callback, onError)
   );
 }
 
-export async function getResumoDiario(dataKey) {
+export async function getResumoDiario(uid, dataKey) {
   if (!dataKey) return null;
-  const snapshot = await getDoc(resumoRef(dataKey));
+  const snapshot = await getDoc(resumoRef(uid, dataKey));
   return snapshot.exists() ? snapshot.data() : null;
 }
 
-export function subscribeResumoDiario(dataKey, callback) {
+export function subscribeResumoDiario(uid, dataKey, callback) {
   if (!dataKey) {
     callback(null);
     return () => {};
   }
 
-  return onSnapshot(resumoRef(dataKey), (snapshot) => {
+  return onSnapshot(resumoRef(uid, dataKey), (snapshot) => {
     callback(snapshot.exists() ? snapshot.data() : null);
   });
 }
 
-export async function getRankingDiario(dataKey) {
+export async function getRankingDiario(uid, dataKey) {
   if (!dataKey) return null;
-  const snapshot = await getDoc(rankingRef(dataKey));
+  const snapshot = await getDoc(rankingRef(uid, dataKey));
   return snapshot.exists() ? snapshot.data() : null;
 }
 
-export function subscribeRankingDiario(dataKey, callback) {
+export function subscribeRankingDiario(uid, dataKey, callback) {
   if (!dataKey) {
     callback(null);
     return () => {};
   }
 
-  return onSnapshot(rankingRef(dataKey), (snapshot) => {
+  return onSnapshot(rankingRef(uid, dataKey), (snapshot) => {
     callback(snapshot.exists() ? snapshot.data() : null);
   });
 }

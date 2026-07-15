@@ -30,6 +30,33 @@ service cloud.firestore {
       return myRole() == "superadmin";
     }
 
+    function canManageProducts() {
+      return isManagement()
+        || (hasPanelAccess()
+          && myPanelAccess().data.keys().hasAny(["podeGerenciarProdutos"])
+          && myPanelAccess().data.podeGerenciarProdutos == true);
+    }
+
+    function hasStoreAccess(lojaId) {
+      return hasPanelAccess() && (
+        isSuperadmin()
+        || (myPanelAccess().data.keys().hasAny(["lojaId"]) && myPanelAccess().data.lojaId == lojaId)
+        || (myPanelAccess().data.keys().hasAny(["lojaIds"]) && lojaId in myPanelAccess().data.lojaIds)
+      );
+    }
+
+    function canReadStoreData() {
+      return resource.data.keys().hasAny(["uid"]) && hasStoreAccess(resource.data.uid);
+    }
+
+    function canCreateStoreData() {
+      return request.resource.data.keys().hasAny(["uid"]) && hasStoreAccess(request.resource.data.uid);
+    }
+
+    function keepsStore() {
+      return request.resource.data.uid == resource.data.uid;
+    }
+
     function attendeePath(id) {
       return /databases/$(database)/documents/atendentes/$(id);
     }
@@ -72,23 +99,42 @@ service cloud.firestore {
       allow read: if isSignedIn() && (request.auth.uid == uid || isSuperadmin());
       allow create: if isSignedIn() && (
         isSuperadmin()
+        || (isManagement()
+          && request.resource.data.role != "superadmin"
+          && request.resource.data.keys().hasAny(["lojaId"])
+          && hasStoreAccess(request.resource.data.lojaId))
         || (
           request.auth.uid == uid
           && isBootstrappableSuperadmin(request.resource.data.atendenteId)
           && request.resource.data.role == "superadmin"
         )
       );
-      allow update, delete: if isSignedIn() && isSuperadmin();
+      allow update: if isSignedIn() && (
+        isSuperadmin()
+        || (isManagement()
+          && resource.data.role != "superadmin"
+          && request.resource.data.role != "superadmin"
+          && resource.data.keys().hasAny(["lojaId"])
+          && hasStoreAccess(resource.data.lojaId)
+          && request.resource.data.lojaId == resource.data.lojaId)
+      );
+      allow delete: if isSignedIn() && (
+        isSuperadmin()
+        || (isManagement()
+          && resource.data.role != "superadmin"
+          && resource.data.keys().hasAny(["lojaId"])
+          && hasStoreAccess(resource.data.lojaId))
+      );
     }
 
     match /atendentes/{document} {
-      allow read: if true;
-      allow create: if isManagement() && (!isPromotingToSuperadmin() || isSuperadmin());
+      allow read: if canReadStoreData();
+      allow create: if isManagement() && canCreateStoreData() && (!isPromotingToSuperadmin() || isSuperadmin());
       allow update: if isBootstrapBindingUpdate()
-        || (isManagement()
+        || (isManagement() && canReadStoreData() && keepsStore()
           && !isStoredSuperadmin()
           && (!isPromotingToSuperadmin() || isSuperadmin()));
-      allow delete: if isManagement() && (!isStoredSuperadmin() || isSuperadmin());
+      allow delete: if isManagement() && canReadStoreData() && (!isStoredSuperadmin() || isSuperadmin());
     }
 
     match /configuracoes/{document} {
@@ -96,44 +142,86 @@ service cloud.firestore {
       allow write: if isSuperadmin();
     }
 
+    match /lojas/{lojaId} {
+      allow read: if true;
+      allow create: if isSuperadmin()
+        || (isManagement() && request.resource.data.status == "ativa" && request.resource.data.ativa == true);
+      allow update: if isSuperadmin()
+        || (isManagement()
+          && resource.data.status == "ativa"
+          && request.resource.data.status == "ativa"
+          && request.resource.data.ativa == true);
+      allow delete: if isSuperadmin();
+    }
+
     match /produtos/{document=**} {
-      allow read, write: if true;
+      allow read: if canReadStoreData();
+      allow create: if canManageProducts() && canCreateStoreData();
+      allow update: if canReadStoreData() && keepsStore() && (
+        canManageProducts()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["estoque"])
+      );
+      allow delete: if canManageProducts() && canReadStoreData();
+    }
+
+    match /grupos_produtos/{document=**} {
+      allow read: if canReadStoreData();
+      allow create: if canManageProducts() && canCreateStoreData();
+      allow update, delete: if canManageProducts() && canReadStoreData() && keepsStore();
     }
 
     match /vendas/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if isManagement() && canReadStoreData() && keepsStore();
     }
 
     match /despesas/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if isManagement() && canReadStoreData() && keepsStore();
     }
 
     match /despesas_fixas/{document=**} {
-      allow read, write: if isManagement();
+      allow read, delete: if isManagement() && canReadStoreData();
+      allow create: if isManagement() && canCreateStoreData();
+      allow update: if isManagement() && canReadStoreData() && keepsStore();
     }
 
     match /entradas_consolidadas/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if isManagement() && canReadStoreData() && keepsStore();
     }
 
     match /caixas/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if canReadStoreData() && keepsStore();
     }
 
     match /retiradas_caixa/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if canReadStoreData() && keepsStore();
     }
 
     match /resumo_diario/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if canReadStoreData() && keepsStore();
     }
 
     match /ranking_diario/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if canReadStoreData() && keepsStore();
     }
 
     match /lancamentos/{document=**} {
-      allow read, write: if true;
+      allow read, delete: if canReadStoreData();
+      allow create: if canCreateStoreData();
+      allow update: if isManagement() && canReadStoreData() && keepsStore();
     }
 
     match /conversas/{conversaId} {

@@ -1,25 +1,35 @@
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-const configuracaoSistemaRef = doc(db, "configuracoes", "sistema");
+function configuracaoSistemaRef(uid) {
+  return doc(db, "configuracoes", `sistema__${uid}`);
+}
 
 export const DEFAULT_SYSTEM_CONFIG = {
   maintenanceMode: false,
+  maintenanceScope: "partial",
   maintenanceTitle: "Sistema temporariamente indisponivel",
   maintenanceMessage: "Estamos realizando uma manutencao programada. Tente novamente em alguns minutos.",
 };
 
 function normalizeSystemConfig(data) {
+  const maintenanceScope = data?.maintenanceScope === "total" ? "total" : "partial";
   return {
     maintenanceMode: data?.maintenanceMode === true,
+    maintenanceScope,
     maintenanceTitle: String(data?.maintenanceTitle || DEFAULT_SYSTEM_CONFIG.maintenanceTitle).trim(),
     maintenanceMessage: String(data?.maintenanceMessage || DEFAULT_SYSTEM_CONFIG.maintenanceMessage).trim(),
   };
 }
 
-export function subscribeSystemConfig(callback) {
-  return onSnapshot(configuracaoSistemaRef, (snapshot) => {
+export function subscribeSystemConfig(uid, callback) {
+  return onSnapshot(configuracaoSistemaRef(uid), async (snapshot) => {
     if (!snapshot.exists()) {
+      if (uid === "gelato-local") {
+        const legacy = await getDoc(doc(db, "configuracoes", "sistema"));
+        callback(legacy.exists() ? normalizeSystemConfig(legacy.data()) : DEFAULT_SYSTEM_CONFIG);
+        return;
+      }
       callback(DEFAULT_SYSTEM_CONFIG);
       return;
     }
@@ -30,7 +40,7 @@ export function subscribeSystemConfig(callback) {
 
 export async function saveSystemConfig(uid, data) {
   await setDoc(
-    configuracaoSistemaRef,
+    configuracaoSistemaRef(uid),
     {
       uid: uid || null,
       ...normalizeSystemConfig(data),

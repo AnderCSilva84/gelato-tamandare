@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import logoGelato from "../assets/gelatoimg.jpeg";
+import { FiTrendingUp } from "react-icons/fi";
+import { getPdfLogo } from "../utils/pdfLogo";
 import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addEntradaConsolidada,
@@ -51,21 +52,6 @@ function getRotuloSaidaFiltro(item, tipoFiltro) {
     return String(item?.despesaFixaDescricao || item?.descricao || "Sem descricao").trim();
   }
   return String(item?.descricao || "Sem descricao").trim();
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function getLogoDataUrl() {
-  const response = await fetch(logoGelato);
-  const blob = await response.blob();
-  return fileToDataUrl(blob);
 }
 
 function drawSummaryCard(doc, { x, y, w, h, title, value, fillColor, textColor = [24, 33, 47] }) {
@@ -121,7 +107,7 @@ function initialEntradaForm(data) {
   };
 }
 
-export default function FluxoCaixa({ uid, dataHoje }) {
+export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
   const [modoFiltro, setModoFiltro] = useState("dia");
   const [dataFiltro, setDataFiltro] = useState(dataHoje);
   const [dataInicioFiltro, setDataInicioFiltro] = useState(dataHoje);
@@ -166,8 +152,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         const [vendasData, despesasData, retiradasData, caixasData, entradasConsolidadasData] = await Promise.all([
           getVendas(uid, inicio, fim),
           getDespesas(uid, inicio, fim),
-          getRetiradas(inicio, fim),
-          getCaixas(inicio, fim),
+          getRetiradas(uid, inicio, fim),
+          getCaixas(uid, inicio, fim),
           getEntradasConsolidadas(uid, inicio, fim),
         ]);
 
@@ -211,8 +197,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
         const [vendasData, despesasData, retiradasData, caixasData, entradasConsolidadasData] = await Promise.all([
           getVendas(uid, periodoReferencia.inicio, periodoReferencia.fim),
           getDespesas(uid, periodoReferencia.inicio, periodoReferencia.fim),
-          getRetiradas(periodoReferencia.inicio, periodoReferencia.fim),
-          getCaixas(periodoReferencia.inicio, periodoReferencia.fim),
+          getRetiradas(uid, periodoReferencia.inicio, periodoReferencia.fim),
+          getCaixas(uid, periodoReferencia.inicio, periodoReferencia.fim),
           getEntradasConsolidadas(uid, periodoReferencia.inicio, periodoReferencia.fim),
         ]);
 
@@ -244,7 +230,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
 
   const carregarDespesasFixas = useCallback(async () => {
     try {
-      const despesasFixasData = await getDespesasFixas();
+      const despesasFixasData = await getDespesasFixas(uid);
       setDespesasFixas(despesasFixasData.filter((item) => item.ativa !== false));
       setDespesaFixaFeedback("");
     } catch (error) {
@@ -252,7 +238,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       setDespesasFixas([]);
       setDespesaFixaFeedback("Nao foi possivel carregar as despesas fixas. Verifique as permissoes do Firestore.");
     }
-  }, []);
+  }, [uid]);
 
   useEffect(() => {
     carregarDespesasFixas();
@@ -443,6 +429,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   }
 
   async function excluirDespesa(id) {
+    if (!window.confirm("Deseja realmente excluir esta despesa?")) return;
     await deleteDespesa(id);
     await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
   }
@@ -476,7 +463,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       if (despesaFixaEditandoId) {
         await updateDespesaFixa(despesaFixaEditandoId, payload);
       } else {
-        await addDespesaFixa(payload);
+        await addDespesaFixa(uid, payload);
       }
 
       setDespesaFixaForm(initialDespesaFixaForm());
@@ -500,6 +487,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
   }
 
   async function excluirDespesaFixa(id) {
+    if (!window.confirm("Deseja realmente excluir esta despesa fixa?")) return;
     try {
       await deleteDespesaFixa(id);
       if (form.despesaFixaId === id) {
@@ -520,8 +508,8 @@ export default function FluxoCaixa({ uid, dataHoje }) {
       let y = 18;
 
       try {
-        const logoDataUrl = await getLogoDataUrl();
-        doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+        const logo = await getPdfLogo(loja?.logomarca);
+        if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
         y = 38;
       } catch {
         y = 18;
@@ -768,7 +756,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
     <div className="dashboard-screen">
       <div className="screen-heading">
         <div>
-          <h1 className="screen-title app-hero-title-blue">Fluxo de caixa</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiTrendingUp /> Fluxo de caixa</h1>
           <p className="screen-description">
             Acompanhamento de entradas, saidas, saldos e conferencias no intervalo filtrado.
           </p>
@@ -1296,6 +1284,7 @@ export default function FluxoCaixa({ uid, dataHoje }) {
                   className="mini-btn danger"
                   type="button"
                   onClick={async () => {
+                    if (!window.confirm("Deseja realmente excluir esta entrada consolidada?")) return;
                     await deleteEntradaConsolidada(item.id);
                     await carregarFluxo(periodoReferencia.inicio, periodoReferencia.fim);
                   }}

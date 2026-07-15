@@ -1,11 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProduto,
+  copiarProdutoParaLojas,
   deleteProduto,
   subscribeProdutos,
   updateProduto,
 } from "../services/produtos";
-import logoGelato from "../assets/gelatoimg.jpeg";
+import {
+  addGrupoProduto,
+  deleteGrupoProduto,
+  subscribeGruposProdutos,
+  updateGrupoProduto,
+} from "../services/gruposProdutos";
+import { getPdfLogo } from "../utils/pdfLogo";
+import { FiBox } from "react-icons/fi";
 
 function initialForm() {
   return {
@@ -16,8 +24,26 @@ function initialForm() {
     estoque: "",
     notaFiscal: "",
     unidadeVenda: "un",
+    grupoId: "",
     ativo: true,
   };
+}
+
+const GRUPOS_INICIAIS = ["Bebidas", "Lanches", "Refeições", "Sobremesas", "Outros"];
+
+function normalizeText(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function inferGrupoInicial(produto) {
+  const explicit = normalizeText(produto?.categoria || produto?.grupo || produto?.tipo);
+  const nome = normalizeText(produto?.nome);
+  const texto = `${explicit} ${nome}`;
+  if (/(beb|agua|suco|refrigerante|coca|cafe|cerveja|vinho|cha|energetico)/.test(texto)) return "Bebidas";
+  if (/(lanch|hamburg|burger|pizza|coxinha|empada|pastel|sanduiche|pao|tapioca)/.test(texto)) return "Lanches";
+  if (/(refei|prato|almoco|janta|file|salmao|picanha|frango|carne|salada)/.test(texto)) return "Refeições";
+  if (/(sobrem|doce|sorv|acai|pudim|bolo|brigadeiro|brownie|mousse|picole|chocolate|bombom)/.test(texto)) return "Sobremesas";
+  return "Outros";
 }
 
 function formatMoney(valor) {
@@ -40,26 +66,29 @@ function getProdutoImagem(produto) {
   );
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function getLogoDataUrl() {
-  const response = await fetch(logoGelato);
-  const blob = await response.blob();
-  return fileToDataUrl(blob);
-}
-
-export default function Estoque({ uid }) {
+export default function Estoque({ uid, loja = null, lojas = [] }) {
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(initialForm());
   const [editandoId, setEditandoId] = useState("");
+  const [grupos, setGrupos] = useState([]);
+  const [gruposCarregados, setGruposCarregados] = useState(false);
+  const [novoGrupo, setNovoGrupo] = useState("");
+  const [feedbackGrupo, setFeedbackGrupo] = useState("");
+  const [destinosProduto, setDestinosProduto] = useState([]);
+  const [feedbackMigracao, setFeedbackMigracao] = useState("");
+  const feedbackMigracaoTimer = useRef(null);
+  const gruposIniciaisCriados = useRef(false);
+  const produtosMigrados = useRef(new Set());
+
+  useEffect(() => {
+    gruposIniciaisCriados.current = false;
+    produtosMigrados.current = new Set();
+  }, [uid]);
+
+  useEffect(() => () => {
+    if (feedbackMigracaoTimer.current) window.clearTimeout(feedbackMigracaoTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!uid) return;
@@ -69,6 +98,40 @@ export default function Estoque({ uid }) {
     });
     return () => unsub();
   }, [uid]);
+
+  useEffect(() => {
+    const unsub = subscribeGruposProdutos(uid, (lista) => {
+      setGrupos(lista);
+      setGruposCarregados(true);
+    });
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid || !gruposCarregados || grupos.length || gruposIniciaisCriados.current) return;
+    gruposIniciaisCriados.current = true;
+    Promise.all(GRUPOS_INICIAIS.map((nome) => addGrupoProduto(uid, nome))).catch(() => {
+      gruposIniciaisCriados.current = false;
+      setFeedbackGrupo("Não foi possível criar os grupos iniciais.");
+    });
+  }, [grupos.length, gruposCarregados, uid]);
+
+  useEffect(() => {
+    if (!grupos.length || !produtos.length) return;
+    const gruposPorNome = new Map(grupos.map((grupo) => [normalizeText(grupo.nome), grupo]));
+    const gruposIniciaisDisponiveis = GRUPOS_INICIAIS.every((nome) => gruposPorNome.has(normalizeText(nome)));
+    if (!gruposIniciaisDisponiveis) return;
+    const pendentes = produtos.filter((produto) => !produto.grupoId && !produtosMigrados.current.has(produto.id));
+    if (!pendentes.length) return;
+
+    pendentes.forEach((produto) => produtosMigrados.current.add(produto.id));
+    Promise.all(pendentes.map((produto) => {
+      const grupo = gruposPorNome.get(normalizeText(inferGrupoInicial(produto)))
+        || gruposPorNome.get("outros");
+      if (!grupo) return Promise.resolve();
+      return updateProduto(produto.id, { grupoId: grupo.id, grupoNome: grupo.nome });
+    })).catch(() => setFeedbackGrupo("Não foi possível vincular o grupo de alguns produtos antigos."));
+  }, [grupos, produtos]);
 
   const totalUnidades = useMemo(
     () => produtos.reduce((acc, produto) => acc + Number(produto.estoque || 0), 0),
@@ -91,6 +154,9 @@ export default function Estoque({ uid }) {
     e.preventDefault();
     if (!form.nome.trim()) return;
 
+    const grupoSelecionado = grupos.find((grupo) => grupo.id === form.grupoId);
+    if (!grupoSelecionado) return;
+
     const payload = {
       nome: form.nome,
       imagem: form.imagem,
@@ -99,6 +165,8 @@ export default function Estoque({ uid }) {
       estoque: Number(form.estoque || 0),
       notaFiscal: form.notaFiscal,
       unidadeVenda: form.unidadeVenda,
+      grupoId: grupoSelecionado.id,
+      grupoNome: grupoSelecionado.nome,
       ativo: form.ativo,
     };
 
@@ -113,6 +181,7 @@ export default function Estoque({ uid }) {
   }
 
   function editar(produto) {
+    const grupoLegado = grupos.find((grupo) => normalizeText(grupo.nome) === normalizeText(inferGrupoInicial(produto)));
     setEditandoId(produto.id);
     setForm({
       nome: produto.nome || "",
@@ -122,12 +191,75 @@ export default function Estoque({ uid }) {
       estoque: String(produto.estoque ?? ""),
       notaFiscal: produto.notaFiscal || "",
       unidadeVenda: produto.unidadeVenda === "kg" ? "kg" : "un",
+      grupoId: produto.grupoId || grupoLegado?.id || "",
       ativo: produto.ativo !== false,
     });
   }
 
   async function alternarAtivo(produto) {
     await updateProduto(produto.id, { ativo: produto.ativo === false });
+  }
+
+  async function copiarProduto(produto) {
+    if (!destinosProduto.length) return setFeedbackMigracao("Selecione ao menos uma unidade de destino.");
+    try {
+      const total = await copiarProdutoParaLojas(produto, destinosProduto);
+      if (total) {
+        const nomesDestinos = lojas
+          .filter((item) => destinosProduto.includes(item.id))
+          .map((item) => item.nome)
+          .join(", ");
+        setFeedbackMigracao(`produto ${produto.nome} transferido para ${nomesDestinos}`);
+        if (feedbackMigracaoTimer.current) window.clearTimeout(feedbackMigracaoTimer.current);
+        feedbackMigracaoTimer.current = window.setTimeout(() => {
+          setFeedbackMigracao("");
+          feedbackMigracaoTimer.current = null;
+        }, 3000);
+      } else {
+        setFeedbackMigracao("O produto ja existe nas unidades selecionadas.");
+      }
+    } catch (error) {
+      console.error("Erro ao copiar produto entre unidades:", error);
+      setFeedbackMigracao(error?.code === "permission-denied"
+        ? "Seu usuario ainda nao tem permissao na unidade selecionada. Saia e entre novamente para atualizar o acesso."
+        : "Nao foi possivel copiar o produto. Tente novamente.");
+    }
+  }
+
+  async function criarGrupo(e) {
+    e.preventDefault();
+    const nome = novoGrupo.trim();
+    if (!nome) return;
+    if (grupos.some((grupo) => grupo.nome.toLocaleLowerCase("pt-BR") === nome.toLocaleLowerCase("pt-BR"))) {
+      setFeedbackGrupo("Esse grupo já está cadastrado.");
+      return;
+    }
+    try {
+      await addGrupoProduto(uid, nome);
+      setNovoGrupo("");
+      setFeedbackGrupo("Grupo criado com sucesso.");
+    } catch {
+      setFeedbackGrupo("Não foi possível criar o grupo.");
+    }
+  }
+
+  async function alternarGrupoNoPdv(grupo) {
+    await updateGrupoProduto(grupo.id, { visivelPdv: grupo.visivelPdv === false });
+  }
+
+  async function excluirGrupo(grupo) {
+    if (produtos.some((produto) => produto.grupoId === grupo.id)) {
+      setFeedbackGrupo("Este grupo possui produtos. Mova os produtos antes de excluí-lo.");
+      return;
+    }
+    if (!window.confirm(`Deseja realmente excluir o grupo ${grupo.nome}?`)) return;
+    await deleteGrupoProduto(grupo.id);
+    setFeedbackGrupo("Grupo excluído.");
+  }
+
+  async function excluirProduto(produto) {
+    if (!window.confirm(`Deseja realmente excluir o produto ${produto.nome}?`)) return;
+    await deleteProduto(produto.id);
   }
 
   async function createBasePdf(title, subtitle) {
@@ -137,8 +269,8 @@ export default function Estoque({ uid }) {
     ]);
     const doc = new jsPDF();
     try {
-      const logoDataUrl = await getLogoDataUrl();
-      doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+      const logo = await getPdfLogo(loja?.logomarca);
+      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
     } catch {
       // noop
     }
@@ -240,7 +372,7 @@ export default function Estoque({ uid }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card inventory-hero">
         <div>
-          <h1 className="screen-title app-hero-title-blue">Estoque</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiBox /> Estoque</h1>
           <p className="screen-description">Cadastro, edição e controle de produtos.</p>
         </div>
         <span className="screen-badge">Produtos e saldo</span>
@@ -249,7 +381,9 @@ export default function Estoque({ uid }) {
       <div className="stats-grid inventory-stats-grid">
         <div className="section-card stat-card">
           <span className="stat-label">Unidades restantes</span>
-          <strong className="stat-value positive">{totalUnidades}</strong>
+          <strong className="stat-value positive">
+            {Math.round(totalUnidades).toLocaleString("pt-BR")}
+          </strong>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Produtos ativos</span>
@@ -272,6 +406,44 @@ export default function Estoque({ uid }) {
         </button>
       </div>
 
+      <div className="section-card inventory-groups-card">
+        <div className="section-header">
+          <div>
+            <div className="section-title">Grupos de produtos</div>
+            <span className="section-subtitle">Escolha quais grupos ficam visíveis no PDV desta loja.</span>
+          </div>
+          <span className="screen-badge">{grupos.filter((grupo) => grupo.visivelPdv !== false).length} visíveis</span>
+        </div>
+        <form className="section-actions" onSubmit={criarGrupo}>
+          <input
+            className="input"
+            value={novoGrupo}
+            onChange={(e) => setNovoGrupo(e.target.value)}
+            placeholder="Nome do novo grupo, por exemplo Bombons"
+          />
+          <button className="action-btn action-btn-primary" type="submit">Criar grupo</button>
+        </form>
+        <div className="scroll-list inventory-groups-list">
+          {grupos.map((grupo) => (
+            <div className="list-row" key={grupo.id}>
+              <div>
+                <strong>{grupo.nome}</strong>
+                <small>{grupo.visivelPdv === false ? "Oculto no PDV" : "Visível no PDV"}</small>
+              </div>
+              <div className="list-row-actions">
+                <button className="mini-btn" type="button" onClick={() => alternarGrupoNoPdv(grupo)}>
+                  {grupo.visivelPdv === false ? "Mostrar no PDV" : "Ocultar no PDV"}
+                </button>
+                <button className="mini-btn danger" type="button" onClick={() => excluirGrupo(grupo)}>
+                  Excluir
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {feedbackGrupo ? <p className="inline-feedback">{feedbackGrupo}</p> : null}
+      </div>
+
       <div className="screen-grid inventory-grid">
         <div className="section-card inventory-form-card">
           <div className="section-header">
@@ -283,7 +455,21 @@ export default function Estoque({ uid }) {
               value={form.nome}
               onChange={(e) => setForm((prev) => ({ ...prev, nome: e.target.value }))}
               placeholder="Nome do produto"
+              required
             />
+            <select
+              className="input select"
+              value={form.grupoId}
+              onChange={(e) => setForm((prev) => ({ ...prev, grupoId: e.target.value }))}
+              required
+            >
+              <option value="">Selecione o grupo do produto</option>
+              {grupos.map((grupo) => (
+                <option key={grupo.id} value={grupo.id}>
+                  {grupo.nome}{grupo.visivelPdv === false ? " (oculto no PDV)" : ""}
+                </option>
+              ))}
+            </select>
             <input
               className="input"
               value={form.imagem}
@@ -359,6 +545,11 @@ export default function Estoque({ uid }) {
             <div className="section-title">Lista de produtos</div>
             <span className="section-subtitle">{loading ? "Carregando..." : `${produtos.length} itens`}</span>
           </div>
+          <div className="stack-form">
+            <label className="field-label">Disponibilizar cadastro também em</label>
+            {lojas.filter((item) => item.id !== uid).map((item) => <label className="checkbox-row" key={item.id}><input type="checkbox" checked={destinosProduto.includes(item.id)} onChange={(e) => setDestinosProduto((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />{item.nome}</label>)}
+            {feedbackMigracao ? <p className="inline-feedback">{feedbackMigracao}</p> : null}
+          </div>
           <div className="scroll-list">
             {produtos.map((produto) => {
               const estoque = Number(produto.estoque || 0);
@@ -368,6 +559,7 @@ export default function Estoque({ uid }) {
                 <div className={`list-row ${estoqueBaixo ? "stock-low" : ""}`} key={produto.id}>
                   <div>
                     <strong>{produto.nome}</strong>
+                    <small>Grupo: {produto.grupoNome || "Outros (produto antigo)"}</small>
                     {getProdutoImagem(produto) ? (
                       <div className="estoque-thumb-row">
                         <img
@@ -396,7 +588,8 @@ export default function Estoque({ uid }) {
                     <button className="mini-btn" type="button" onClick={() => alternarAtivo(produto)}>
                       {produto.ativo === false ? "Ativar" : "Desativar"}
                     </button>
-                    <button className="mini-btn danger" type="button" onClick={() => deleteProduto(produto.id)}>
+                    <button className="mini-btn" type="button" onClick={() => copiarProduto(produto)}>Copiar para unidades</button>
+                    <button className="mini-btn danger" type="button" onClick={() => excluirProduto(produto)}>
                       Excluir
                     </button>
                   </div>

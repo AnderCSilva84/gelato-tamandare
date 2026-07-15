@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   addAtendente,
+  cadastrarGestoresEmTodasLojas,
+  copiarAtendenteParaLojas,
   deleteAtendente,
   subscribeAtendentes,
   updateAtendente,
 } from "../services/atendentes";
-import { createPanelAuthUser } from "../services/auth";
+import { createPanelAuthUser, updatePanelAuthPassword } from "../services/auth";
 import { deletePanelAccess, savePanelAccess, updatePanelAccess } from "../services/panelAccess";
+import { buildAtendenteEmail } from "../services/loginsAtendentes";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "../utils/access";
+import { FiUsers } from "react-icons/fi";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -16,7 +20,7 @@ function formatMoney(valor) {
   });
 }
 
-export default function Atendentes({ uid, accessUser }) {
+export default function Atendentes({ uid, accessUser, lojas = [] }) {
   const [atendentes, setAtendentes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [nome, setNome] = useState("");
@@ -25,14 +29,24 @@ export default function Atendentes({ uid, accessUser }) {
   const [role, setRole] = useState("atendente");
   const [emailAcesso, setEmailAcesso] = useState("");
   const [senhaAcesso, setSenhaAcesso] = useState("");
+  const [avatarTipo, setAvatarTipo] = useState("masculino");
+  const [fotoPerfil, setFotoPerfil] = useState("");
+  const [podeGerenciarProdutos, setPodeGerenciarProdutos] = useState(false);
   const [editandoId, setEditandoId] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [destinosAtendente, setDestinosAtendente] = useState([]);
   const canManageSuperadmins = isSuperAdminRole(accessUser?.role);
-  const roleGerencial = useMemo(() => isManagementRole(role), [role]);
   const atendenteEditando = useMemo(
     () => atendentes.find((item) => item.id === editandoId) || null,
     [atendentes, editandoId]
   );
+
+  useEffect(() => {
+    if (!lojas.length || !isSuperAdminRole(accessUser?.role)) return;
+    cadastrarGestoresEmTodasLojas(lojas.map((item) => item.id)).catch(() => {
+      setFeedback("Nao foi possivel sincronizar todos os gestores entre as unidades.");
+    });
+  }, [accessUser?.role, lojas]);
 
   useEffect(() => {
     if (!uid) return;
@@ -50,15 +64,36 @@ export default function Atendentes({ uid, accessUser }) {
     setRole("atendente");
     setEmailAcesso("");
     setSenhaAcesso("");
+    setAvatarTipo("masculino");
+    setFotoPerfil("");
+    setPodeGerenciarProdutos(false);
     setEditandoId("");
   }
 
+  function lerFotoPerfil(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 300 * 1024) {
+      setFeedback("A foto do perfil deve ter no maximo 300 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setFotoPerfil(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  }
+
   async function provisionarAcessoPainel(atendenteId, dados) {
-    const email = String(emailAcesso || "").trim().toLowerCase();
-    const senhaPainel = String(senhaAcesso || "").trim();
+    const lojaIds = isManagementRole(dados.role) ? lojas.map((loja) => loja.id) : [uid];
+    const isAtendente = normalizeRole(dados.role) === "atendente";
+    const email = isAtendente
+      ? buildAtendenteEmail(uid, dados.nome)
+      : String(emailAcesso || "").trim().toLowerCase();
+    const senhaPainel = isAtendente
+      ? String(senha || "").trim()
+      : String(senhaAcesso || "").trim();
 
     if (!email || !senhaPainel) {
-      throw new Error("Informe email e senha de acesso ao painel.");
+      throw new Error(isAtendente ? "Informe uma senha operacional." : "Informe email e senha de acesso ao painel.");
     }
 
     const authUser = await createPanelAuthUser(email, senhaPainel);
@@ -69,6 +104,11 @@ export default function Atendentes({ uid, accessUser }) {
       role: dados.role,
       ativo: true,
       email,
+      lojaId: uid,
+      lojaIds,
+      avatarTipo,
+      fotoPerfil,
+      podeGerenciarProdutos,
     });
 
     await updateAtendente(atendenteId, {
@@ -86,12 +126,20 @@ export default function Atendentes({ uid, accessUser }) {
       return;
     }
 
+    if (normalizeRole(role) === "atendente" && String(senha || "").length < 6) {
+      setFeedback("A senha do atendente precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+
     const payload = {
       nome,
       meta: Number(meta || 0),
       senha,
       role,
       emailAcesso,
+      avatarTipo,
+      fotoPerfil,
+      podeGerenciarProdutos,
     };
 
     try {
@@ -104,28 +152,50 @@ export default function Atendentes({ uid, accessUser }) {
           return;
         }
 
+        const emailAtendente = buildAtendenteEmail(uid, nome);
+        const migrarParaLoginPorNome = normalizeRole(role) === "atendente"
+          && atual.emailAcesso !== emailAtendente;
+
+        if (
+          atual.authUid
+          && !migrarParaLoginPorNome
+          && normalizeRole(role) === "atendente"
+          && senha
+          && senha !== String(atual.senha || "")
+          && atual.emailAcesso
+          && atual.senha
+        ) {
+          await updatePanelAuthPassword(atual.emailAcesso, String(atual.senha), senha);
+        }
+
         await updateAtendente(editandoId, payload);
 
-        if (atual.authUid) {
-          if (isManagementRole(role)) {
+        if (migrarParaLoginPorNome) {
+          await provisionarAcessoPainel(editandoId, { nome, role });
+          if (atual.authUid) await deletePanelAccess(atual.authUid);
+        } else if (atual.authUid) {
             await updatePanelAccess(atual.authUid, {
               nome,
               role,
               ativo: atual.ativo !== false,
               email: atual.emailAcesso || emailAcesso,
+              lojaId: uid,
+              lojaIds: isManagementRole(role) ? lojas.map((loja) => loja.id) : [uid],
+              avatarTipo,
+              fotoPerfil,
+              podeGerenciarProdutos,
             });
-          } else {
-            await deletePanelAccess(atual.authUid);
-          }
-        } else if (isManagementRole(role)) {
+        } else {
           await provisionarAcessoPainel(editandoId, { nome, role });
         }
       } else {
         const ref = await addAtendente(uid, { ...payload, ativo: true });
 
-        if (isManagementRole(role)) {
-          await provisionarAcessoPainel(ref.id, { nome, role });
-        }
+        await provisionarAcessoPainel(ref.id, { nome, role });
+      }
+
+      if (isManagementRole(role)) {
+        await cadastrarGestoresEmTodasLojas(lojas.map((item) => item.id));
       }
 
       limparForm();
@@ -160,6 +230,8 @@ export default function Atendentes({ uid, accessUser }) {
       return;
     }
 
+    if (!window.confirm(`Deseja realmente excluir o cadastro de ${atendente.nome}?`)) return;
+
     if (atendente.authUid) {
       await deletePanelAccess(atendente.authUid);
     }
@@ -167,11 +239,21 @@ export default function Atendentes({ uid, accessUser }) {
     await deleteAtendente(atendente.id);
   }
 
+  async function copiarAtendente(atendente) {
+    if (!destinosAtendente.length) return setFeedback("Selecione ao menos uma unidade de destino.");
+    try {
+      const total = await copiarAtendenteParaLojas(atendente, destinosAtendente);
+      setFeedback(total ? `Atendente disponibilizado em ${total} unidade(s).` : "O atendente ja existe nas unidades selecionadas.");
+    } catch {
+      setFeedback("Nao foi possivel copiar o atendente.");
+    }
+  }
+
   return (
     <div className="dashboard-screen">
       <div className="screen-heading section-card team-hero">
         <div>
-          <h1 className="screen-title app-hero-title-blue">Atendentes</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiUsers /> Atendentes</h1>
           <p className="screen-description">Cadastro, ativacao, senha operacional e acessos do painel.</p>
         </div>
         <span className="screen-badge">Equipe e acessos</span>
@@ -210,8 +292,26 @@ export default function Atendentes({ uid, accessUser }) {
               <option value="gerencia">Gerencia</option>
               {canManageSuperadmins ? <option value="superadmin">Superadmin</option> : null}
             </select>
+            {normalizeRole(role) === "atendente" ? (
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={podeGerenciarProdutos}
+                  onChange={(e) => setPodeGerenciarProdutos(e.target.checked)}
+                />
+                Pode cadastrar e gerenciar produtos no estoque
+              </label>
+            ) : null}
+            <label className="field-label">Avatar do usuario</label>
+            <select className="input select" value={avatarTipo} onChange={(e) => setAvatarTipo(e.target.value)}>
+              <option value="masculino">Masculino azul</option>
+              <option value="feminino">Feminino rosa</option>
+            </select>
+            <label className="field-label">Foto do usuario (opcional, ate 300 KB)</label>
+            <input className="input" type="file" accept="image/png,image/jpeg,image/webp" onChange={lerFotoPerfil} />
+            {fotoPerfil ? <div className="profile-photo-preview"><img src={fotoPerfil} alt="Previa do perfil" /><button className="mini-btn danger" type="button" onClick={() => { if (window.confirm("Deseja realmente remover esta foto?")) setFotoPerfil(""); }}>Remover foto</button></div> : null}
 
-            {roleGerencial || emailAcesso ? (
+            {normalizeRole(role) !== "atendente" ? (
               <>
                 <input
                   className="input"
@@ -233,7 +333,9 @@ export default function Atendentes({ uid, accessUser }) {
                   />
                 )}
               </>
-            ) : null}
+            ) : (
+              <p className="helper-text">O atendente entrará no sistema usando o nome e a senha operacional.</p>
+            )}
 
             <button className="action-btn action-btn-primary" type="submit">
               {editandoId ? "Atualizar atendente" : "Cadastrar atendente"}
@@ -249,21 +351,31 @@ export default function Atendentes({ uid, accessUser }) {
               {loading ? "Carregando..." : `${atendentes.length} itens`}
             </span>
           </div>
+          <div className="stack-form">
+            <label className="field-label">Disponibilizar cadastro também em</label>
+            {lojas.filter((item) => item.id !== uid).map((item) => <label className="checkbox-row" key={item.id}><input type="checkbox" checked={destinosAtendente.includes(item.id)} onChange={(e) => setDestinosAtendente((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />{item.nome}</label>)}
+          </div>
           <div className="scroll-list">
             {atendentes.map((atendente) => (
               <div className="list-row" key={atendente.id}>
-                <div>
+                <div className="team-member-identity">
+                  <span className={`team-member-avatar is-${atendente.avatarTipo || "masculino"}`}>{atendente.fotoPerfil ? <img src={atendente.fotoPerfil} alt={atendente.nome} /> : "♙"}</span>
+                  <div>
                   <strong>{atendente.nome}</strong>
                   <small>
                     {atendente.ativo === false ? "Inativo" : "Ativo"} - {getRoleLabel(atendente.role)} - Meta{" "}
                     <span className="positive">{formatMoney(atendente.meta || 0)}</span>
                   </small>
                   <small>{atendente.senha ? "Senha operacional cadastrada" : "Sem senha operacional"}</small>
+                  {normalizeRole(atendente.role) === "atendente" ? (
+                    <small>{atendente.podeGerenciarProdutos ? "Acesso ao Estoque liberado" : "Sem acesso ao Estoque"}</small>
+                  ) : null}
                   <small>
                     {atendente.authUid
                       ? `Acesso ao painel vinculado: ${atendente.emailAcesso || "Sem email"}`
                       : "Sem acesso autenticado ao painel"}
                   </small>
+                  </div>
                 </div>
                 <div className="list-row-actions">
                   <button
@@ -282,6 +394,9 @@ export default function Atendentes({ uid, accessUser }) {
                       setRole(normalizeRole(atendente.role));
                       setEmailAcesso(atendente.emailAcesso || "");
                       setSenhaAcesso("");
+                      setAvatarTipo(atendente.avatarTipo || "masculino");
+                      setFotoPerfil(atendente.fotoPerfil || "");
+                      setPodeGerenciarProdutos(Boolean(atendente.podeGerenciarProdutos));
                       setFeedback("");
                     }}
                   >
@@ -290,6 +405,7 @@ export default function Atendentes({ uid, accessUser }) {
                   <button className="mini-btn" type="button" onClick={() => alternar(atendente)}>
                     {atendente.ativo === false ? "Ativar" : "Desativar"}
                   </button>
+                  <button className="mini-btn" type="button" onClick={() => copiarAtendente(atendente)}>Copiar para unidades</button>
                   <button className="mini-btn danger" type="button" onClick={() => excluir(atendente)}>
                     Excluir
                   </button>

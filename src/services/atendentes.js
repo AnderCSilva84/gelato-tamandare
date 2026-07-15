@@ -6,10 +6,10 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { normalizeRole } from "../utils/access";
@@ -22,8 +22,12 @@ function cleanData(data) {
   );
 }
 
-function atendentesQuery() {
-  return query(atendentesRef, orderBy("nome", "asc"));
+function atendentesQuery(uid) {
+  return query(atendentesRef, where("uid", "==", uid));
+}
+
+function sortAtendentes(items) {
+  return [...items].sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
 }
 
 function getCurrentMonthKey(referenceDate = new Date()) {
@@ -40,6 +44,7 @@ export async function addAtendente(uid, dados) {
   const meta = Number(dados?.meta || 0);
   return addDoc(atendentesRef, {
     uid: uid || null,
+    cadastroGlobalId: String(dados?.cadastroGlobalId || "").trim(),
     nome: String(dados?.nome || "").trim(),
     meta,
     metasMensais: {
@@ -49,9 +54,47 @@ export async function addAtendente(uid, dados) {
     role: normalizeRole(dados?.role),
     emailAcesso: String(dados?.emailAcesso || "").trim().toLowerCase(),
     authUid: String(dados?.authUid || "").trim(),
+    avatarTipo: dados?.avatarTipo === "feminino" ? "feminino" : "masculino",
+    fotoPerfil: String(dados?.fotoPerfil || "").trim(),
+    podeGerenciarProdutos: Boolean(dados?.podeGerenciarProdutos),
     ativo: dados?.ativo ?? true,
     criadoEm: serverTimestamp(),
   });
+}
+
+export async function copiarAtendenteParaLojas(atendente, lojaIds = []) {
+  if (!atendente?.id) throw new Error("Atendente invalido.");
+  const destinos = [...new Set(lojaIds.map(String).filter((id) => id && id !== atendente.uid))];
+  if (!destinos.length) return 0;
+
+  const cadastroGlobalId = String(atendente.cadastroGlobalId || atendente.id);
+  if (!atendente.cadastroGlobalId) await updateAtendente(atendente.id, { cadastroGlobalId });
+  const payload = { ...atendente, cadastroGlobalId };
+  delete payload.id;
+  delete payload.uid;
+  delete payload.criadoEm;
+
+  const verificacoes = await Promise.all(destinos.map(async (lojaId) => ({
+    lojaId,
+    atendentes: await getAtendentes(lojaId),
+  })));
+  const pendentes = verificacoes
+    .filter(({ atendentes }) => !atendentes.some((item) => String(item.cadastroGlobalId || "") === cadastroGlobalId))
+    .map(({ lojaId }) => lojaId);
+  await Promise.all(pendentes.map((lojaId) => addAtendente(lojaId, payload)));
+  return pendentes.length;
+}
+
+export async function cadastrarGestoresNaLoja(lojaId) {
+  const snapshot = await getDocs(atendentesRef);
+  const todos = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const gestores = todos.filter((item) => item.ativo !== false && normalizeRole(item.role) !== "atendente");
+  const unicos = [...new Map(gestores.map((item) => [item.authUid || item.cadastroGlobalId || item.id, item])).values()];
+  return Promise.all(unicos.map((item) => copiarAtendenteParaLojas(item, [lojaId])));
+}
+
+export async function cadastrarGestoresEmTodasLojas(lojaIds = []) {
+  return Promise.all([...new Set(lojaIds.map(String).filter(Boolean))].map(cadastrarGestoresNaLoja));
 }
 
 export async function updateAtendente(id, dados) {
@@ -79,6 +122,8 @@ export async function updateAtendente(id, dados) {
       emailAcesso:
         dados?.emailAcesso !== undefined ? String(dados.emailAcesso).trim().toLowerCase() : undefined,
       authUid: dados?.authUid !== undefined ? String(dados.authUid).trim() : undefined,
+      podeGerenciarProdutos:
+        dados?.podeGerenciarProdutos !== undefined ? Boolean(dados.podeGerenciarProdutos) : undefined,
       metasMensais,
       ativo: dados?.ativo,
     })
@@ -90,13 +135,17 @@ export async function deleteAtendente(id) {
   return deleteDoc(doc(db, "atendentes", id));
 }
 
-export async function getAtendentes() {
-  const snapshot = await getDocs(atendentesQuery());
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+export async function getAtendentes(uid) {
+  const snapshot = await getDocs(atendentesQuery(uid));
+  return sortAtendentes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
-export function subscribeAtendentes(uid, callback) {
-  return onSnapshot(atendentesQuery(), (snapshot) => {
-    callback(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+export function subscribeAtendentes(uid, callback, onError) {
+  return onSnapshot(atendentesQuery(uid), (snapshot) => {
+    callback(sortAtendentes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  }, (error) => {
+    console.error("Erro ao carregar atendentes:", error);
+    callback([]);
+    if (typeof onError === "function") onError(error);
   });
 }

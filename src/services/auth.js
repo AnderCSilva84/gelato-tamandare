@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut,
+  updatePassword,
 } from "firebase/auth";
 
 export function observeAuth(callback) {
@@ -22,6 +23,12 @@ export async function createPanelAuthUser(email, senha) {
   const cred = await createUserWithEmailAndPassword(secondaryAuth, email, senha);
   await signOut(secondaryAuth);
   return cred.user;
+}
+
+export async function updatePanelAuthPassword(email, senhaAtual, novaSenha) {
+  const cred = await signInWithEmailAndPassword(secondaryAuth, email, senhaAtual);
+  await updatePassword(cred.user, novaSenha);
+  await signOut(secondaryAuth);
 }
 
 export function registerAndLogin(email, senha) {

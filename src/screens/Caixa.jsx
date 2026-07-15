@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import logoGelato from "../assets/gelatoimg.jpeg";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getPdfLogo } from "../utils/pdfLogo";
 import {
   abrirCaixa,
   addRetiradaCaixa,
@@ -12,6 +12,7 @@ import {
   updateCaixaData,
 } from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
+import { subscribeGruposProdutos } from "../services/gruposProdutos";
 import { subscribeProdutos, updateProduto } from "../services/produtos";
 import { isManagementRole } from "../utils/access";
 import { hojeISO } from "../services/lancamentos";
@@ -21,6 +22,7 @@ import {
   subscribeVendasPeriodo,
   subscribeVendasPorCaixa,
 } from "../services/vendas";
+import { imprimirComprovanteTermico } from "../services/comprovanteTermico";
 
 const STORAGE_KEY = "gelato-caixa-atual";
 
@@ -95,6 +97,16 @@ function buildMonthPeriod(valor) {
     inicio: `${ano}-${mes}-01`,
     fim: `${ano}-${mes}-31`,
   };
+}
+
+function getPreviousMonthKey(valor) {
+  const [ano, mes] = String(valor || "").split("-");
+  if (!ano || !mes) return "";
+
+  const referencia = new Date(Number(ano), Number(mes) - 1, 1);
+  referencia.setMonth(referencia.getMonth() - 1);
+
+  return `${referencia.getFullYear()}-${String(referencia.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function getMetaForMonth(atendente, mesReferencia) {
@@ -309,21 +321,6 @@ async function syncCaixaDateWithOpening(caixa) {
   };
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function getLogoDataUrl() {
-  const response = await fetch(logoGelato);
-  const blob = await response.blob();
-  return fileToDataUrl(blob);
-}
-
 function drawPdfBlock(doc, { x, y, w, h, title, subtitle, value, fillColor, valueColor }) {
   doc.setFillColor(...fillColor);
   doc.roundedRect(x, y, w, h, 5, 5, "F");
@@ -354,9 +351,12 @@ export default function Caixa({
   dataHoje,
   accessRole = "atendente",
   accessUser = null,
+  loja = null,
+  compactMode = false,
 }) {
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
+  const [gruposProdutos, setGruposProdutos] = useState([]);
   const [caixaAtualId, setCaixaAtualId] = useState("");
   const [caixaAtual, setCaixaAtual] = useState(null);
   const [vendasCaixa, setVendasCaixa] = useState([]);
@@ -438,26 +438,33 @@ export default function Caixa({
 
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
     const unsubAtendentes = subscribeAtendentes(uid, setAtendentes);
-    const periodoRanking = buildMonthPeriod(rankingMesSelecionado || String(dataHoje || "").slice(0, 7));
-    const unsubRanking = subscribeVendasPeriodo(
-      uid,
-      periodoRanking.inicio,
-      periodoRanking.fim,
-      setVendasRankingMes
-    );
-    const unsubCaixasRanking = subscribeCaixasPeriodo(
-      periodoRanking.inicio,
-      periodoRanking.fim,
-      setCaixasRankingMes
-    );
+    const unsubGrupos = subscribeGruposProdutos(uid, setGruposProdutos);
+    let unsubRanking = () => {};
+    let unsubCaixasRanking = () => {};
+
+    if (!compactMode) {
+      const periodoRanking = buildMonthPeriod(rankingMesSelecionado || String(dataHoje || "").slice(0, 7));
+      unsubRanking = subscribeVendasPeriodo(
+        uid,
+        periodoRanking.inicio,
+        periodoRanking.fim,
+        setVendasRankingMes
+      );
+      unsubCaixasRanking = subscribeCaixasPeriodo(uid,
+        periodoRanking.inicio,
+        periodoRanking.fim,
+        setCaixasRankingMes
+      );
+    }
 
     return () => {
       unsubProdutos();
       unsubAtendentes();
+      unsubGrupos();
       unsubRanking();
       unsubCaixasRanking();
     };
-  }, [uid, dataHoje, rankingMesSelecionado]);
+  }, [uid, dataHoje, rankingMesSelecionado, compactMode]);
 
   useEffect(() => {
     if (!rankingMesSelecionado && dataHoje) {
@@ -471,9 +478,9 @@ export default function Caixa({
       return;
     }
 
-    const unsub = subscribeCaixasPeriodo(dataHoje, dataHoje, setCaixasDoDia);
+    const unsub = subscribeCaixasPeriodo(uid, dataHoje, dataHoje, setCaixasDoDia);
     return () => unsub();
-  }, [dataHoje]);
+  }, [dataHoje, uid]);
 
   useEffect(() => {
     if (!isManagementRole(accessRole)) {
@@ -514,12 +521,13 @@ export default function Caixa({
   }, [accessRole, accessUser?.id, caixaAtualId]);
 
   useEffect(() => {
-    const unsub = subscribeVendasPorCaixa(caixaAtualId, setVendasCaixa);
+    const unsub = subscribeVendasPorCaixa(uid, caixaAtualId, setVendasCaixa);
     return () => unsub();
-  }, [caixaAtualId]);
+  }, [caixaAtualId, uid]);
 
   useEffect(() => {
     const unsub = subscribeRetiradasCaixa(
+      uid,
       caixaAtualId,
       setRetiradasCaixa,
       (error) => {
@@ -529,7 +537,7 @@ export default function Caixa({
       }
     );
     return () => unsub();
-  }, [caixaAtualId]);
+  }, [caixaAtualId, uid]);
 
   useEffect(() => {
     if (!toastVenda) return;
@@ -541,12 +549,29 @@ export default function Caixa({
     () => produtos.filter((item) => item.ativo !== false),
     [produtos]
   );
+  const gruposVisiveis = useMemo(
+    () => gruposProdutos.filter((grupo) => grupo.visivelPdv !== false),
+    [gruposProdutos]
+  );
+  const gruposVisiveisPorId = useMemo(
+    () => new Map(gruposVisiveis.map((grupo) => [grupo.id, grupo])),
+    [gruposVisiveis]
+  );
+  const getCategoriaProduto = useCallback((produto) => {
+    if (produto.grupoId) return produto.grupoId;
+    const categoriaAntiga = inferProductCategory(produto);
+    const nomeAntigo = normalizeText(CATEGORY_LABELS[categoriaAntiga] || categoriaAntiga);
+    return gruposVisiveis.find((grupo) => normalizeText(grupo.nome) === nomeAntigo)?.id || categoriaAntiga;
+  }, [gruposVisiveis]);
+  const produtosDisponiveisPdv = useMemo(
+    () => produtosAtivos.filter((produto) => !produto.grupoId || gruposVisiveisPorId.has(produto.grupoId)),
+    [gruposVisiveisPorId, produtosAtivos]
+  );
   const categoriasDisponiveis = useMemo(() => {
-    const categorias = new Set(
-      produtosAtivos.map((produto) => inferProductCategory(produto)).filter(Boolean)
-    );
+    if (gruposVisiveis.length) return ["todos", ...gruposVisiveis.map((grupo) => grupo.id)];
+    const categorias = new Set(produtosAtivos.map((produto) => inferProductCategory(produto)).filter(Boolean));
     return ["todos", ...Object.keys(CATEGORY_LABELS).filter((key) => key !== "todos" && categorias.has(key))];
-  }, [produtosAtivos]);
+  }, [gruposVisiveis, produtosAtivos]);
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
     [atendentes]
@@ -597,8 +622,8 @@ export default function Caixa({
   const produtosFiltrados = useMemo(() => {
     const termo = normalizeText(buscaProduto);
 
-    return produtosAtivos.filter((produto) => {
-      const categoria = inferProductCategory(produto);
+    return produtosDisponiveisPdv.filter((produto) => {
+      const categoria = getCategoriaProduto(produto);
       const matchCategoria = categoriaAtiva === "todos" || categoria === categoriaAtiva;
       if (!matchCategoria) return false;
       if (!termo) return true;
@@ -607,7 +632,7 @@ export default function Caixa({
       const nome = normalizeText(produto?.nome);
       return nome.includes(termo) || estoque.includes(termo);
     });
-  }, [buscaProduto, categoriaAtiva, produtosAtivos]);
+  }, [buscaProduto, categoriaAtiva, getCategoriaProduto, produtosDisponiveisPdv]);
   const atendenteLogado = useMemo(
     () => atendentes.find((item) => item.id === caixaAtual?.atendenteId) || null,
     [atendentes, caixaAtual]
@@ -763,12 +788,15 @@ export default function Caixa({
   }
 
   function limparCarrinho() {
+    if (itensVenda.length && !window.confirm("Deseja realmente excluir todos os itens do carrinho?")) return;
     setItensVenda([]);
     setFeedbackVenda("");
     setVendaForm((prev) => ({ ...prev, valorRecebido: "" }));
   }
 
   function removerItemVenda(produtoId) {
+    const produto = produtos.find((item) => item.id === produtoId);
+    if (!window.confirm(`Deseja realmente excluir ${produto?.nome || "este produto"} do carrinho?`)) return;
     setItensVenda((prev) => prev.filter((item) => item.produtoId !== produtoId));
   }
 
@@ -786,7 +814,12 @@ export default function Caixa({
     const senhaCadastrada = String(atendente.senha || "");
     const senhaInformada = String(loginForm.senha || "");
 
-    if (senhaCadastrada && senhaCadastrada !== senhaInformada) {
+    if (!senhaCadastrada) {
+      setFeedbackCaixa(`Cadastre uma senha para ${atendente.nome} antes de acessar o caixa.`);
+      return;
+    }
+
+    if (senhaCadastrada !== senhaInformada) {
       setFeedbackCaixa(`Senha invalida para ${modoEntradaCaixa ? "entrar" : "abrir"} o caixa.`);
       return;
     }
@@ -884,8 +917,8 @@ export default function Caixa({
 
     try {
       const [vendasDoCaixa, retiradasDoDia] = await Promise.all([
-        getVendasPorCaixa(caixa.id),
-        getRetiradas(dataHoje, dataHoje),
+        getVendasPorCaixa(uid, caixa.id),
+        getRetiradas(uid, dataHoje, dataHoje),
       ]);
 
       const retiradasDoCaixa = retiradasDoDia.filter((item) => item.caixaId === caixa.id);
@@ -971,8 +1004,8 @@ export default function Caixa({
     ];
 
     try {
-      const logoDataUrl = await getLogoDataUrl();
-      doc.addImage(logoDataUrl, "JPEG", 14, 10, 24, 24);
+      const logoPdf = await getPdfLogo(loja?.logomarca);
+      if (logoPdf) doc.addImage(logoPdf.dataUrl, logoPdf.format, 14, 10, 24, 24);
       y = 40;
     } catch {
       y = 18;
@@ -1174,6 +1207,19 @@ export default function Caixa({
           estoque: Number(item.produto.estoque || 0) - parseDecimalInput(item.quantidade || 0),
         });
       }
+      imprimirComprovanteTermico({
+        loja,
+        venda: {
+          itens: itensVendaDetalhados,
+          total: totalCarrinho,
+          formaPagamento,
+          valorRecebido,
+          troco,
+          atendenteNome: atendenteLogado.nome,
+          caixaId: caixaAtual.id,
+          dataHora: new Date().toLocaleString("pt-BR"),
+        },
+      });
       resetVendaForm();
       setToastVenda("Venda registrada com sucesso.");
     } catch (error) {
@@ -1228,27 +1274,25 @@ export default function Caixa({
   }
 
   return (
-    <div className="dashboard-screen">
-      <div className="pdv-hero section-card">
-        <div className="pdv-hero-copy">
-          <span className="pdv-eyebrow pdv-eyebrow-hero">Gelato Tamandare</span>
-          <h1 className="screen-title pdv-hero-title">Registrar venda</h1>
-          <p className="screen-description pdv-hero-description">
-            Mantenha o foco na venda. Indicadores e acoes de conferencia ficam em segundo plano.
-          </p>
+    <div className={`dashboard-screen ${compactMode ? "pdv-compact" : ""}`}>
+      {!compactMode ? (
+        <div
+          className={`pdv-hero section-card ${loja?.imagemCapaPdv ? "pdv-hero-has-cover" : ""}`}
+          style={loja?.imagemCapaPdv ? { "--pdv-cover": `url(${loja.imagemCapaPdv})` } : undefined}
+        >
+          <div className="pdv-hero-side">
+            <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
+            {caixaAtual ? <span className="pdv-status-pill">Turno aberto</span> : null}
+          </div>
         </div>
-        <div className="pdv-hero-side">
-          <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
-          {caixaAtual ? <span className="pdv-status-pill">Turno aberto</span> : null}
-        </div>
-      </div>
+      ) : null}
 
       {caixaAtual ? (
         <div className="section-card pdv-status-bar">
           <div className="pdv-status-bar-copy">
             <span className="stat-label">Atendente no caixa</span>
             <strong>{caixaAtual.atendenteNome}</strong>
-            <small>Acoes administrativas do turno.</small>
+            {!compactMode ? <small>Acoes administrativas do turno.</small> : null}
           </div>
           <div className="pdv-status-bar-actions">
             <button
@@ -1336,7 +1380,8 @@ export default function Caixa({
                 type="password"
                 value={loginForm.senha}
                 onChange={(e) => setLoginForm((prev) => ({ ...prev, senha: e.target.value }))}
-                placeholder="Senha do atendente"
+                placeholder="Senha do usuario"
+                required
               />
 
               {!modoEntradaCaixa ? (
@@ -1374,7 +1419,7 @@ export default function Caixa({
           <>
             <div className="pdv-main-column">
               <div className="stats-grid pdv-stats-grid">
-                {mostrandoResumoExpandido ? (
+                {!compactMode && mostrandoResumoExpandido ? (
                   <>
                     <div className="section-card stat-card">
                       <span className="stat-label">Fundo inicial</span>
@@ -1392,7 +1437,7 @@ export default function Caixa({
                       <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
                     </div>
                   </>
-                ) : (
+                ) : !compactMode ? (
                   <button
                     className="section-card stat-card stat-card-toggle"
                     type="button"
@@ -1402,25 +1447,25 @@ export default function Caixa({
                     <span className="stat-label">Indicadores</span>
                     <strong className="stat-value">Expandir</strong>
                   </button>
-                )}
-                <div className="section-card stat-card">
+                ) : null}
+                {!compactMode ? <div className="section-card stat-card">
                   <span className="stat-label">Itens no turno</span>
                   <strong className="stat-value">{totalItens}</strong>
-                </div>
-                <div className="section-card stat-card">
+                </div> : null}
+                {!compactMode ? <div className="section-card stat-card">
                   <span className="stat-label">Ticket medio turno</span>
                   <strong className="stat-value positive">
                     {formatMoney(totalItens ? totalVendas / totalItens : 0)}
                   </strong>
-                </div>
+                </div> : null}
                 <div className="section-card stat-card stat-card-highlight">
                   <span className="stat-label">Total de vendas</span>
-                  <small className="stat-note">valor vendido neste turno</small>
+                  {!compactMode ? <small className="stat-note">valor vendido neste turno</small> : null}
                   <strong className="stat-value positive">
                     {formatMoney(totalVendas)}
                   </strong>
                 </div>
-                {mostrandoResumoExpandido ? (
+                {!compactMode && mostrandoResumoExpandido ? (
                   <button
                     className="section-card stat-card stat-card-toggle stat-card-toggle-close"
                     type="button"
@@ -1437,9 +1482,9 @@ export default function Caixa({
                 <div className="pdv-catalog-topbar">
                   <div className="section-header">
                     <div className="section-title">Produtos</div>
-                    <span className="section-subtitle">
+                    {!compactMode ? <span className="section-subtitle">
                       Toque no item para selecionar e montar a venda.
-                    </span>
+                    </span> : null}
                   </div>
                   <input
                     className="input pdv-search-input"
@@ -1457,7 +1502,9 @@ export default function Caixa({
                       type="button"
                       onClick={() => setCategoriaAtiva(categoria)}
                     >
-                      {CATEGORY_LABELS[categoria] || categoria}
+                      {categoria === "todos"
+                        ? "Todos"
+                        : gruposVisiveisPorId.get(categoria)?.nome || CATEGORY_LABELS[categoria] || categoria}
                     </button>
                   ))}
                 </div>
@@ -1896,7 +1943,7 @@ export default function Caixa({
 
       {toastVenda ? <div className="toast-popup">{toastVenda}</div> : null}
 
-      {isManagementRole(accessRole) ? (
+      {!compactMode && isManagementRole(accessRole) ? (
       <div className="section-card ranking-card ranking-card-footer">
         <div className="section-header">
           <div>
@@ -1910,6 +1957,13 @@ export default function Caixa({
           </span>
         </div>
         <div className="section-actions">
+          <button
+            className="action-btn action-btn-secondary"
+            type="button"
+            onClick={() => setRankingMesSelecionado(getPreviousMonthKey(rankingMesSelecionado))}
+          >
+            Mes passado
+          </button>
           <input
             className="input"
             type="month"

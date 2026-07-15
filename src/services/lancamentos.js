@@ -24,7 +24,7 @@ export function escutarLancamentosMes(uid, mes, callback) {
     return () => {};
   }
 
-  const q = query(collection(db, "lancamentos"), where("mes", "==", mes));
+  const q = query(collection(db, "lancamentos"), where("mes", "==", mes), where("uid", "==", uid));
 
   return onSnapshot(q, (snapshot) => {
     const lista = snapshot.docs
@@ -42,7 +42,7 @@ export function escutarLancamentosMes(uid, mes, callback) {
 }
 
 export function escutarTodosLancamentos(uid, callback) {
-  return onSnapshot(collection(db, "lancamentos"), (snapshot) => {
+  return onSnapshot(query(collection(db, "lancamentos"), where("uid", "==", uid)), (snapshot) => {
     callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }

@@ -2176,6 +2176,23 @@ textarea {
   color: var(--blue);
 }
 
+.pdv-hero.pdv-hero-has-cover {
+  position: relative;
+  overflow: hidden;
+  min-height: 180px;
+  color: #fff;
+  background-image: var(--pdv-cover);
+  background-size: cover;
+  background-position: center;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.pdv-hero-has-cover .pdv-hero-copy { align-items: flex-start; text-align: left; position: relative; z-index: 1; }
+.pdv-hero-has-cover .pdv-eyebrow-hero,
+.pdv-hero-has-cover .pdv-hero-title,
+.pdv-hero-has-cover .pdv-hero-description { color: #fff; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.32); }
+.pdv-hero-has-cover .pdv-hero-side { position: relative; z-index: 1; }
+
 .pdv-eyebrow-hero {
   font-size: 28px;
   letter-spacing: -0.03em;
@@ -2469,6 +2486,120 @@ textarea {
 .maintenance-screen {
   min-height: 100%;
   align-items: center;
+}
+
+.maintenance-lock-screen {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: min(calc(100% - 32px), 720px);
+  padding: 0;
+  background: transparent;
+}
+
+.maintenance-lock-screen.is-total {
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  padding: 24px;
+  align-items: center;
+  background: #ffffff;
+}
+
+.maintenance-lock-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 24px;
+  background: rgba(255, 251, 235, 0.96);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(8px);
+  text-align: center;
+}
+
+.maintenance-lock-screen.is-total .maintenance-lock-content {
+  width: min(100%, 720px);
+  gap: 28px;
+  padding: 32px 24px;
+  border-color: rgba(15, 23, 42, 0.08);
+  border-radius: 32px;
+  background: #ffffff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.maintenance-lock-title {
+  color: #92400e;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 3.4vw, 34px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.maintenance-lock-screen.is-total .maintenance-lock-title {
+  color: #111111;
+  font-size: clamp(36px, 8vw, 72px);
+  letter-spacing: 0.08em;
+}
+
+.maintenance-lock-note {
+  margin: 0;
+  max-width: 520px;
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.maintenance-lock-note-error {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.maintenance-login-shell {
+  width: min(100%, 320px);
+}
+
+.maintenance-login-form {
+  gap: 10px;
+}
+
+.maintenance-login-input {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+.maintenance-login-input::placeholder {
+  color: #94a3b8;
+}
+
+.maintenance-login-button {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 0 0;
+  cursor: pointer;
+}
+
+.maintenance-login-button:hover {
+  color: #0f172a;
 }
 
 .maintenance-card {
@@ -3811,7 +3942,7 @@ span.negative,
 
 }
 
-@media (min-width: 768px) and (max-width: 1366px) and (orientation: landscape) {
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) and (orientation: landscape) {
   .dashboard {
     grid-template-columns: minmax(0, 1fr);
     min-height: 100dvh;
@@ -4038,4 +4169,228 @@ span.negative,
   .system-footer {
     padding: 20px 32px 28px;
   }
+}
+.simulation-banner {
+  position: fixed; inset: 0 0 auto 0; z-index: 10000; display: flex; justify-content: center;
+  align-items: center; gap: 16px; padding: 10px 16px; background: #7c3aed; color: #fff; font-weight: 800;
+}
+.simulation-banner button { border: 1px solid #fff; border-radius: 8px; padding: 6px 10px; background: #fff; color: #5b21b6; font-weight: 800; cursor: pointer; }
+.simulation-readonly .dashboard { padding-top: 48px; }
+.simulation-readonly .content button, .simulation-readonly .content input, .simulation-readonly .content select, .simulation-readonly .content textarea { pointer-events: none; opacity: .72; }
+.simulation-readonly .simulation-banner button { pointer-events: auto; opacity: 1; }
+.dashboard { grid-template-columns: 244px minmax(0, 1fr); grid-template-rows: 88px minmax(0, 1fr); background: #f7f9fd; }
+.sidebar { grid-row: 1 / 3; position: sticky; top: 0; height: 100vh; padding: 22px 18px; background: #fff; box-shadow: 1px 0 0 #e8edf6; gap: 16px; overflow-y: auto; }
+.content { grid-column: 2; grid-row: 2; padding: 20px 30px 32px; }
+.app-topbar { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 20px; padding: 16px 30px; background: rgba(255,255,255,.96); border-bottom: 1px solid #e8edf6; }
+.topbar-menu-btn { width: 42px; height: 42px; border: 1px solid #e1e7f2; border-radius: 10px; background: #fff; color: #13245f; display: grid; place-items: center; font-size: 21px; }
+.topbar-greeting { display: flex; flex-direction: column; gap: 4px; color: #111b46; }
+.topbar-greeting strong { font-size: 17px; }.topbar-greeting span { color: #667292; font-size: 13px; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 16px; }.topbar-date { display: flex; align-items: center; gap: 9px; padding: 12px 16px; border: 1px solid #dce4f1; border-radius: 10px; font-weight: 700; color: #162352; }.topbar-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: #f2f5fb; color: #43527c; font-size: 21px; }
+.sidebar-brand { flex-direction: row; justify-content: flex-start; text-align: left; padding: 0 6px 16px; border-bottom: 1px solid #edf1f7; gap: 10px; }.sidebar-logo { width: 54px; height: 54px; border-radius: 14px; border: 0; box-shadow: none; object-fit: contain; }.sidebar-title { font-size: 17px; color: #2549b8; text-transform: uppercase; letter-spacing: .08em; }.sidebar-subtitle { display: none; }
+.sidebar-access { padding: 0; border: 0; box-shadow: none; background: transparent; }.sidebar-access > .section-header { display: none; }.sidebar-user-card { display: flex; align-items: center; gap: 11px; padding: 13px; border: 1px solid #dfe6f2; border-radius: 12px; }.sidebar-user-avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #253b86; color: #fff; font-size: 20px; }.sidebar-user-card div { display: flex; flex-direction: column; min-width: 0; }.sidebar-user-card strong { font-size: 13px; color: #121b42; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.sidebar-user-card small { color: #07956c; font-size: 11px; }
+.sidebar-nav { gap: 5px; }.sidebar-btn { display: flex; align-items: center; gap: 13px; border: 0; background: transparent; box-shadow: none; border-radius: 10px; padding: 12px 14px; color: #536184; font-size: 13px; }.sidebar-btn svg { width: 19px; height: 19px; flex: 0 0 auto; }.sidebar-btn:hover:not(:disabled) { transform: none; background: #f1f5ff; box-shadow: none; }.sidebar-btn.is-active { background: linear-gradient(135deg,#3155c8,#2844b6); box-shadow: 0 8px 20px rgba(42,73,185,.2); }
+.sidebar-exit-btn { margin-top: auto; display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 14px; border: 1px solid #f0dada; border-radius: 10px; background: #fff; color: #d55b5b; font-weight: 700; cursor: pointer; }
+.section-card { border-color: #e3e9f3; box-shadow: 0 4px 16px rgba(31,51,98,.045); }
+@media (max-width: 900px) { .dashboard { display: block; }.app-topbar { position: sticky; top: 0; z-index: 30; padding: 12px 16px; }.topbar-greeting span,.topbar-date { display: none; }.content { padding: 16px; }.sidebar { position: fixed; z-index: 50; }.sidebar-exit-btn { margin-top: 20px; } }
+
+.sidebar-nav .sidebar-btn.is-active {
+  color: #243f91;
+  background: linear-gradient(135deg, #eef3ff, #e7edff);
+  border: 1px solid #b9c8f3;
+  box-shadow: 0 5px 14px rgba(42, 73, 185, 0.1);
+}
+
+.sidebar-nav .sidebar-btn.is-active svg {
+  color: #3155c8;
+}
+
+.sidebar { scrollbar-width: none; }
+.sidebar::-webkit-scrollbar { width: 0; height: 0; }
+.sidebar-user-avatar.is-feminino, .topbar-avatar.is-feminino { background: #f45b9a; color: #fff; }
+.sidebar-user-avatar.is-masculino { background: #253b86; color: #fff; }
+.sidebar-user-avatar img, .topbar-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.profile-photo-preview { display: flex; align-items: center; gap: 12px; }.profile-photo-preview img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+.team-member-identity { display: flex; align-items: center; gap: 12px; }.team-member-identity > div { display: flex; flex-direction: column; }.team-member-avatar { width: 46px; height: 46px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #fff; font-size: 25px; }.team-member-avatar.is-masculino { background: #253b86; }.team-member-avatar.is-feminino { background: #f45b9a; }.team-member-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+/* Tablet: shell unico, alvos de toque amplos e conteudo sem cortes. */
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) and (orientation: landscape) {
+  .dashboard, .dashboard.dashboard-tablet-landscape { display: block; min-height: 100vh; }
+  .tablet-sidebar-toggle { display: none !important; }
+  .app-topbar { position: sticky; top: 0; z-index: 35; min-height: 72px; padding: 12px 20px; }
+  .topbar-menu-btn, .topbar-avatar, .sidebar-btn, .mini-btn, .action-btn { min-height: 44px; }
+  .sidebar.sidebar-tablet-drawer { width: min(320px, 86vw); height: 100dvh; padding: 18px; overflow-y: auto; overscroll-behavior: contain; }
+  .content { width: 100%; padding: 18px 20px 30px; overflow-x: hidden; }
+  .pdv-hero, .pdv-hero.pdv-hero-has-cover { min-height: 140px; padding: 22px 24px; }
+  .screen-grid, .pdv-shell, .report-grid, .inventory-grid, .team-grid { gap: 16px; }
+  .section-actions, .list-row-actions, .pdv-status-bar-actions { flex-wrap: wrap; }
+  .scroll-list, .table-wrap, .report-table-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+  .simulation-banner { min-height: 48px; flex-wrap: wrap; text-align: center; }
+  .simulation-readonly .dashboard { padding-top: 52px; }
+}
+
+@media (min-width: 600px) and (max-width: 900px) and (orientation: portrait) {
+  .tablet-orientation-card { width: min(520px, calc(100vw - 48px)); padding: 34px 28px; }
+  .maintenance-lock-content { width: min(620px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
+}
+
+/* Identidade Cafe Guajara: tons de cafe, creme e caramelo. */
+body.theme-cafe-guajara {
+  --bg: #f5eee4;
+  --surface: #fffaf3;
+  --surface-soft: #f3e7d7;
+  --surface-strong: #ead8c1;
+  --text: #30241d;
+  --muted: #7a6658;
+  --green: #7a4b2a;
+  --green-dark: #4a2c1b;
+  --blue: #7a4b2a;
+  --orange: #c7833d;
+  --border: #dfcdb8;
+  --border-strong: rgba(122, 75, 42, 0.24);
+  --shadow: 0 24px 60px rgba(74, 44, 27, 0.14);
+  --shadow-soft: 0 14px 32px rgba(74, 44, 27, 0.09);
+  --shadow-lift: 0 18px 38px rgba(122, 75, 42, 0.2);
+  background: #f5eee4;
+}
+
+.theme-cafe-guajara .app-shell {
+  background:
+    radial-gradient(560px 380px at 7% 3%, rgba(199, 131, 61, 0.17), transparent 62%),
+    radial-gradient(620px 420px at 94% 5%, rgba(105, 130, 76, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(255, 250, 243, 0.55), rgba(245, 238, 228, 0)),
+    var(--bg);
+}
+
+.theme-cafe-guajara .dashboard { background: #f7f1e8; }
+.theme-cafe-guajara .sidebar { background: #fffaf3; box-shadow: 1px 0 0 #e7d8c7; }
+.theme-cafe-guajara .app-topbar { background: rgba(255, 250, 243, .96); border-bottom-color: #e7d8c7; }
+.theme-cafe-guajara .sidebar-brand { border-bottom-color: #eadbca; }
+.theme-cafe-guajara .sidebar-title { color: #5b3520; }
+.theme-cafe-guajara .sidebar-logo { border-radius: 16px; }
+.theme-cafe-guajara .topbar-greeting { color: #3e2a1f; }
+.theme-cafe-guajara .topbar-greeting span { color: #806b5d; }
+.theme-cafe-guajara .topbar-date { border-color: #dfcdb8; color: #4a2c1b; }
+.theme-cafe-guajara .topbar-menu-btn,
+.theme-cafe-guajara .topbar-avatar { background: #f7ecde; border-color: #dfcdb8; color: #694126; }
+.theme-cafe-guajara .sidebar-btn { color: #725f52; }
+.theme-cafe-guajara .sidebar-btn:hover:not(:disabled) { background: #f6eadb; }
+.theme-cafe-guajara .sidebar-nav .sidebar-btn.is-active {
+  color: #fffaf3;
+  background: linear-gradient(135deg, #7a4b2a, #4a2c1b);
+  border-color: #8e6040;
+  box-shadow: 0 7px 18px rgba(74, 44, 27, .2);
+}
+.theme-cafe-guajara .sidebar-nav .sidebar-btn.is-active svg { color: #f6d7ad; }
+.theme-cafe-guajara .section-card { border-color: #e4d3bf; box-shadow: 0 4px 16px rgba(74, 44, 27, .055); }
+.theme-cafe-guajara .action-btn-primary { background: linear-gradient(135deg, #7a4b2a, #4a2c1b); }
+.theme-cafe-guajara .pdv-hero:not(.pdv-hero-has-cover) { background: linear-gradient(135deg, #5a3520, #8a5833); }
+.theme-cafe-guajara input:focus,
+.theme-cafe-guajara select:focus,
+.theme-cafe-guajara textarea:focus { border-color: #9a6843; box-shadow: 0 0 0 3px rgba(122, 75, 42, .14); }
+
+.screen-title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.screen-title-with-icon svg {
+  width: .9em;
+  height: .9em;
+  flex: 0 0 auto;
+}
+
+/* Cobertura completa dos paineis e CRUDs do Cafe Guajara. */
+.theme-cafe-guajara .app-hero-title-blue,
+.theme-cafe-guajara .screen-title { color: #5b3520; }
+.theme-cafe-guajara .screen-title-with-icon svg { color: #a66a36; }
+.theme-cafe-guajara .screen-description,
+.theme-cafe-guajara .section-subtitle,
+.theme-cafe-guajara .stat-note { color: #806b5d; }
+.theme-cafe-guajara .screen-heading,
+.theme-cafe-guajara .gerencia-hero,
+.theme-cafe-guajara .inventory-hero,
+.theme-cafe-guajara .team-hero,
+.theme-cafe-guajara .report-hero,
+.theme-cafe-guajara .suporte-hero {
+  background:
+    radial-gradient(circle at top right, rgba(199, 131, 61, .16), transparent 38%),
+    linear-gradient(135deg, #fffaf3, #f5eadc);
+  border-color: #dfc5a8;
+}
+.theme-cafe-guajara .filter-card,
+.theme-cafe-guajara .stat-card,
+.theme-cafe-guajara .list-row,
+.theme-cafe-guajara .table-wrap,
+.theme-cafe-guajara .report-table-wrap,
+.theme-cafe-guajara .team-form-card,
+.theme-cafe-guajara .inventory-form-card {
+  border-color: #e4d3bf;
+  background-color: #fffaf3;
+}
+.theme-cafe-guajara .stat-card-highlight,
+.theme-cafe-guajara .section-icon,
+.theme-cafe-guajara .screen-badge {
+  background: #f1dfca;
+  border-color: #d9ba98;
+  color: #694126;
+}
+.theme-cafe-guajara .action-btn-info,
+.theme-cafe-guajara .mini-btn.is-active,
+.theme-cafe-guajara .tab-btn.is-active {
+  background: linear-gradient(180deg, #9a6843, #694126);
+  border-color: #805233;
+  color: #fff;
+  box-shadow: 0 12px 22px rgba(74, 44, 27, .2);
+}
+.theme-cafe-guajara .action-btn-secondary,
+.theme-cafe-guajara .mini-btn {
+  background: linear-gradient(180deg, #fffaf3, #f1e4d4);
+  border-color: #ddc5aa;
+  color: #5b3520;
+}
+.theme-cafe-guajara .input,
+.theme-cafe-guajara input,
+.theme-cafe-guajara select,
+.theme-cafe-guajara textarea {
+  border-color: #ddc5aa;
+  background-color: #fffdf9;
+  color: #30241d;
+}
+.theme-cafe-guajara table th { background: #f0dfcb; color: #4a2c1b; }
+.theme-cafe-guajara table td { border-color: #eadbca; }
+.theme-cafe-guajara .sidebar-nav .sidebar-btn.is-active,
+.theme-cafe-guajara .sidebar-nav .sidebar-btn.is-active span,
+.theme-cafe-guajara .sidebar-nav .sidebar-btn.is-active svg {
+  color: #fff !important;
+}
+
+/* PDV compacto exclusivo do Cafe Guajara. */
+.theme-cafe-guajara .pdv-compact {
+  gap: 12px;
+}
+
+.theme-cafe-guajara .pdv-compact .pdv-status-bar,
+.theme-cafe-guajara .pdv-compact .pdv-card,
+.theme-cafe-guajara .pdv-compact .pdv-sales-board {
+  padding: 16px;
+}
+
+.theme-cafe-guajara .pdv-compact .pdv-main-column,
+.theme-cafe-guajara .pdv-compact .pdv-shell {
+  gap: 12px;
+}
+
+.theme-cafe-guajara .pdv-compact .pdv-stats-grid {
+  display: block;
+}
+
+.theme-cafe-guajara .pdv-compact .pdv-stats-grid .stat-card-highlight {
+  min-height: auto;
+  padding: 12px 16px;
+}
+.topbar-store-select {
+  width: min(220px, 30vw);
+  min-height: 40px;
+  padding-block: 7px;
 }

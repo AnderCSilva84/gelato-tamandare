@@ -18,8 +18,12 @@ import { deleteVenda, getVendasPorCaixa } from "./vendas";
 const caixasRef = collection(db, "caixas");
 const retiradasRef = collection(db, "retiradas_caixa");
 
-function rangeQuery(dataInicio, dataFim) {
-  return query(caixasRef, where("data", ">=", dataInicio), where("data", "<=", dataFim));
+function rangeQuery(uid) {
+  return query(caixasRef, where("uid", "==", uid));
+}
+
+function filterPeriod(items, dataInicio, dataFim = dataInicio) {
+  return items.filter((item) => String(item?.data || "") >= dataInicio && String(item?.data || "") <= dataFim);
 }
 
 function retiradaDayQuery(data) {
@@ -83,28 +87,28 @@ export function subscribeCaixa(id, callback) {
   });
 }
 
-export async function getCaixas(dataInicio, dataFim = dataInicio) {
+export async function getCaixas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
-  const snapshot = await getDocs(rangeQuery(dataInicio, dataFim));
-  return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const snapshot = await getDocs(rangeQuery(uid, dataInicio, dataFim));
+  return sortByDateAndStatus(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
 }
 
-export function subscribeCaixasPeriodo(dataInicio, dataFim, callback) {
+export function subscribeCaixasPeriodo(uid, dataInicio, dataFim, callback) {
   if (!dataInicio || !dataFim) {
     callback([]);
     return () => {};
   }
 
-  return onSnapshot(rangeQuery(dataInicio, dataFim), (snapshot) => {
-    callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(rangeQuery(uid, dataInicio, dataFim), (snapshot) => {
+    callback(sortByDateAndStatus(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim)));
   });
 }
 
-export function subscribeCaixasAbertos(callback, onError) {
+export function subscribeCaixasAbertos(uid, callback, onError) {
   return onSnapshot(
-    query(caixasRef, where("status", "==", "aberto")),
+    query(caixasRef, where("uid", "==", uid)),
     (snapshot) => {
-      callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+      callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === "aberto")));
     },
     (error) => {
       console.error("Erro ao ouvir caixas abertos:", error);
@@ -114,9 +118,9 @@ export function subscribeCaixasAbertos(callback, onError) {
   );
 }
 
-export async function getCaixasAbertos() {
-  const snapshot = await getDocs(query(caixasRef, where("status", "==", "aberto")));
-  return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+export async function getCaixasAbertos(uid) {
+  const snapshot = await getDocs(query(caixasRef, where("uid", "==", uid)));
+  return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === "aberto"));
 }
 
 export async function updateCaixaData(id, data) {
@@ -126,22 +130,23 @@ export async function updateCaixaData(id, data) {
   });
 }
 
-export async function getRetiradas(dataInicio, dataFim = dataInicio) {
+export async function getRetiradas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
-  const snapshot = await getDocs(query(retiradasRef, where("data", ">=", dataInicio), where("data", "<=", dataFim)));
-  return sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const snapshot = await getDocs(query(retiradasRef, where("uid", "==", uid)));
+  return sortByCreatedAt(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
 }
 
-export async function deleteCaixa(id) {
+export async function deleteCaixa(id, uid) {
   if (!id) throw new Error("Caixa invalido.");
 
-  const [vendasDoCaixa, retiradasDoCaixa] = await Promise.all([
-    getVendasPorCaixa(id),
-    getDocs(query(retiradasRef, where("caixaId", "==", id))),
+  const [vendasDoCaixa, retiradasDaUnidade] = await Promise.all([
+    getVendasPorCaixa(uid, id),
+    getDocs(query(retiradasRef, where("uid", "==", uid))),
   ]);
+  const retiradasDoCaixa = retiradasDaUnidade.docs.filter((item) => item.data()?.caixaId === id);
 
   if (vendasDoCaixa.length) {
-    const produtos = await getProdutos();
+    const produtos = await getProdutos(uid);
     const produtosPorId = new Map(produtos.map((produto) => [produto.id, produto]));
     const produtosPorNome = new Map(produtos.map((produto) => [String(produto.nome || "").trim(), produto]));
     const reposicaoPorProduto = new Map();
@@ -174,7 +179,7 @@ export async function deleteCaixa(id) {
   }
 
   await Promise.all(vendasDoCaixa.map((venda) => deleteVenda(venda.id)));
-  await Promise.all(retiradasDoCaixa.docs.map((item) => deleteDoc(doc(db, "retiradas_caixa", item.id))));
+  await Promise.all(retiradasDoCaixa.map((item) => deleteDoc(doc(db, "retiradas_caixa", item.id))));
 
   return deleteDoc(doc(db, "caixas", id));
 }
@@ -222,16 +227,16 @@ export async function deleteRetiradaCaixa(id) {
   return deleteDoc(doc(db, "retiradas_caixa", id));
 }
 
-export function subscribeRetiradasCaixa(caixaId, callback, onError) {
-  if (!caixaId) {
+export function subscribeRetiradasCaixa(uid, caixaId, callback, onError) {
+  if (!uid || !caixaId) {
     callback([]);
     return () => {};
   }
 
   return onSnapshot(
-    query(retiradasRef, where("caixaId", "==", caixaId)),
+    query(retiradasRef, where("uid", "==", uid)),
     (snapshot) => {
-      callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+      callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId)));
     },
     (error) => {
       console.error("Erro ao ouvir retiradas do caixa:", error);

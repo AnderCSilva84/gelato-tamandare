@@ -6,8 +6,7 @@ import {
   subscribeCaixasAbertos,
 } from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
-import { DEFAULT_SYSTEM_CONFIG, saveSystemConfig } from "../services/sistema";
-import { isSuperAdminRole } from "../utils/access";
+import { FiHome } from "react-icons/fi";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -38,7 +37,7 @@ function formatDateTimeLabel(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
-export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, systemConfig }) {
+export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
   const [caixasAbertosAtuais, setCaixasAbertosAtuais] = useState([]);
@@ -46,21 +45,15 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
   const [senhaGerencia, setSenhaGerencia] = useState("");
   const [feedbackAcaoCaixa, setFeedbackAcaoCaixa] = useState("");
   const [salvandoAcaoCaixa, setSalvandoAcaoCaixa] = useState(false);
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [maintenanceTitle, setMaintenanceTitle] = useState(DEFAULT_SYSTEM_CONFIG.maintenanceTitle);
-  const [maintenanceMessage, setMaintenanceMessage] = useState(DEFAULT_SYSTEM_CONFIG.maintenanceMessage);
-  const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
-  const [salvandoManutencao, setSalvandoManutencao] = useState(false);
-  const isSuperAdmin = isSuperAdminRole(accessUser?.role);
 
   useEffect(() => {
     if (!uid || !dataHoje) return;
 
     const unsubProdutos = subscribeProdutos(uid, setProdutos);
-    const unsubCaixasAbertos = subscribeCaixasAbertos(setCaixasAbertosAtuais);
+    const unsubCaixasAbertos = subscribeCaixasAbertos(uid, setCaixasAbertosAtuais);
 
     let ativo = true;
-    getCaixas(dataHoje, dataHoje).then((items) => {
+    getCaixas(uid, dataHoje, dataHoje).then((items) => {
       if (ativo) setCaixasHoje(items);
     });
 
@@ -71,11 +64,6 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     };
   }, [uid, dataHoje]);
 
-  useEffect(() => {
-    setMaintenanceMode(systemConfig?.maintenanceMode === true);
-    setMaintenanceTitle(systemConfig?.maintenanceTitle || DEFAULT_SYSTEM_CONFIG.maintenanceTitle);
-    setMaintenanceMessage(systemConfig?.maintenanceMessage || DEFAULT_SYSTEM_CONFIG.maintenanceMessage);
-  }, [systemConfig]);
 
   const caixasAbertos = useMemo(
     () => caixasAbertosAtuais.filter((item) => item.status === "aberto"),
@@ -162,7 +150,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
       }
 
       if (acaoCaixa.tipo === "excluir") {
-        await deleteCaixa(acaoCaixa.caixa.id);
+        await deleteCaixa(acaoCaixa.caixa.id, uid);
         setCaixasHoje((prev) => prev.filter((item) => item.id !== acaoCaixa.caixa.id));
       }
 
@@ -173,31 +161,13 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
     }
   }
 
-  async function salvarManutencao(e) {
-    e.preventDefault();
-    setSalvandoManutencao(true);
-    setMaintenanceFeedback("");
-
-    try {
-      await saveSystemConfig(uid, {
-        maintenanceMode,
-        maintenanceTitle,
-        maintenanceMessage,
-      });
-      setMaintenanceFeedback(maintenanceMode ? "Modo manutencao ativado." : "Modo manutencao desativado.");
-    } catch {
-      setMaintenanceFeedback("Nao foi possivel salvar a configuracao de manutencao.");
-    } finally {
-      setSalvandoManutencao(false);
-    }
-  }
 
   return (
     <div className="dashboard-screen">
       <div className="gerencia-hero section-card">
         <div>
           <span className="pdv-eyebrow">Central Gerencial</span>
-          <h1 className="screen-title app-hero-title-blue">Hub de operacao</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiHome /> Hub de operacao</h1>
           <p className="screen-description">
             Use esta tela para acompanhar alertas, caixas abertos e acessos rapidos. Os detalhes financeiros ficam no Fluxo e no Relatorio.
           </p>
@@ -253,50 +223,6 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
           Relatorio
         </button>
       </div>
-
-      {isSuperAdmin ? (
-        <div className="section-card maintenance-admin-card">
-          <div className="section-header">
-            <div className="section-title">Modo manutencao</div>
-            <span className={`screen-badge ${maintenanceMode ? "maintenance-badge-active" : ""}`}>
-              {maintenanceMode ? "Ativo" : "Inativo"}
-            </span>
-          </div>
-          <form className="stack-form" onSubmit={salvarManutencao}>
-            <label className="maintenance-toggle" htmlFor="maintenance-mode">
-              <div>
-                <strong>Tirar sistema do ar</strong>
-                <p className="screen-description">
-                  Quando ativo, apenas usuarios com role Superadmin conseguem entrar para reativar o sistema.
-                </p>
-              </div>
-              <input
-                id="maintenance-mode"
-                type="checkbox"
-                checked={maintenanceMode}
-                onChange={(e) => setMaintenanceMode(e.target.checked)}
-              />
-            </label>
-            <input
-              className="input"
-              value={maintenanceTitle}
-              onChange={(e) => setMaintenanceTitle(e.target.value)}
-              placeholder="Titulo da mensagem"
-            />
-            <textarea
-              className="input maintenance-textarea"
-              value={maintenanceMessage}
-              onChange={(e) => setMaintenanceMessage(e.target.value)}
-              placeholder="Mensagem exibida na tela de manutencao"
-              rows="4"
-            />
-            <button className="action-btn action-btn-warning" type="submit" disabled={salvandoManutencao}>
-              {salvandoManutencao ? "Salvando..." : "Salvar manutencao"}
-            </button>
-            {maintenanceFeedback ? <p className="inline-feedback">{maintenanceFeedback}</p> : null}
-          </form>
-        </div>
-      ) : null}
 
       <div className="screen-grid gerencia-focus-grid">
         <div className="section-card gerencia-focus-card">
@@ -358,7 +284,9 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser, system
                     <button
                       className="mini-btn danger"
                       type="button"
-                      onClick={() => abrirAcaoCaixa("excluir", caixa)}
+                      onClick={() => {
+                        if (window.confirm(`Deseja realmente excluir o caixa de ${caixa.atendenteNome}?`)) abrirAcaoCaixa("excluir", caixa);
+                      }}
                     >
                       Excluir
                     </button>

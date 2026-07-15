@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiHeadphones } from "react-icons/fi";
 import {
   buscarConversasAbertas,
   escutarConversaSuporte,
@@ -165,7 +166,7 @@ export default function Suporte({ accessRole, authUser }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card suporte-hero">
         <div>
-          <h1 className="screen-title app-hero-title-blue">Suporte</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiHeadphones /> Suporte</h1>
           <p className="screen-description">
             Atendimento em tempo real com leitura sob demanda por conversa.
           </p>

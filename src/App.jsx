@@ -10,10 +10,11 @@ import {
 } from "./services/lancamentos";
 import { subscribeAtendentes, updateAtendente } from "./services/atendentes";
 import { login as loginPainel, logout as logoutPainel, observeAuth, registerAndLogin } from "./services/auth";
-import { savePanelAccess, subscribePanelAccess } from "./services/panelAccess";
-import { DEFAULT_SYSTEM_CONFIG, subscribeSystemConfig } from "./services/sistema";
+import { buildAtendenteEmail } from "./services/loginsAtendentes";
+import { savePanelAccess, subscribePanelAccess, updatePanelAccess } from "./services/panelAccess";
+import { DEFAULT_LOJA, DEFAULT_LOJA_ID, subscribeLojas } from "./services/lojas";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "./utils/access";
-import ChatSuporte from "./components/ChatSuporte";
+import { FiBarChart2, FiBox, FiCalendar, FiGrid, FiHeadphones, FiHome, FiLayers, FiLogOut, FiMenu, FiShoppingCart, FiTrendingUp, FiUser, FiUsers, FiX } from "react-icons/fi";
 import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
 import "./styles.css";
@@ -26,17 +27,26 @@ const TelaFluxoCaixa = lazy(() => import("./screens/FluxoCaixa"));
 const TelaGerencia = lazy(() => import("./screens/Gerencia"));
 const TelaRelatorio = lazy(() => import("./screens/Relatorio"));
 const TelaSuporte = lazy(() => import("./screens/Suporte"));
+const TelaLojas = lazy(() => import("./screens/Lojas"));
+const TelaRede = lazy(() => import("./screens/Rede"));
 
-const BUSINESS_USER = { uid: "gelato-local" };
 const LAST_LOGIN_EMAIL_KEY = "gelato-painel-last-email";
+const DEPLOY_REDE_ID = String(import.meta.env.VITE_REDE_ID || "").trim();
+const IS_CAFE_GUAJARA = DEPLOY_REDE_ID === "emporio";
+const DEPLOY_LOJA_INICIAL_ID = String(import.meta.env.VITE_LOJA_INICIAL_ID || "").trim();
+const DEPLOY_LOJA_FALLBACK = DEPLOY_REDE_ID === "emporio"
+  ? { ...DEFAULT_LOJA, id: "emporio-cafe", nome: "cafe-guajara", nomeFantasia: "cafe-guajara", redeId: "emporio", logomarca: "" }
+  : DEFAULT_LOJA;
 const NAV_ITEMS = [
-  { id: "gerencia", label: "Gerencia", gerenciaOnly: true },
-  { id: "pdv", label: "PDV" },
-  { id: "fluxo", label: "Fluxo de Caixa", gerenciaOnly: true },
-  { id: "estoque", label: "Estoque", gerenciaOnly: true },
-  { id: "atendentes", label: "Atendentes", gerenciaOnly: true },
-  { id: "relatorio", label: "Relatorio", gerenciaOnly: true },
-  { id: "suporte", label: "Suporte", superadminOnly: true },
+  { id: "gerencia", label: "Dashboard", icon: FiHome, gerenciaOnly: true },
+  { id: "pdv", label: "PDV / Caixa", icon: FiShoppingCart },
+  { id: "fluxo", label: "Fluxo de Caixa", icon: FiTrendingUp, gerenciaOnly: true },
+  { id: "estoque", label: "Estoque", icon: FiBox, gerenciaOnly: true },
+  { id: "atendentes", label: "Atendentes", icon: FiUsers, gerenciaOnly: true },
+  { id: "relatorio", label: "Relatorios", icon: FiBarChart2, gerenciaOnly: true },
+  { id: "rede", label: "Comparar unidades", icon: FiGrid, gerenciaOnly: true },
+  { id: "suporte", label: "Suporte", icon: FiHeadphones, superadminOnly: true },
+  { id: "lojas", label: "Unidades", icon: FiLayers, gerenciaOnly: true },
 ];
 
 const FilterIcon = (
@@ -141,7 +151,7 @@ function writeLastLoginEmail(email) {
 }
 
 export default function App() {
-  const [user] = useState(BUSINESS_USER);
+  const isTabletPortrait = false;
   const [tela, setTela] = useState("pdv");
   const [atendentes, setAtendentes] = useState([]);
   const [authUser, setAuthUser] = useState(null);
@@ -158,7 +168,6 @@ export default function App() {
     confirmarSenha: "",
   });
   const [accessError, setAccessError] = useState("");
-  const [systemConfig, setSystemConfig] = useState(DEFAULT_SYSTEM_CONFIG);
   const [lancamentos, setLancamentos] = useState([]);
   const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [mesSelecionado, setMesSelecionado] = useState(mesISO());
@@ -171,13 +180,61 @@ export default function App() {
   const [retroDescricao, setRetroDescricao] = useState("");
   const [retroValor, setRetroValor] = useState("");
   const [retroTipo, setRetroTipo] = useState("SAIDA");
-  const [isTabletPortrait, setIsTabletPortrait] = useState(false);
   const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => hojeISO());
+  const [maintenanceTapCount, setMaintenanceTapCount] = useState(0);
+  const [maintenanceAccessUnlocked, setMaintenanceAccessUnlocked] = useState(false);
+  const [lojas, setLojas] = useState([DEPLOY_LOJA_FALLBACK]);
+  const [lojaAtivaId, setLojaAtivaId] = useState(() => window.localStorage.getItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`) || DEPLOY_LOJA_INICIAL_ID || DEFAULT_LOJA_ID);
+  const [simulation, setSimulation] = useState(null);
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    return subscribeLojas(DEPLOY_REDE_ID, setLojas);
+  }, []);
+
+  useEffect(() => {
+    if (!lojas.length || lojas.some((item) => item.id === lojaAtivaId)) return;
+    const lojaCadastrada = lojas.find((item) => item.id === DEPLOY_LOJA_INICIAL_ID) || lojas[0];
+    setLojaAtivaId(lojaCadastrada.id);
+    window.localStorage.setItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`, lojaCadastrada.id);
+  }, [lojaAtivaId, lojas]);
+
+  const lojaAtiva = useMemo(
+    () => lojas.find((item) => item.id === lojaAtivaId) || { ...DEPLOY_LOJA_FALLBACK, id: lojaAtivaId },
+    [lojaAtivaId, lojas]
+  );
+  const operationalUid = lojaAtiva.id;
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-cafe-guajara", IS_CAFE_GUAJARA);
+    return () => document.body.classList.remove("theme-cafe-guajara");
+  }, []);
+
+  useEffect(() => {
+    document.title = lojaAtiva.nome || import.meta.env.VITE_APP_TITLE || "ACS";
+    const favicon = document.querySelector('link[rel="icon"]');
+    if (favicon && lojaAtiva.logomarca) {
+      favicon.href = lojaAtiva.logomarca;
+    } else if (favicon && IS_CAFE_GUAJARA) {
+      favicon.href = "/guajara-192.png";
+    }
+  }, [lojaAtiva.logomarca, lojaAtiva.nome]);
+
+  function selecionarLoja(id) {
+    setLojaAtivaId(id);
+    window.localStorage.setItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`, id);
+    setTela("pdv");
+  }
+
+  function iniciarSimulacao(usuario) {
+    selecionarLoja(usuario.lojaId);
+    setSimulation(usuario);
+    setTela("pdv");
+  }
 
   useEffect(() => {
     function syncCurrentDate() {
@@ -205,26 +262,16 @@ export default function App() {
     }
 
     function isCompactLandscapeViewport() {
-      return window.innerWidth >= 768 && window.innerWidth <= 1366 && window.innerWidth > window.innerHeight;
-    }
-
-    async function tentarPaisagem() {
-      if (!isTabletViewport()) return;
-
-      try {
-        if (window.screen?.orientation?.lock) {
-          await window.screen.orientation.lock("landscape");
-        }
-      } catch {
-        // Ignora navegadores que nao permitem lock programatico fora do contexto suportado.
-      }
+      return mediaQuery.matches
+        && window.innerWidth >= 768
+        && window.innerWidth <= 1366
+        && window.innerWidth > window.innerHeight;
     }
 
     function atualizarOrientacao() {
       const tablet = isTabletViewport();
       const retrato = window.innerHeight > window.innerWidth;
       const paisagem = isCompactLandscapeViewport();
-      setIsTabletPortrait(tablet && retrato);
       setIsTabletLandscape(paisagem);
       setSidebarOpen((prev) => (paisagem ? prev : false));
       document.body.classList.toggle("tablet-device", tablet);
@@ -232,43 +279,36 @@ export default function App() {
       document.body.classList.toggle("tablet-landscape", paisagem);
     }
 
-    const tentarPaisagemAoInteragir = () => {
-      tentarPaisagem();
-    };
-
     atualizarOrientacao();
-    tentarPaisagem();
 
     window.addEventListener("resize", atualizarOrientacao);
     window.addEventListener("orientationchange", atualizarOrientacao);
-    window.addEventListener("focus", tentarPaisagemAoInteragir);
-    window.addEventListener("pointerdown", tentarPaisagemAoInteragir, { passive: true });
+    mediaQuery.addEventListener?.("change", atualizarOrientacao);
 
     return () => {
       window.removeEventListener("resize", atualizarOrientacao);
       window.removeEventListener("orientationchange", atualizarOrientacao);
-      window.removeEventListener("focus", tentarPaisagemAoInteragir);
-      window.removeEventListener("pointerdown", tentarPaisagemAoInteragir);
+      mediaQuery.removeEventListener?.("change", atualizarOrientacao);
       document.body.classList.remove("tablet-device", "tablet-portrait", "tablet-landscape");
     };
   }, []);
 
   useEffect(() => {
-    const unsub = escutarLancamentosMes(user.uid, mesSelecionado, setLancamentos);
+    const unsub = escutarLancamentosMes(operationalUid, mesSelecionado, setLancamentos);
     return () => unsub && unsub();
-  }, [user.uid, mesSelecionado]);
+  }, [authUser?.uid, operationalUid, mesSelecionado]);
 
   useEffect(() => {
-    const unsub = escutarTodosLancamentos(user.uid, setTodosLancamentos);
+    const unsub = escutarTodosLancamentos(operationalUid, setTodosLancamentos);
     return () => unsub && unsub();
-  }, [user.uid]);
+  }, [authUser?.uid, operationalUid]);
 
   useEffect(() => {
-    const unsub = subscribeAtendentes(user.uid, (items) => {
+    const unsub = subscribeAtendentes(operationalUid, (items) => {
       setAtendentes(items);
     });
     return () => unsub && unsub();
-  }, [user.uid]);
+  }, [authUser?.uid, operationalUid]);
 
   useEffect(() => {
     const unsub = observeAuth((nextUser) => {
@@ -284,9 +324,12 @@ export default function App() {
   }, [authUser?.uid]);
 
   useEffect(() => {
-    const unsub = subscribeSystemConfig(setSystemConfig);
-    return () => unsub && unsub();
-  }, []);
+    if (!authUser?.uid || !panelAccess || !isManagementRole(panelAccess.role) || !lojas.length) return;
+    const lojaIds = lojas.map((item) => item.id).sort();
+    const atuais = Array.isArray(panelAccess.lojaIds) ? [...panelAccess.lojaIds].map(String).sort() : [];
+    if (lojaIds.length === atuais.length && lojaIds.every((id, index) => id === atuais[index])) return;
+    updatePanelAccess(authUser.uid, { lojaIds }).catch((error) => console.error("Erro ao liberar unidades para a gerencia:", error));
+  }, [authUser?.uid, lojas, panelAccess]);
 
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
@@ -305,35 +348,59 @@ export default function App() {
   );
   const unrestrictedSetup = !hasGerencia;
   const accessUser = useMemo(
-    () => atendentesAtivos.find((item) => item.id === panelAccess?.atendenteId) || null,
-    [atendentesAtivos, panelAccess?.atendenteId]
+    () => atendentesAtivos.find((item) => item.id === panelAccess?.atendenteId || (panelAccess?.id && item.authUid === panelAccess.id))
+      || (isManagementRole(panelAccess?.role) ? panelAccess : null),
+    [atendentesAtivos, panelAccess]
   );
 
   const forceScreens = typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("screenshots") === "true" || window.location.hash.includes("screenshots"));
 
-  const accessRole = normalizeRole(panelAccess?.role || accessUser?.role || (forceScreens ? "gerencia" : undefined));
+  const accessRole = normalizeRole(simulation?.role || panelAccess?.role || accessUser?.role || (forceScreens ? "gerencia" : undefined));
+  const effectiveAccessUser = simulation || accessUser;
+  const podeAcessarEstoque = isManagementRole(accessRole)
+    || Boolean(effectiveAccessUser?.podeGerenciarProdutos || panelAccess?.podeGerenciarProdutos);
   const painelLiberado = Boolean(authUser && panelAccess && accessUser && accessUser.ativo !== false) || forceScreens;
+  const unitUnavailable = lojaAtiva.status && lojaAtiva.status !== "ativa";
+  const maintenanceModeEnabled = unitUnavailable;
+  const maintenanceScope = "total";
+  const canBypassMaintenance = isSuperAdminRole(panelAccess?.role) && !simulation;
+  const maintenanceBlocksEntireSystem = maintenanceModeEnabled && maintenanceScope === "total";
+  const gerencialLiberado = painelLiberado && (!maintenanceModeEnabled || canBypassMaintenance);
   const navItems = useMemo(
     () =>
       NAV_ITEMS.filter(
         (item) =>
-          item.id === "pdv" ||
-          (painelLiberado
+          item.id === "pdv"
+          || (item.id === "estoque" && gerencialLiberado && podeAcessarEstoque)
+          || (gerencialLiberado
             && (!item.gerenciaOnly || isManagementRole(accessRole))
             && (!item.superadminOnly || isSuperAdminRole(accessRole)))
       ),
-    [accessRole, painelLiberado]
+    [accessRole, gerencialLiberado, podeAcessarEstoque]
   );
-  const maintenanceAdmins = useMemo(
-    () => atendentesAtivos.filter((item) => isSuperAdminRole(item.role)),
-    [atendentesAtivos]
-  );
-  const maintenanceModeEnabled = systemConfig.maintenanceMode === true;
-  const canBypassMaintenance = isSuperAdminRole(accessRole);
   const maintenanceLocked = maintenanceModeEnabled && !canBypassMaintenance;
-  const maintenanceTitle = systemConfig.maintenanceTitle || DEFAULT_SYSTEM_CONFIG.maintenanceTitle;
-  const maintenanceMessage = systemConfig.maintenanceMessage || DEFAULT_SYSTEM_CONFIG.maintenanceMessage;
+  const maintenanceTitle = `${lojaAtiva.nome} indisponivel`;
+  const maintenanceMessage = lojaAtiva.mensagemManutencao || "Unidade temporariamente indisponivel.";
+  const maintenanceBannerVisible = false;
+  const maintenanceScreenLocked = maintenanceLocked && maintenanceBlocksEntireSystem;
   const shouldShowBootstrap = !authUser && superadminsSemAcesso.length > 0;
+
+  useEffect(() => {
+    if (!maintenanceModeEnabled) {
+      setMaintenanceTapCount(0);
+      setMaintenanceAccessUnlocked(false);
+      return;
+    }
+
+    if (canBypassMaintenance) {
+      setMaintenanceTapCount(0);
+      setMaintenanceAccessUnlocked(true);
+      return;
+    }
+
+    setMaintenanceTapCount(0);
+    setMaintenanceAccessUnlocked(false);
+  }, [canBypassMaintenance, maintenanceModeEnabled]);
 
   useEffect(() => {
     if (!authLoaded) return;
@@ -348,6 +415,11 @@ export default function App() {
       setTela("pdv");
     }
   }, [navItems, tela]);
+
+  useEffect(() => {
+    if (!maintenanceLocked) return;
+    setTela("pdv");
+  }, [maintenanceLocked]);
 
   useEffect(() => {
     if (!maintenanceModeEnabled || !authUser || !panelAccess) return;
@@ -429,6 +501,9 @@ export default function App() {
       navigate("/");
     }
     setTela(nextTela);
+    if (typeof window !== "undefined" && window.innerWidth <= 1023) {
+      setSidebarOpen(false);
+    }
     if (isTabletLandscape) {
       setSidebarOpen(false);
     }
@@ -460,10 +535,15 @@ export default function App() {
             </>
           ) : null}
           <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
+            <button className="mobile-sidebar-close" type="button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><FiX /></button>
             <div className="sidebar-brand">
-              <img className="sidebar-logo" src={logoGelato} alt="Gelato Tamandare" />
-              <div className="sidebar-title">Gelato Tamandare</div>
-              <div className="sidebar-subtitle">Painel de gestao</div>
+              <img
+                className="sidebar-logo"
+                src={lojaAtiva.logomarca || (IS_CAFE_GUAJARA ? "/guajara-192.png" : logoGelato)}
+                alt={lojaAtiva.nome}
+              />
+              <div className="sidebar-title">{lojaAtiva.nome}</div>
+              <div className="sidebar-subtitle">ACS · Painel de gestao</div>
             </div>
 
             <div className="sidebar-access section-card">
@@ -475,7 +555,7 @@ export default function App() {
                     : shouldShowBootstrap
                       ? "Configurar superadmin inicial"
                       : unrestrictedSetup
-                        ? "Modo configuracao ativo"
+                        ? "Entre com seu acesso ACS"
                         : accessUser
                           ? `${accessUser.nome} - ${getRoleLabel(accessRole)}`
                           : "Entre para liberar a gerencia"}
@@ -530,24 +610,22 @@ export default function App() {
                   </button>
                   {accessError ? <p className="inline-feedback">{accessError}</p> : null}
                 </form>
-              ) : unrestrictedSetup ? (
-                <p className="sidebar-access-note">
-                  Cadastre pelo menos um usuario com role gerencia ou superadmin em Atendentes para ativar o controle de acesso.
-                </p>
               ) : accessUser ? (
-                <div className="sidebar-access-actions">
-                  <button className="action-btn action-btn-secondary sidebar-access-btn" type="button" onClick={sairDoPainel}>
-                    Sair do painel
-                  </button>
+                <div className="sidebar-user-card">
+                  <span className={`sidebar-user-avatar is-${accessUser.avatarTipo || "masculino"}`}>
+                    {accessUser.fotoPerfil ? <img src={accessUser.fotoPerfil} alt={accessUser.nome} /> : <FiUser />}
+                  </span>
+                  <div><strong>{accessUser.nome}</strong><small>{getRoleLabel(accessRole)} · Online</small></div>
                 </div>
               ) : (
                 <form className="stack-form" onSubmit={entrarNoPainel}>
                   <input
                     className="input"
-                    type="email"
+                    type="text"
                     value={accessForm.email}
                     onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
-                    placeholder="Email de acesso"
+                    placeholder="Nome do atendente ou email"
+                    autoComplete="username"
                   />
                   <input
                     className="input"
@@ -566,89 +644,71 @@ export default function App() {
 
             {navItems.length > 1 ? (
               <div className="sidebar-nav">
-                {navItems.map((item) => (
+                {navItems.map((item) => {
+                  const NavIcon = item.icon;
+                  return (
                   <button
                     key={item.id}
                     className={`sidebar-btn ${telaAtiva === item.id ? "is-active" : ""}`}
                     onClick={() => handleSelectTela(item.id)}
                     type="button"
-                    disabled={item.id !== "pdv" && !painelLiberado}
+                    disabled={item.id !== "pdv" && !gerencialLiberado}
                   >
-                    {item.label}
+                    <NavIcon aria-hidden="true" /><span>{item.label}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
+            {accessUser ? <button className="sidebar-exit-btn" type="button" onClick={sairDoPainel}><FiLogOut /> Sair do sistema</button> : null}
           </aside>
 
+          <header className="app-topbar">
+            <button className="topbar-menu-btn" type="button" aria-label="Abrir menu" onClick={() => setSidebarOpen((prev) => !prev)}><FiMenu /></button>
+            <div className="topbar-greeting"><strong>Ola, {effectiveAccessUser?.nome || "Usuario"}! 👋</strong><span>Bem vindo ao ACS Sistemas</span></div>
+            <div className="topbar-actions">
+              {isManagementRole(accessRole) && lojas.length > 1 ? (
+                <select className="input select topbar-store-select" value={lojaAtivaId} onChange={(event) => selecionarLoja(event.target.value)} aria-label="Escolher unidade">
+                  {lojas.filter((item) => isSuperAdminRole(accessRole) || item.status === "ativa").map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+                </select>
+              ) : null}
+              <span className="topbar-date"><FiCalendar /> {formatarDataBR(currentDate)}</span><span className={`topbar-avatar is-${effectiveAccessUser?.avatarTipo || "masculino"}`}>{effectiveAccessUser?.fotoPerfil ? <img src={effectiveAccessUser.fotoPerfil} alt={effectiveAccessUser.nome} /> : <FiUser />}</span>
+            </div>
+          </header>
+
           <main className="content">
-            {maintenanceLocked ? (
-              <div className="dashboard-screen maintenance-screen">
-                <div className="section-card access-block-card maintenance-card">
-                  <div className="section-header section-header-main">
-                    <div className="section-title">{maintenanceTitle}</div>
-                    <span className="section-subtitle">Acesso temporariamente restrito</span>
-                  </div>
-                  <p className="screen-description">{maintenanceMessage}</p>
-                  {maintenanceAdmins.length ? (
-                    <>
-                      <p className="helper-text">O superadmin ainda pode entrar para reativar o sistema.</p>
-                      <form className="stack-form" onSubmit={entrarNoPainel}>
-                        <input
-                          className="input"
-                          type="email"
-                          value={accessForm.email}
-                          onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
-                          placeholder="Email do superadmin"
-                        />
-                        <input
-                          className="input"
-                          type="password"
-                          value={accessForm.senha}
-                          onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
-                          placeholder="Senha do superadmin"
-                        />
-                        <button className="action-btn action-btn-primary" type="submit">
-                          Entrar como superadmin
-                        </button>
-                        {accessError ? <p className="inline-feedback">{accessError}</p> : null}
-                      </form>
-                    </>
-                  ) : (
-                    <p className="inline-feedback">
-                      Nenhum usuario superadmin esta disponivel para desativar a manutencao pelo painel.
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : telaAtiva === "pdv" ? (
+            {telaAtiva === "pdv" && painelLiberado ? (
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                 <TelaCaixa
-                  uid={user.uid}
+                  uid={operationalUid}
                   dataHoje={currentDate}
                   accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
-                  accessUser={accessUser}
+                  accessUser={effectiveAccessUser}
+                  loja={lojaAtiva}
+                  compactMode={IS_CAFE_GUAJARA}
                 />
               </Suspense>
-            ) : painelLiberado ? (
+            ) : gerencialLiberado ? (
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                 {telaAtiva === "gerencia" && (
                   <TelaGerencia
-                    uid={user.uid}
+                    uid={operationalUid}
                     dataHoje={currentDate}
                     onNavigate={handleSelectTela}
-                    accessUser={accessUser}
-                    systemConfig={systemConfig}
+                    accessUser={effectiveAccessUser}
                   />
                 )}
-                {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={user.uid} dataHoje={currentDate} />}
-                {telaAtiva === "estoque" && <TelaEstoque uid={user.uid} />}
-                {telaAtiva === "atendentes" && <TelaAtendentes uid={user.uid} accessUser={accessUser} />}
+                {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={operationalUid} dataHoje={currentDate} loja={lojaAtiva} />}
+                {telaAtiva === "estoque" && <TelaEstoque uid={operationalUid} loja={lojaAtiva} lojas={lojas} />}
+                {telaAtiva === "atendentes" && <TelaAtendentes uid={operationalUid} accessUser={effectiveAccessUser} lojas={lojas} />}
+                {telaAtiva === "lojas" && <TelaLojas lojaAtivaId={lojaAtivaId} onSelectLoja={selecionarLoja} redeId={DEPLOY_REDE_ID} onSimulate={iniciarSimulacao} canManageAvailability={isSuperAdminRole(accessRole)} />}
+                {telaAtiva === "rede" && <TelaRede lojas={lojas} />}
                 {telaAtiva === "relatorio" && (
                   <TelaRelatorio
-                    uid={user.uid}
+                    uid={operationalUid}
                     dataHoje={currentDate}
-                    accessUser={accessUser}
+                    accessUser={effectiveAccessUser}
+                    loja={lojaAtiva}
                   />
                 )}
                 {telaAtiva === "suporte" && (
@@ -659,19 +719,103 @@ export default function App() {
               <div className="dashboard-screen">
                 <div className="section-card access-block-card">
                   <div className="section-header section-header-main">
-                    <div className="section-title">Painel bloqueado</div>
-                    <span className="section-subtitle">Entre com um usuario autenticado para continuar</span>
+                  <div className="section-title">Painel bloqueado</div>
+                    <span className="section-subtitle">
+                      {maintenanceLocked
+                        ? "Somente superadmin pode acessar o gerencial durante a manutencao"
+                        : "Entre com um usuario autenticado para continuar"}
+                    </span>
                   </div>
                   <p className="screen-description">
-                    O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha.
+                    {maintenanceLocked
+                      ? "O PDV continua disponivel. As telas gerenciais ficam bloqueadas ate que um superadmin entre no painel."
+                      : "O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha."}
                   </p>
                 </div>
               </div>
             )}
           </main>
+          <nav className="mobile-bottom-nav" aria-label="Navegacao principal">
+            {navItems.filter((item) => ["gerencia", "pdv", "estoque", "relatorio"].includes(item.id)).map((item) => {
+              const BottomIcon = item.icon;
+              return <button key={item.id} className={telaAtiva === item.id ? "is-active" : ""} type="button" onClick={() => handleSelectTela(item.id)}><BottomIcon /><span>{item.id === "gerencia" ? "Inicio" : item.label.replace(" / Caixa", "")}</span></button>;
+            })}
+            <button type="button" onClick={() => setSidebarOpen(true)}><FiMenu /><span>Mais</span></button>
+          </nav>
         </div>
         {SystemFooter}
       </>
+    );
+  }
+
+  function handleMaintenanceTap() {
+    if (maintenanceAccessUnlocked || !maintenanceLocked) return;
+    setMaintenanceTapCount((prev) => {
+      const nextCount = prev + 1;
+      if (nextCount >= 6) {
+        setMaintenanceAccessUnlocked(true);
+        return 6;
+      }
+      return nextCount;
+    });
+  }
+
+  function renderMaintenanceLockScreen() {
+    const totalMode = maintenanceScope === "total";
+    return (
+      <div
+        className={`maintenance-lock-screen ${totalMode ? "is-total" : "is-partial"}`}
+        role={totalMode ? "alert" : "status"}
+        aria-live={totalMode ? "assertive" : "polite"}
+        data-taps={maintenanceTapCount}
+        onClick={handleMaintenanceTap}
+      >
+        <div className="maintenance-lock-content">
+          <strong className="maintenance-lock-title">
+            {maintenanceTitle || "Modo manutencao ativo"}
+          </strong>
+          <p className="maintenance-lock-note">
+            {totalMode
+              ? maintenanceMessage || "Sistema temporariamente indisponivel."
+              : "O PDV segue operante. O acesso gerencial esta bloqueado e liberado apenas para superadmin."}
+          </p>
+          {maintenanceAccessUnlocked ? (
+              <div
+                className="maintenance-login-shell"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <form className="stack-form maintenance-login-form" onSubmit={entrarNoPainel}>
+                  <input
+                    className="input maintenance-login-input"
+                    type="email"
+                    value={accessForm.email}
+                    onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="Email do superadmin"
+                    aria-label="Email do superadmin"
+                  />
+                  <input
+                    className="input maintenance-login-input"
+                    type="password"
+                    value={accessForm.senha}
+                    onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                    placeholder="Senha do superadmin"
+                    aria-label="Senha do superadmin"
+                  />
+                  <button className="maintenance-login-button" type="submit">
+                    Liberar gerencial
+                  </button>
+                  {accessError ? <p className="inline-feedback">{accessError}</p> : null}
+                </form>
+              </div>
+          ) : (
+            <p className="maintenance-lock-note">
+              {totalMode
+                ? "Toque 6 vezes nesta tela para abrir o login de superadmin."
+                : "Toque 6 vezes nesta faixa para abrir o login de superadmin."}
+            </p>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -685,7 +829,7 @@ export default function App() {
     const tipo = retroTipo === "ENTRADA" ? "ENTRADA" : "SAIDA";
 
     await criarLancamento({
-      uid: user.uid,
+      uid: operationalUid,
       tipo,
       valor: v,
       data,
@@ -709,7 +853,7 @@ export default function App() {
     if (!confirma) return;
 
     try {
-      await apagarLancamento(user.uid, item.id);
+      await apagarLancamento(operationalUid, item.id);
       setLancamentos((prev) => prev.filter((atual) => atual.id !== item.id));
       setTodosLancamentos((prev) => prev.filter((atual) => atual.id !== item.id));
     } catch (err) {
@@ -828,23 +972,27 @@ export default function App() {
 
   async function entrarNoPainel(e) {
     e.preventDefault();
-    const email = String(accessForm.email || "").trim().toLowerCase();
+    const identificacao = String(accessForm.email || "").trim();
     const senha = String(accessForm.senha || "");
 
-    if (!email || !senha) {
-      setAccessError("Informe email e senha para entrar.");
+    if (!identificacao || !senha) {
+      setAccessError("Informe seu nome ou email e a senha para entrar.");
       return;
     }
 
     try {
+      const loginPorEmail = identificacao.includes("@");
+      const email = loginPorEmail
+        ? identificacao.toLowerCase()
+        : buildAtendenteEmail(operationalUid, identificacao);
       await loginPainel(email, senha);
-      writeLastLoginEmail(email);
+      writeLastLoginEmail(identificacao);
       setAccessForm((prev) => ({ ...prev, senha: "" }));
       setAccessError("");
-      setTela("gerencia");
+      setTela(loginPorEmail ? "gerencia" : "pdv");
     } catch (error) {
       console.error(error);
-      setAccessError("Nao foi possivel entrar. Verifique email, senha e o acesso do painel.");
+      setAccessError("Não foi possível entrar. Verifique o nome ou email e a senha.");
     }
   }
 
@@ -984,8 +1132,10 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
-      {isTabletPortrait ? (
+    <div className={`app-shell ${simulation ? "simulation-readonly" : ""}`}>
+      {simulation ? <div className="simulation-banner"><span>Simulacao somente leitura · {simulation.nome} · {simulation.role} · {simulation.lojaNome}</span><button type="button" onClick={() => setSimulation(null)}>Encerrar simulacao</button></div> : null}
+      {maintenanceScreenLocked ? renderMaintenanceLockScreen() : null}
+      {!maintenanceScreenLocked && isTabletPortrait ? (
         <div className="tablet-orientation-guard" role="alert" aria-live="assertive">
           <div className="tablet-orientation-card">
             <div className="tablet-orientation-icon" aria-hidden="true">
@@ -996,6 +1146,8 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      {!maintenanceScreenLocked && maintenanceBannerVisible ? renderMaintenanceLockScreen() : null}
+      {!maintenanceScreenLocked ? (
       <Routes>
         <Route
           path="/"
@@ -1069,7 +1221,7 @@ export default function App() {
           )}
         />
       </Routes>
-      <ChatSuporte authUser={authUser} accessUser={accessUser} panelAccess={panelAccess} accessRole={accessRole} />
+      ) : null}
     </div>
   );
 }

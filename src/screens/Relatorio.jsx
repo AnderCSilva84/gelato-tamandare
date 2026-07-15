@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import logoGelato from "../assets/gelatoimg.jpeg";
+import { FiBarChart2 } from "react-icons/fi";
+import { getPdfLogo } from "../utils/pdfLogo";
 import {
   deleteCaixa,
   fecharCaixa,
@@ -169,21 +170,6 @@ function formatVendaHorario(venda) {
   return "";
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function getLogoDataUrl() {
-  const response = await fetch(logoGelato);
-  const blob = await response.blob();
-  return fileToDataUrl(blob);
-}
-
 function drawSummaryCard(doc, { x, y, w, h, title, value, fillColor, textColor = [24, 33, 47] }) {
   doc.setFillColor(...fillColor);
   doc.roundedRect(x, y, w, h, 5, 5, "F");
@@ -277,7 +263,7 @@ function buildMonthlySummary({ vendas = [], entradasConsolidadas = [], despesas 
     .sort((a, b) => a.mes.localeCompare(b.mes));
 }
 
-export default function Relatorio({ uid, dataHoje, accessUser = null }) {
+export default function Relatorio({ uid, dataHoje, accessUser = null, loja = null }) {
   const [dataInicioFiltro, setDataInicioFiltro] = useState(dataHoje);
   const [dataFimFiltro, setDataFimFiltro] = useState(dataHoje);
   const [loading, setLoading] = useState(true);
@@ -313,12 +299,12 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
         const [vendasData, despesasData, retiradasData, entradasConsolidadasData] = await Promise.all([
           getVendas(uid, periodoFiltro.inicio, periodoFiltro.fim),
           getDespesas(uid, periodoFiltro.inicio, periodoFiltro.fim),
-          getRetiradas(periodoFiltro.inicio, periodoFiltro.fim),
+          getRetiradas(uid, periodoFiltro.inicio, periodoFiltro.fim),
           getEntradasConsolidadas(uid, periodoFiltro.inicio, periodoFiltro.fim),
         ]);
         const [caixasPeriodo, caixasAbertos] = await Promise.all([
-          getCaixas(periodoFiltro.inicio, periodoFiltro.fim),
-          getCaixasAbertos(),
+          getCaixas(uid, periodoFiltro.inicio, periodoFiltro.fim),
+          getCaixasAbertos(uid),
         ]);
         const caixasData = buildVisibleCaixasForPeriod(
           caixasPeriodo,
@@ -327,7 +313,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
           periodoFiltro.fim
         );
         const vendasDosCaixas = await Promise.all(
-          caixasData.map((item) => getVendasPorCaixa(item.id))
+          caixasData.map((item) => getVendasPorCaixa(uid, item.id))
         );
 
         if (!ativo || periodoRequestRef.current !== requestId) return;
@@ -394,8 +380,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
 
       try {
         const [caixasPeriodo, caixasAbertos, vendasData] = await Promise.all([
-          getCaixas(dataHoje, dataHoje),
-          getCaixasAbertos(),
+          getCaixas(uid, dataHoje, dataHoje),
+          getCaixasAbertos(uid),
           getVendas(uid, dataHoje, dataHoje),
         ]);
         const caixasVisiveis = buildVisibleCaixasForPeriod(
@@ -405,7 +391,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
           dataHoje
         );
         const vendasDosCaixas = await Promise.all(
-          caixasVisiveis.map((item) => getVendasPorCaixa(item.id))
+          caixasVisiveis.map((item) => getVendasPorCaixa(uid, item.id))
         );
         if (!ativo) return;
         setVendasHoje(
@@ -524,7 +510,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     );
     if (!confirmar) return;
 
-    await deleteCaixa(item.id);
+    await deleteCaixa(item.id, uid);
     setCaixaSelecionado((prev) => (prev?.id === item.id ? null : prev));
     setReloadPeriodoKey((prev) => prev + 1);
   }
@@ -537,7 +523,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     );
     if (!confirmar) return;
 
-    const vendasDoCaixa = await getVendasPorCaixa(item.id);
+    const vendasDoCaixa = await getVendasPorCaixa(uid, item.id);
     const retiradasDoCaixa = retiradas.filter((retirada) => retirada.caixaId === item.id);
     const totalVendas = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
     const totalItens = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0);
@@ -634,7 +620,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
       import("jspdf"),
       import("jspdf-autotable"),
     ]);
-    const produtos = await getProdutos();
+    const produtos = await getProdutos(uid);
     const totalEstoque = produtos.reduce((acc, produto) => acc + Number(produto.estoque || 0), 0);
     const totalProdutosAtivos = produtos.filter((produto) => produto.ativo !== false).length;
     const valorEstoque = produtos.reduce(
@@ -646,8 +632,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     let y = 18;
 
     try {
-      const logoDataUrl = await getLogoDataUrl();
-      doc.addImage(logoDataUrl, "JPEG", 14, 10, 22, 22);
+      const logo = await getPdfLogo(loja?.logomarca);
+      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
       y = 38;
     } catch {
       y = 18;
@@ -900,7 +886,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null }) {
     <div className="dashboard-screen">
       <div className="screen-heading section-card report-hero">
         <div>
-          <h1 className="screen-title app-hero-title-blue">Relatório</h1>
+          <h1 className="screen-title app-hero-title-blue screen-title-with-icon"><FiBarChart2 /> Relatório</h1>
           <p className="screen-description">Resumo de vendas, despesas e lucro por data.</p>
         </div>
         <span className="screen-badge">{formatDateLabel(dataHoje)}</span>

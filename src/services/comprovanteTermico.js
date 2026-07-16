@@ -21,6 +21,13 @@ function quantity(item) {
     : `${value} un`;
 }
 
+function paymentRows(venda) {
+  const pagamentos = Array.isArray(venda?.pagamentos) && venda.pagamentos.length
+    ? venda.pagamentos
+    : [{ forma: venda?.formaPagamento, valor: venda?.total }];
+  return pagamentos.map((item) => `<div class="line"><span>${escapeHtml(item.forma)}</span><span>${money(item.valor)}</span></div>`).join("");
+}
+
 export function imprimirComprovanteTermico({ loja, venda }) {
   const popup = window.open("", "_blank", "width=420,height=720");
   if (!popup) {
@@ -34,7 +41,9 @@ export function imprimirComprovanteTermico({ loja, venda }) {
       <div class="line"><span>${escapeHtml(quantity(item))} x ${money(item.precoUnitario)}</span><span>${money(item.subtotal)}</span></div>
     </div>
   `).join("");
-  const isCash = venda?.formaPagamento === "Dinheiro";
+  const isCash = Array.isArray(venda?.pagamentos)
+    ? venda.pagamentos.some((item) => item.forma === "Dinheiro")
+    : venda?.formaPagamento === "Dinheiro";
 
   popup.document.write(`<!doctype html>
   <html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante</title>
@@ -59,7 +68,7 @@ export function imprimirComprovanteTermico({ loja, venda }) {
     <div>Caixa: ${escapeHtml(venda?.caixaId)}</div>
     <div class="rule"></div>${rows}<div class="rule"></div>
     <div class="line total"><span>TOTAL</span><span>${money(venda?.total)}</span></div>
-    <div class="line"><span>Pagamento</span><span>${escapeHtml(venda?.formaPagamento)}</span></div>
+    <div>Pagamento(s)</div>${paymentRows(venda)}
     ${isCash ? `<div class="line"><span>Recebido</span><span>${money(venda?.valorRecebido)}</span></div><div class="line"><span>Troco</span><span>${money(venda?.troco)}</span></div>` : ""}
     <div class="rule"></div><div class="center">Obrigado pela preferencia!</div>
     <script>window.addEventListener('load', () => { window.print(); window.addEventListener('afterprint', () => window.close()); });</script>

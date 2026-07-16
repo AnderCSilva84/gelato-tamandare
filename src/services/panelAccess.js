@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -13,6 +14,12 @@ import {
 import { db } from "./firebase";
 
 const panelAccessRef = collection(db, "acessos_painel");
+
+export async function getPanelAccess(authUid) {
+  if (!authUid) return null;
+  const snapshot = await getDoc(doc(db, "acessos_painel", authUid));
+  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+}
 
 function cleanData(data) {
   return Object.fromEntries(

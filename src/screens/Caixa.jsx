@@ -23,6 +23,11 @@ import {
   subscribeVendasPorCaixa,
 } from "../services/vendas";
 import { imprimirComprovanteTermico } from "../services/comprovanteTermico";
+import {
+  FORMAS_PAGAMENTO,
+  descreverPagamentos,
+  resumirPagamentos,
+} from "../utils/pagamentos";
 
 const STORAGE_KEY = "gelato-caixa-atual";
 
@@ -390,6 +395,9 @@ export default function Caixa({
     valorRecebido: "",
     data: dataHoje,
   });
+  const [pagamentos, setPagamentos] = useState([
+    { forma: "PIX", valor: "" },
+  ]);
   const [retiradaForm, setRetiradaForm] = useState({
     valor: "",
     motivo: "",
@@ -657,23 +665,7 @@ export default function Caixa({
     () => buildRanking(vendasRankingMesVinculadas, atendentesAtivos, rankingMesSelecionado),
     [vendasRankingMesVinculadas, atendentesAtivos, rankingMesSelecionado]
   );
-  const resumoPagamentos = useMemo(() => {
-    const totais = {
-      PIX: 0,
-      Dinheiro: 0,
-      Debito: 0,
-      Credito: 0,
-    };
-
-    vendasCaixa.forEach((venda) => {
-      const forma = String(venda.formaPagamento || "");
-      if (Object.hasOwn(totais, forma)) {
-        totais[forma] += Number(venda.valor || 0);
-      }
-    });
-
-    return totais;
-  }, [vendasCaixa]);
+  const resumoPagamentos = useMemo(() => resumirPagamentos(vendasCaixa), [vendasCaixa]);
   const fundoCaixaAtual = Number(caixaAtual?.fundoCaixa || 0);
   const totalRetiradas = useMemo(
     () => retiradasCaixa.reduce((acc, retirada) => acc + Number(retirada.valor || 0), 0),
@@ -700,11 +692,21 @@ export default function Caixa({
       }),
     [itensVendaDetalhados]
   );
-  const valorRecebidoAtual = parseDecimalInput(vendaForm.valorRecebido || 0);
-  const trocoAtual = useMemo(() => {
-    if (vendaForm.formaPagamento !== "Dinheiro") return 0;
-    return Math.max(valorRecebidoAtual - totalCarrinho, 0);
-  }, [valorRecebidoAtual, totalCarrinho, vendaForm.formaPagamento]);
+  const totalPagamentosInformado = useMemo(
+    () => pagamentos.reduce((acc, item) => acc + parseDecimalInput(item.valor), 0),
+    [pagamentos]
+  );
+  const totalDinheiroInformado = useMemo(
+    () => pagamentos.filter((item) => item.forma === "Dinheiro").reduce((acc, item) => acc + parseDecimalInput(item.valor), 0),
+    [pagamentos]
+  );
+  const temPagamentoEmDinheiro = useMemo(
+    () => pagamentos.some((item) => item.forma === "Dinheiro"),
+    [pagamentos]
+  );
+  const trocoAtual = temPagamentoEmDinheiro
+    ? Math.max(totalPagamentosInformado - totalCarrinho, 0)
+    : 0;
   const vendaAtualResumo = useMemo(
     () => vendasCaixa.slice(0, 8),
     [vendasCaixa]
@@ -785,6 +787,21 @@ export default function Caixa({
       data: isManagementRole(accessRole) ? vendaForm.data || dataHoje : dataHoje,
     });
     setItensVenda([]);
+    setPagamentos([{ forma: "PIX", valor: "" }]);
+  }
+
+  function atualizarPagamento(index, campo, valor) {
+    setPagamentos((prev) => prev.map((item, posicao) => posicao === index
+      ? { ...item, [campo]: valor }
+      : item));
+  }
+
+  function adicionarPagamento() {
+    setPagamentos((prev) => [...prev, { forma: "PIX", valor: "" }]);
+  }
+
+  function removerPagamento(index) {
+    setPagamentos((prev) => prev.length > 1 ? prev.filter((_, posicao) => posicao !== index) : prev);
   }
 
   function limparCarrinho() {
@@ -930,9 +947,7 @@ export default function Caixa({
         (acc, item) => acc + Number(item.quantidade || 0),
         0
       );
-      const totalDinheiroGerencia = vendasDoCaixa
-        .filter((item) => item.formaPagamento === "Dinheiro")
-        .reduce((acc, item) => acc + Number(item.valor || 0), 0);
+      const totalDinheiroGerencia = resumirPagamentos(vendasDoCaixa).Dinheiro;
       const totalRetiradasGerencia = retiradasDoCaixa.reduce(
         (acc, item) => acc + Number(item.valor || 0),
         0
@@ -1118,14 +1133,17 @@ export default function Caixa({
 
       doc.setFontSize(10);
       doc.setFillColor(240, 246, 255);
-      doc.roundedRect(14, y - 5, 182, venda.formaPagamento === "Dinheiro" ? 16 : 10, 4, 4, "F");
+      const descricaoPagamento = descreverPagamentos(venda) || "Sem forma";
+      const temDinheiro = descricaoPagamento.includes("Dinheiro");
+      doc.roundedRect(14, y - 5, 182, temDinheiro ? 16 : 10, 4, 4, "F");
       doc.setTextColor(24, 33, 47);
       doc.text(venda.produto, 18, y);
       doc.setTextColor(99, 115, 140);
-      doc.text(`${venda.quantidade} un. • ${venda.formaPagamento || "Sem forma"}`, 18, y + 5);
+      doc.setFontSize(8);
+      doc.text(`${formatQuantidadeVenda(venda.quantidade, venda.unidadeVenda)} - ${descricaoPagamento}`, 18, y + 5, { maxWidth: 168 });
       doc.setTextColor(22, 101, 52);
       doc.text(formatMoney(venda.valor), 192, y, { align: "right" });
-      if (venda.formaPagamento === "Dinheiro") {
+      if (temDinheiro) {
         doc.setTextColor(99, 115, 140);
         doc.text(
           `Recebido: ${formatMoney(venda.valorRecebido || 0)} | Troco: ${formatMoney(venda.troco || 0)}`,
@@ -1133,7 +1151,7 @@ export default function Caixa({
           y + 10
         );
       }
-      y += venda.formaPagamento === "Dinheiro" ? 18 : 12;
+      y += temDinheiro ? 18 : 12;
     });
 
     doc.save(`fechamento-caixa-${String(dataHoje || "").replaceAll("-", "")}.pdf`);
@@ -1151,10 +1169,17 @@ export default function Caixa({
     setFeedbackVenda("");
 
     try {
-      const formaPagamento = vendaForm.formaPagamento;
-      const valorRecebido =
-        formaPagamento === "Dinheiro" ? parseDecimalInput(vendaForm.valorRecebido || 0) : 0;
-      const troco = formaPagamento === "Dinheiro" ? Math.max(valorRecebido - totalCarrinho, 0) : 0;
+      const pagamentosValidos = pagamentos.map((item) => ({
+        forma: item.forma,
+        valor: parseDecimalInput(item.valor),
+      })).filter((item) => item.valor > 0);
+      const formaPagamento = pagamentosValidos.length === 1
+        ? pagamentosValidos[0].forma
+        : "Pagamento dividido";
+      const valorRecebido = totalDinheiroInformado;
+      const troco = temPagamentoEmDinheiro
+        ? Math.max(totalPagamentosInformado - totalCarrinho, 0)
+        : 0;
       const dataVenda = isManagementRole(accessRole) ? String(vendaForm.data || "").trim() : hojeISO();
 
       if (!dataVenda) {
@@ -1163,13 +1188,26 @@ export default function Caixa({
         return;
       }
 
-      if (formaPagamento === "Dinheiro") {
-        if (!Number.isFinite(valorRecebido) || valorRecebido < totalCarrinho) {
-          setFeedbackVenda("Informe o valor recebido em dinheiro para calcular o troco.");
-          setSalvandoVenda(false);
-          return;
-        }
+      if (!pagamentosValidos.length || totalPagamentosInformado < totalCarrinho - 0.009) {
+        setFeedbackVenda(`Falta informar ${formatMoney(totalCarrinho - totalPagamentosInformado)} no pagamento.`);
+        setSalvandoVenda(false);
+        return;
       }
+
+      if (!temPagamentoEmDinheiro && Math.abs(totalPagamentosInformado - totalCarrinho) > 0.009) {
+        setFeedbackVenda(`A soma dos pagamentos deve ser ${formatMoney(totalCarrinho)}.`);
+        setSalvandoVenda(false);
+        return;
+      }
+
+      const pagamentosParaRegistro = pagamentosValidos.map((item) => ({ ...item }));
+      let trocoPendente = troco;
+      pagamentosParaRegistro.forEach((pagamento) => {
+        if (pagamento.forma !== "Dinheiro" || trocoPendente <= 0) return;
+        const desconto = Math.min(pagamento.valor, trocoPendente);
+        pagamento.valor = Math.round((pagamento.valor - desconto) * 100) / 100;
+        trocoPendente = Math.round((trocoPendente - desconto) * 100) / 100;
+      });
 
       for (const item of itensVendaDetalhados) {
         if (!item.subtotalValido) {
@@ -1186,7 +1224,17 @@ export default function Caixa({
         }
       }
 
-      for (const item of itensVendaDetalhados) {
+      const vendaGrupoId = `${caixaAtual.id}-${Date.now()}`;
+      const pagamentosJaAlocados = pagamentosParaRegistro.map(() => 0);
+      for (const [itemIndex, item] of itensVendaDetalhados.entries()) {
+        const isUltimoItem = itemIndex === itensVendaDetalhados.length - 1;
+        const pagamentosItem = pagamentosParaRegistro.map((pagamento, pagamentoIndex) => {
+          const valor = isUltimoItem
+            ? Math.round((pagamento.valor - pagamentosJaAlocados[pagamentoIndex]) * 100) / 100
+            : Math.round((pagamento.valor * item.subtotal / totalCarrinho) * 100) / 100;
+          pagamentosJaAlocados[pagamentoIndex] += valor;
+          return { ...pagamento, valor };
+        }).filter((pagamento) => pagamento.valor > 0);
         await addVenda(uid, {
           produto: item.nome,
           produtoId: item.produto.id,
@@ -1199,27 +1247,32 @@ export default function Caixa({
           atendenteNome: atendenteLogado.nome,
           caixaId: caixaAtual.id,
           formaPagamento,
-          valorRecebido: formaPagamento === "Dinheiro" ? valorRecebido : 0,
-          troco: formaPagamento === "Dinheiro" ? troco : 0,
+          pagamentos: pagamentosItem,
+          vendaGrupoId,
+          valorRecebido: totalDinheiroInformado > 0 ? valorRecebido : 0,
+          troco: totalDinheiroInformado > 0 ? troco : 0,
           data: dataVenda,
         });
         await updateProduto(item.produto.id, {
           estoque: Number(item.produto.estoque || 0) - parseDecimalInput(item.quantidade || 0),
         });
       }
-      imprimirComprovanteTermico({
-        loja,
-        venda: {
-          itens: itensVendaDetalhados,
-          total: totalCarrinho,
-          formaPagamento,
-          valorRecebido,
-          troco,
-          atendenteNome: atendenteLogado.nome,
-          caixaId: caixaAtual.id,
-          dataHora: new Date().toLocaleString("pt-BR"),
-        },
-      });
+      if (loja?.impressaoHabilitada !== false) {
+        imprimirComprovanteTermico({
+          loja,
+          venda: {
+            itens: itensVendaDetalhados,
+            total: totalCarrinho,
+            formaPagamento,
+            pagamentos: pagamentosParaRegistro,
+            valorRecebido,
+            troco,
+            atendenteNome: atendenteLogado.nome,
+            caixaId: caixaAtual.id,
+            dataHora: new Date().toLocaleString("pt-BR"),
+          },
+        });
+      }
       resetVendaForm();
       setToastVenda("Venda registrada com sucesso.");
     } catch (error) {
@@ -1653,44 +1706,34 @@ export default function Caixa({
                   </button>
                 </div>
 
-                <div className="pdv-payment-grid">
-                  <select
-                    className="input select pdv-panel-input"
-                    value={vendaForm.formaPagamento}
-                    onChange={(e) =>
-                      setVendaForm((prev) => ({
-                        ...prev,
-                        formaPagamento: e.target.value,
-                        valorRecebido: e.target.value === "Dinheiro" ? prev.valorRecebido : "",
-                      }))
-                    }
-                  >
-                    <option value="PIX">PIX</option>
-                    <option value="Dinheiro">Dinheiro</option>
-                    <option value="Debito">Debito</option>
-                    <option value="Credito">Credito</option>
-                  </select>
-
-                  <input
-                    className="input pdv-panel-input"
-                    value={caixaAtual.atendenteNome}
-                    readOnly
-                  />
+                <div className="pdv-split-payments">
+                  {pagamentos.map((pagamento, index) => (
+                    <div className="pdv-payment-grid" key={`${index}-${pagamento.forma}`}>
+                      <select className="input select pdv-panel-input" value={pagamento.forma}
+                        onChange={(e) => atualizarPagamento(index, "forma", e.target.value)}>
+                        {FORMAS_PAGAMENTO.map((forma) => <option value={forma} key={forma}>{forma}</option>)}
+                      </select>
+                      <input className="input pdv-panel-input" type="number" min="0.01" step="0.01"
+                        value={pagamento.valor} onChange={(e) => atualizarPagamento(index, "valor", e.target.value)}
+                        placeholder="Valor nesta forma" />
+                      <button className="mini-btn danger" type="button" onClick={() => removerPagamento(index)}
+                        disabled={pagamentos.length === 1}>Remover</button>
+                    </div>
+                  ))}
+                  <button className="action-btn action-btn-secondary" type="button" onClick={adicionarPagamento}>
+                    + Adicionar forma de pagamento
+                  </button>
+                  <small>Total informado: {formatMoney(totalPagamentosInformado)} de {formatMoney(totalCarrinho)}</small>
                 </div>
 
-                {vendaForm.formaPagamento === "Dinheiro" ? (
+                {temPagamentoEmDinheiro ? (
                   <div className="pdv-payment-grid pdv-payment-grid-cash">
-                    <input
-                      className="input pdv-panel-input"
-                      type="number"
-                      min={totalCarrinho || 0}
-                      step="0.01"
-                      value={vendaForm.valorRecebido}
-                      onChange={(e) =>
-                        setVendaForm((prev) => ({ ...prev, valorRecebido: e.target.value }))
-                      }
-                      placeholder="Valor recebido em dinheiro"
-                    />
+                    <div className="pdv-cash-summary">
+                      <div className="pdv-cash-row">
+                        <span>Recebido em dinheiro</span>
+                        <strong>{formatMoney(totalDinheiroInformado)}</strong>
+                      </div>
+                    </div>
                     <div className="pdv-cash-summary">
                       <div className="pdv-cash-row">
                         <span>Troco</span>
@@ -1817,9 +1860,9 @@ export default function Caixa({
                   <strong>{venda.produto}</strong>
                   <small>
                     {formatQuantidadeVenda(venda.quantidade, venda.unidadeVenda)} -{" "}
-                    {venda.formaPagamento || "Sem forma"}
+                    {descreverPagamentos(venda) || "Sem forma"}
                   </small>
-                  {venda.formaPagamento === "Dinheiro" ? (
+                  {descreverPagamentos(venda).includes("Dinheiro") ? (
                     <small>
                       Recebido {formatMoney(venda.valorRecebido || 0)} - Troco{" "}
                       {formatMoney(venda.troco || 0)}
@@ -1833,6 +1876,7 @@ export default function Caixa({
               <p className="empty-state">Nenhuma venda registrada neste turno.</p>
             ) : null}
           </div>
+
         </section>
       ) : null}
 
@@ -1914,9 +1958,9 @@ export default function Caixa({
                   <strong>{venda.produto}</strong>
                   <small>
                     {formatQuantidadeVenda(venda.quantidade, venda.unidadeVenda)} -{" "}
-                    {venda.formaPagamento || "Sem forma"}
+                    {descreverPagamentos(venda) || "Sem forma"}
                   </small>
-                  {venda.formaPagamento === "Dinheiro" ? (
+                  {descreverPagamentos(venda).includes("Dinheiro") ? (
                     <small>
                       Recebido {formatMoney(venda.valorRecebido || 0)} - Troco {formatMoney(venda.troco || 0)}
                     </small>

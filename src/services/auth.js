@@ -25,6 +25,17 @@ export async function createPanelAuthUser(email, senha) {
   return cred.user;
 }
 
+export async function ensurePanelAuthUser(email, senha) {
+  try {
+    return await createPanelAuthUser(email, senha);
+  } catch (error) {
+    if (error?.code !== "auth/email-already-in-use") throw error;
+    const cred = await signInWithEmailAndPassword(secondaryAuth, email, senha);
+    await signOut(secondaryAuth);
+    return cred.user;
+  }
+}
+
 export async function updatePanelAuthPassword(email, senhaAtual, novaSenha) {
   const cred = await signInWithEmailAndPassword(secondaryAuth, email, senhaAtual);
   await updatePassword(cred.user, novaSenha);

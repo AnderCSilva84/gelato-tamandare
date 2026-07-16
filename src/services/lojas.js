@@ -15,6 +15,7 @@ export const DEFAULT_LOJA = {
   status: "ativa",
   mensagemManutencao: "Unidade temporariamente indisponivel.",
   imagemCapaPdv: "",
+  impressaoHabilitada: true,
 };
 
 function normalizeLoja(id, dados = {}) {
@@ -43,6 +44,7 @@ function normalizeLoja(id, dados = {}) {
     status,
     mensagemManutencao: String(dados.mensagemManutencao || "Unidade temporariamente indisponivel.").trim(),
     imagemCapaPdv: String(dados.imagemCapaPdv || "").trim(),
+    impressaoHabilitada: dados.impressaoHabilitada !== false,
     redeId,
   };
 }

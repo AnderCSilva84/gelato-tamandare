@@ -19,6 +19,7 @@ import {
 import { criarLancamento } from "../services/lancamentos";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 import { isManagementRole } from "../utils/access";
+import { descreverPagamentos, resumirPagamentos } from "../utils/pagamentos";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -527,9 +528,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     const retiradasDoCaixa = retiradas.filter((retirada) => retirada.caixaId === item.id);
     const totalVendas = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
     const totalItens = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0);
-    const totalDinheiro = vendasDoCaixa
-      .filter((venda) => venda.formaPagamento === "Dinheiro")
-      .reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
+    const totalDinheiro = resumirPagamentos(vendasDoCaixa).Dinheiro;
     const totalRetiradas = retiradasDoCaixa.reduce(
       (acc, retirada) => acc + Number(retirada.valor || 0),
       0
@@ -735,6 +734,46 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
       headStyles: { fillColor: [59, 130, 246], textColor: 255 },
       styles: { fontSize: 10, cellPadding: 3 },
       columnStyles: { 1: { halign: "right" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    const pagamentosPeriodo = resumirPagamentos(vendasPeriodoVisiveis);
+    doc.setFontSize(12);
+    doc.setTextColor(24, 33, 47);
+    doc.text("Formas de pagamento das vendas", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Forma", "Valor"]],
+      body: [
+        ["PIX", formatMoney(pagamentosPeriodo.PIX)],
+        ["Dinheiro", formatMoney(pagamentosPeriodo.Dinheiro)],
+        ["Cartao de debito", formatMoney(pagamentosPeriodo.Debito)],
+        ["Cartao de credito", formatMoney(pagamentosPeriodo.Credito)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    doc.text("Vendas e pagamentos", 14, y);
+    autoTable(doc, {
+      startY: y + 4,
+      head: [["Data", "Produto", "Pagamento(s)", "Valor"]],
+      body: vendasPeriodoVisiveis.length
+        ? vendasPeriodoVisiveis.map((item) => [
+            formatDateLabel(item.data),
+            item.produto || "-",
+            descreverPagamentos(item) || "Sem forma",
+            formatMoney(item.valor),
+          ])
+        : [["-", "Sem vendas", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [14, 116, 144], textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: { 3: { halign: "right", fontStyle: "bold" } },
     });
     y = doc.lastAutoTable.finalY + 10;
 
@@ -1092,7 +1131,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
                   <strong>{item.produto}</strong>
                   <small>
                     {formatVendaHorario(item) || "Sem horario"} - {item.quantidade} un. -{" "}
-                    {item.formaPagamento || "Sem forma"} - {item.atendenteNome || item.atendente}
+                    {descreverPagamentos(item) || "Sem forma"} - {item.atendenteNome || item.atendente}
                   </small>
                 </div>
                 <div className="list-row-actions">

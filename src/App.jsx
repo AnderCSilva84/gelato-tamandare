@@ -11,7 +11,7 @@ import {
 import { subscribeAtendentes, updateAtendente } from "./services/atendentes";
 import { login as loginPainel, logout as logoutPainel, observeAuth, registerAndLogin } from "./services/auth";
 import { buildAtendenteEmail } from "./services/loginsAtendentes";
-import { savePanelAccess, subscribePanelAccess, updatePanelAccess } from "./services/panelAccess";
+import { getPanelAccess, savePanelAccess, subscribePanelAccess, updatePanelAccess } from "./services/panelAccess";
 import { DEFAULT_LOJA, DEFAULT_LOJA_ID, subscribeLojas } from "./services/lojas";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "./utils/access";
 import { FiBarChart2, FiBox, FiCalendar, FiGrid, FiHeadphones, FiHome, FiLayers, FiLogOut, FiMenu, FiShoppingCart, FiTrendingUp, FiUser, FiUsers, FiX } from "react-icons/fi";
@@ -161,6 +161,8 @@ export default function App() {
     email: readLastLoginEmail(),
     senha: "",
   }));
+  const [loginRole, setLoginRole] = useState("atendente");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [bootstrapForm, setBootstrapForm] = useState({
     atendenteId: "",
     email: "",
@@ -981,18 +983,41 @@ export default function App() {
     }
 
     try {
+      setLoginLoading(true);
       const loginPorEmail = identificacao.includes("@");
       const email = loginPorEmail
         ? identificacao.toLowerCase()
         : buildAtendenteEmail(operationalUid, identificacao);
-      await loginPainel(email, senha);
+      const credencial = await loginPainel(email, senha);
+      const acesso = await getPanelAccess(credencial.user.uid);
+
+      if (!acesso || acesso.ativo === false) {
+        await logoutPainel();
+        throw new Error("Acesso inativo ou sem vinculo com o painel.");
+      }
+      if (normalizeRole(acesso.role) !== normalizeRole(loginRole)) {
+        await logoutPainel();
+        throw new Error(`Este usuario esta cadastrado como ${getRoleLabel(acesso.role)}.`);
+      }
+      if (!isSuperAdminRole(acesso.role)) {
+        const lojasPermitidas = Array.isArray(acesso.lojaIds) ? acesso.lojaIds.map(String) : [];
+        if (String(acesso.lojaId || "") !== operationalUid && !lojasPermitidas.includes(operationalUid)) {
+          await logoutPainel();
+          throw new Error("Este usuario nao pertence a unidade selecionada.");
+        }
+      }
+      setPanelAccess(acesso);
       writeLastLoginEmail(identificacao);
       setAccessForm((prev) => ({ ...prev, senha: "" }));
       setAccessError("");
       setTela(loginPorEmail ? "gerencia" : "pdv");
     } catch (error) {
       console.error(error);
-      setAccessError("Não foi possível entrar. Verifique o nome ou email e a senha.");
+      setAccessError(error instanceof Error && error.message
+        ? error.message
+        : "Nao foi possivel entrar. Verifique os dados informados.");
+    } finally {
+      setLoginLoading(false);
     }
   }
 
@@ -1001,6 +1026,95 @@ export default function App() {
     setPanelAccess(null);
     setAccessForm((prev) => ({ ...prev, senha: "" }));
     setTela("pdv");
+  }
+
+  function renderLoginScreen() {
+    const lojasLogin = lojas.filter((loja) => loja.status !== "inativa");
+    const loginPorNome = loginRole === "atendente";
+
+    return (
+      <main className="access-login-screen">
+        <section className="access-login-card">
+          <div className="access-login-heading">
+            <span className="access-login-kicker">ACS Sistemas</span>
+            <h1>Bem-vindo</h1>
+            <p>Escolha a unidade e o seu perfil para acessar.</p>
+          </div>
+
+          <div className="access-brand-grid" aria-label="Escolha a unidade">
+            {lojasLogin.map((loja) => {
+              const isAcai = loja.id === "sorveteria-e-acai";
+              return (
+                <button
+                  className={`access-brand-card ${loja.id === lojaAtivaId ? "is-selected" : ""}`}
+                  type="button"
+                  key={loja.id}
+                  onClick={() => selecionarLoja(loja.id)}
+                >
+                  <span className="access-brand-logo">
+                    <img src={loja.logomarca || logoGelato} alt="" />
+                  </span>
+                  <strong>{isAcai ? "Sabor Açaí" : loja.nome}</strong>
+                  <small>{loja.id === lojaAtivaId ? "Unidade selecionada" : "Selecionar unidade"}</small>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="access-role-picker" aria-label="Escolha o perfil">
+            {[
+              ["atendente", "Atendente"],
+              ["gerencia", "Gerência"],
+              ["superadmin", "Superadmin"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={loginRole === value ? "is-selected" : ""}
+                onClick={() => {
+                  setLoginRole(value);
+                  setAccessError("");
+                  setAccessForm({ email: "", senha: "" });
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <form className="access-login-form" onSubmit={entrarNoPainel}>
+            <label>
+              <span>{loginPorNome ? "Nome do atendente" : "E-mail de acesso"}</span>
+              <input
+                className="input"
+                type={loginPorNome ? "text" : "email"}
+                value={accessForm.email}
+                onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
+                placeholder={loginPorNome ? "Ex.: Leticia Leal" : "seuemail@exemplo.com"}
+                autoComplete="username"
+                autoFocus
+              />
+            </label>
+            <label>
+              <span>Senha</span>
+              <input
+                className="input"
+                type="password"
+                value={accessForm.senha}
+                onChange={(e) => setAccessForm((prev) => ({ ...prev, senha: e.target.value }))}
+                placeholder="Digite sua senha"
+                autoComplete="current-password"
+              />
+            </label>
+            <button className="access-login-submit" type="submit" disabled={loginLoading}>
+              {loginLoading ? "Entrando..." : `Entrar como ${getRoleLabel(loginRole)}`}
+            </button>
+            {accessError ? <p className="access-login-feedback">{accessError}</p> : null}
+          </form>
+        </section>
+        {SystemFooter}
+      </main>
+    );
   }
 
   async function configurarSuperadminInicial(e) {
@@ -1130,6 +1244,10 @@ export default function App() {
       </button>
     </div>
   );
+
+  if (authLoaded && !painelLiberado && !shouldShowBootstrap && !forceScreens) {
+    return renderLoginScreen();
+  }
 
   return (
     <div className={`app-shell ${simulation ? "simulation-readonly" : ""}`}>

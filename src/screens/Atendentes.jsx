@@ -7,7 +7,7 @@ import {
   subscribeAtendentes,
   updateAtendente,
 } from "../services/atendentes";
-import { createPanelAuthUser, updatePanelAuthPassword } from "../services/auth";
+import { ensurePanelAuthUser, updatePanelAuthPassword } from "../services/auth";
 import { deletePanelAccess, savePanelAccess, updatePanelAccess } from "../services/panelAccess";
 import { buildAtendenteEmail } from "../services/loginsAtendentes";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "../utils/access";
@@ -96,7 +96,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
       throw new Error(isAtendente ? "Informe uma senha operacional." : "Informe email e senha de acesso ao painel.");
     }
 
-    const authUser = await createPanelAuthUser(email, senhaPainel);
+    const authUser = await ensurePanelAuthUser(email, senhaPainel);
 
     await savePanelAccess(authUser.uid, {
       atendenteId,
@@ -174,7 +174,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
           await provisionarAcessoPainel(editandoId, { nome, role });
           if (atual.authUid) await deletePanelAccess(atual.authUid);
         } else if (atual.authUid) {
-            await updatePanelAccess(atual.authUid, {
+          const dadosAcesso = {
               nome,
               role,
               ativo: atual.ativo !== false,
@@ -184,7 +184,17 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
               avatarTipo,
               fotoPerfil,
               podeGerenciarProdutos,
+          };
+
+          try {
+            await updatePanelAccess(atual.authUid, dadosAcesso);
+          } catch (error) {
+            if (error?.code !== "not-found" && error?.code !== "firestore/not-found") throw error;
+            await savePanelAccess(atual.authUid, {
+              ...dadosAcesso,
+              atendenteId: atual.id,
             });
+          }
         } else {
           await provisionarAcessoPainel(editandoId, { nome, role });
         }

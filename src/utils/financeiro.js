@@ -1,5 +1,7 @@
+import { resumirPagamentos } from './pagamentos.js';
+const arredondar = valor => Math.round(valor * 100) / 100;
 export function somarValores(itens) {
-  return (itens || []).reduce((acc, item) => acc + Number(item?.valor || 0), 0);
+  return (itens || []).filter(item => item.status !== 'cancelada').reduce((acc, item) => acc + Math.round(Number(item?.valor || 0) * 100), 0) / 100;
 }
 
 export function somarQuantidades(itens) {
@@ -37,7 +39,12 @@ export function calcularResumoFinanceiro({
   const gastos = despesasOperacionais + retiradasCaixa;
   const fundoCaixa = somarFundosCaixa(caixas);
   const emCaixa = fundoCaixa + entradas - despesasOperacionais - retiradasCaixa;
-  const resultado = entradas - gastos;
+  // Withdrawals transfer money out of a drawer; they are not an expense.
+  const resultado = arredondar(entradas - despesasOperacionais);
+  const dinheiroVendas = resumirPagamentos(vendas).Dinheiro;
+  const dinheiroEntradasExtras = entradasConsolidadas.reduce((n, i) => n + Number(i.dinheiro || 0), 0);
+  const dinheiroEmCaixa = arredondar(fundoCaixa + dinheiroVendas + dinheiroEntradasExtras - retiradasCaixa);
+  const custoConhecido = vendas.filter(v => Number.isFinite(v.custoTotal)).reduce((n, v) => n + v.custoTotal, 0);
 
   return {
     entradas,
@@ -49,5 +56,9 @@ export function calcularResumoFinanceiro({
     fundoCaixa,
     emCaixa,
     resultado,
+    dinheiroEmCaixa,
+    custoConhecido: arredondar(custoConhecido),
+    margemVendasConhecida: arredondar(vendas.filter(v => Number.isFinite(v.custoTotal)).reduce((n, v) => n + v.valor - v.custoTotal, 0)),
+    vendasSemCustoHistorico: vendas.filter(v => !Number.isFinite(v.custoTotal)).length,
   };
 }

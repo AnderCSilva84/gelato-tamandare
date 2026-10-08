@@ -1,0 +1,34 @@
+{
+  "verificadoEm": "2026-10-08T13:52:57.037Z",
+  "projeto": "gelato-cb6fd",
+  "banco": "gelato-homolog-20261008",
+  "nomeConfirmado": "projects/gelato-cb6fd/databases/gelato-homolog-20261008",
+  "regiao": "southamerica-east1",
+  "origemRestauracao": {
+    "backup": {
+      "backup": "projects/gelato-cb6fd/locations/southamerica-east1/backups/f5807120-0e23-40e8-b95d-33420d0a79a6",
+      "snapshotTime": "2026-10-08T06:07:07.430640Z"
+    },
+    "operation": "projects/gelato-cb6fd/databases/gelato-homolog-20261008/operations/UUDjTt8_2pxCRDJ0uOsOQRAqMXRzYWUtYWNpcmVtYWh0dW9zEiIKECga",
+    "progress": "COMPLETED"
+  },
+  "leituraAnonima": {
+    "statusHttp": 403,
+    "negada": true
+  },
+  "contagens": {
+    "lojas": 3,
+    "produtos": 81,
+    "atendentes": 10,
+    "acessos_painel": 11,
+    "vendas": 16036,
+    "caixas": 361,
+    "retiradas_caixa": 226,
+    "despesas": 200,
+    "resumo_diario": 293,
+    "ranking_diario": 293,
+    "movimentacoes_estoque": 243
+  },
+  "somenteLeitura": true,
+  "contemDadosPessoais": false
+}

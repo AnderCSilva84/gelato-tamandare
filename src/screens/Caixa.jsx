@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { confirmarSenhaAtendente } from "../services/auth";
+import { operacaoPersistente, temOperacaoPendente, recuperarOperacaoPendente } from "../services/operacoes";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getPdfLogo } from "../utils/pdfLogo";
 import {
   abrirCaixa,
@@ -13,16 +15,16 @@ import {
 } from "../services/caixas";
 import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeGruposProdutos } from "../services/gruposProdutos";
-import { subscribeProdutos, updateProduto } from "../services/produtos";
+import { subscribeProdutos } from "../services/produtos";
 import { isManagementRole } from "../utils/access";
 import { hojeISO } from "../services/lancamentos";
 import {
-  addVenda,
   getVendasPorCaixa,
   subscribeVendasPeriodo,
   subscribeVendasPorCaixa,
 } from "../services/vendas";
 import { imprimirComprovanteTermico } from "../services/comprovanteTermico";
+import { usaImpressoraInterna } from "../services/impressoraNativa";
 import {
   FORMAS_PAGAMENTO,
   descreverPagamentos,
@@ -359,6 +361,8 @@ export default function Caixa({
   loja = null,
   compactMode = false,
 }) {
+  const podeVerDetalhesFinanceiros = compactMode || isManagementRole(accessRole);
+  const usaFechamentoSimplificadoGelato = !compactMode && !podeVerDetalhesFinanceiros;
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
   const [gruposProdutos, setGruposProdutos] = useState([]);
@@ -371,6 +375,8 @@ export default function Caixa({
   const [caixasDoDia, setCaixasDoDia] = useState([]);
   const [retiradasCaixa, setRetiradasCaixa] = useState([]);
   const [salvandoVenda, setSalvandoVenda] = useState(false);
+  const [ultimoComprovante, setUltimoComprovante] = useState(null);
+  const [imprimindo, setImprimindo] = useState(false);
   const [salvandoRetirada, setSalvandoRetirada] = useState(false);
   const [abrindoSessao, setAbrindoSessao] = useState(false);
   const [fechandoSessao, setFechandoSessao] = useState(false);
@@ -383,6 +389,7 @@ export default function Caixa({
   const [feedbackVenda, setFeedbackVenda] = useState("");
   const [feedbackCaixa, setFeedbackCaixa] = useState("");
   const [feedbackRetirada, setFeedbackRetirada] = useState("");
+  const [dinheiroContado, setDinheiroContado] = useState("");
   const [loginForm, setLoginForm] = useState({
     atendenteId: "",
     senha: "",
@@ -408,11 +415,13 @@ export default function Caixa({
   );
 
   function resetCaixaState() {
+    setUltimoComprovante(null);
     setCaixaAtual(null);
     setCaixaAtualId("");
     setVendasCaixa([]);
     setRetiradasCaixa([]);
     setMostrandoResumoExpandido(false);
+    setDinheiroContado("");
   }
 
   useEffect(() => {
@@ -672,8 +681,8 @@ export default function Caixa({
     [retiradasCaixa]
   );
   const totalDisponivelEmCaixa = useMemo(
-    () => fundoCaixaAtual + totalVendas - totalRetiradas,
-    [fundoCaixaAtual, totalRetiradas, totalVendas]
+    () => fundoCaixaAtual + resumoPagamentos.Dinheiro - totalRetiradas,
+    [fundoCaixaAtual, resumoPagamentos.Dinheiro, totalRetiradas]
   );
   const totalBruto = useMemo(
     () => fundoCaixaAtual + totalVendas,
@@ -828,23 +837,11 @@ export default function Caixa({
     const atendente = atendentesAtivos.find((item) => item.id === loginForm.atendenteId);
     if (!atendente) return;
 
-    const senhaCadastrada = String(atendente.senha || "");
-    const senhaInformada = String(loginForm.senha || "");
-
-    if (!senhaCadastrada) {
-      setFeedbackCaixa(`Cadastre uma senha para ${atendente.nome} antes de acessar o caixa.`);
-      return;
-    }
-
-    if (senhaCadastrada !== senhaInformada) {
-      setFeedbackCaixa(`Senha invalida para ${modoEntradaCaixa ? "entrar" : "abrir"} o caixa.`);
-      return;
-    }
-
     setAbrindoSessao(true);
     setFeedbackCaixa("");
 
     try {
+      await confirmarSenhaAtendente(atendente, loginForm.senha);
       const dataAtual = hojeISO();
 
       if (caixaAbertoSelecionado) {
@@ -870,12 +867,14 @@ export default function Caixa({
         fundoCaixa,
       });
 
+      const caixaServidor = await getCaixa(docRef.id);
       const sessao = bindStoredSession({
+        ...caixaServidor,
         id: docRef.id,
         atendenteId: atendente.id,
         atendenteNome: atendente.nome,
         data: dataAtual,
-        fundoCaixa,
+        fundoCaixa: caixaServidor.fundoCaixa,
         status: "aberto",
       }, accessUser?.id, accessRole);
 
@@ -893,6 +892,16 @@ export default function Caixa({
 
   async function encerrarCaixa() {
     if (!caixaAtualId) return;
+    setUltimoComprovante(null);
+
+    const valorDinheiroContado = parseDecimalInput(dinheiroContado);
+    if (
+      usaFechamentoSimplificadoGelato &&
+      (String(dinheiroContado).trim() === "" || !Number.isFinite(valorDinheiroContado) || valorDinheiroContado < 0)
+    ) {
+      setFeedbackCaixa("Informe o valor contado em dinheiro para fechar o caixa.");
+      return;
+    }
 
     setFechandoSessao(true);
     setFeedbackCaixa("");
@@ -902,8 +911,15 @@ export default function Caixa({
         totalVendas,
         totalItens,
         totalDinheiro: resumoPagamentos.Dinheiro,
+        totalPix: resumoPagamentos.PIX,
+        totalDebito: resumoPagamentos.Debito,
+        totalCredito: resumoPagamentos.Credito,
         totalRetiradas,
         valorEmCaixa: totalDisponivelEmCaixa,
+        dinheiroContado: usaFechamentoSimplificadoGelato ? valorDinheiroContado : undefined,
+        diferencaCaixa: usaFechamentoSimplificadoGelato
+          ? valorDinheiroContado - totalDisponivelEmCaixa
+          : undefined,
       });
       clearStoredSession();
       setCaixaAtual(null);
@@ -915,6 +931,7 @@ export default function Caixa({
       setMostrandoResumoExpandido(false);
       resetVendaForm();
       setRetiradaForm({ valor: "", motivo: "" });
+      setDinheiroContado("");
       setFeedbackCaixa("Caixa fechado com sucesso.");
     } catch {
       setFeedbackCaixa("Nao foi possivel fechar o caixa.");
@@ -947,18 +964,22 @@ export default function Caixa({
         (acc, item) => acc + Number(item.quantidade || 0),
         0
       );
-      const totalDinheiroGerencia = resumirPagamentos(vendasDoCaixa).Dinheiro;
+      const pagamentosGerencia = resumirPagamentos(vendasDoCaixa);
+      const totalDinheiroGerencia = pagamentosGerencia.Dinheiro;
       const totalRetiradasGerencia = retiradasDoCaixa.reduce(
         (acc, item) => acc + Number(item.valor || 0),
         0
       );
       const valorEmCaixaGerencia =
-        Number(caixa.fundoCaixa || 0) + totalVendasGerencia - totalRetiradasGerencia;
+        Number(caixa.fundoCaixa || 0) + totalDinheiroGerencia - totalRetiradasGerencia;
 
       await fecharCaixa(caixa.id, {
         totalVendas: totalVendasGerencia,
         totalItens: totalItensGerencia,
         totalDinheiro: totalDinheiroGerencia,
+        totalPix: pagamentosGerencia.PIX,
+        totalDebito: pagamentosGerencia.Debito,
+        totalCredito: pagamentosGerencia.Credito,
         totalRetiradas: totalRetiradasGerencia,
         valorEmCaixa: valorEmCaixaGerencia,
       });
@@ -1157,14 +1178,35 @@ export default function Caixa({
     doc.save(`fechamento-caixa-${String(dataHoje || "").replaceAll("-", "")}.pdf`);
   }
 
+  const gravandoVenda = useRef(false);
+  async function recuperarVendaPendente() {
+    if (gravandoVenda.current || !caixaAtual) return;
+    gravandoVenda.current = true;
+    setSalvandoVenda(true);
+    try {
+      const result = await recuperarOperacaoPendente('registrarVenda', caixaAtual.id);
+      if (!result) return;
+      setUltimoComprovante({ loja, venda: { vendaGrupoId: result.id, itens: result.itens, total: result.total, pagamentos: result.pagamentos, formaPagamento: result.pagamentos.length === 1 ? result.pagamentos[0].forma : 'Pagamento dividido', valorRecebido: result.valorRecebido, troco: result.troco, atendenteNome: result.atendenteNome, caixaId: caixaAtual.id, dataHora: result.dataHora || result.pedido.data } });
+      resetVendaForm();
+      setToastVenda('Venda pendente confirmada. Confira o historico antes de registrar outra venda.');
+      setFeedbackVenda('Venda confirmada. O comprovante pode ser reimpresso se necessario.');
+    } catch (error) {
+      setFeedbackVenda(error.message || 'Ainda nao foi possivel confirmar a operacao pendente.');
+    } finally {
+      gravandoVenda.current = false;
+      setSalvandoVenda(false);
+    }
+  }
   async function registrarVenda(e) {
     e.preventDefault();
-    if (!caixaAtual || !atendenteLogado) return;
+    if (gravandoVenda.current || !caixaAtual || !atendenteLogado) return;
+    if (temOperacaoPendente('registrarVenda', caixaAtual.id)) return recuperarVendaPendente();
     if (!itensVendaDetalhados.length) {
       setFeedbackVenda("Adicione pelo menos um produto antes de finalizar.");
       return;
     }
 
+    gravandoVenda.current = true;
     setSalvandoVenda(true);
     setFeedbackVenda("");
 
@@ -1176,7 +1218,6 @@ export default function Caixa({
       const formaPagamento = pagamentosValidos.length === 1
         ? pagamentosValidos[0].forma
         : "Pagamento dividido";
-      const valorRecebido = totalDinheiroInformado;
       const troco = temPagamentoEmDinheiro
         ? Math.max(totalPagamentosInformado - totalCarrinho, 0)
         : 0;
@@ -1185,6 +1226,7 @@ export default function Caixa({
       if (!dataVenda) {
         setFeedbackVenda("Selecione uma data valida para a venda.");
         setSalvandoVenda(false);
+        gravandoVenda.current = false;
         return;
       }
 
@@ -1224,61 +1266,61 @@ export default function Caixa({
         }
       }
 
-      const vendaGrupoId = `${caixaAtual.id}-${Date.now()}`;
-      const pagamentosJaAlocados = pagamentosParaRegistro.map(() => 0);
-      for (const [itemIndex, item] of itensVendaDetalhados.entries()) {
-        const isUltimoItem = itemIndex === itensVendaDetalhados.length - 1;
-        const pagamentosItem = pagamentosParaRegistro.map((pagamento, pagamentoIndex) => {
-          const valor = isUltimoItem
-            ? Math.round((pagamento.valor - pagamentosJaAlocados[pagamentoIndex]) * 100) / 100
-            : Math.round((pagamento.valor * item.subtotal / totalCarrinho) * 100) / 100;
-          pagamentosJaAlocados[pagamentoIndex] += valor;
-          return { ...pagamento, valor };
-        }).filter((pagamento) => pagamento.valor > 0);
-        await addVenda(uid, {
-          produto: item.nome,
-          produtoId: item.produto.id,
-          valor: item.subtotal,
-          quantidade: item.quantidade,
-          unidadeVenda: item.unidadeVenda,
-          valorUnitario: item.precoUnitario,
-          atendente: atendenteLogado.nome,
-          atendenteId: atendenteLogado.id,
-          atendenteNome: atendenteLogado.nome,
-          caixaId: caixaAtual.id,
-          formaPagamento,
-          pagamentos: pagamentosItem,
-          vendaGrupoId,
-          valorRecebido: totalDinheiroInformado > 0 ? valorRecebido : 0,
-          troco: totalDinheiroInformado > 0 ? troco : 0,
-          data: dataVenda,
-        });
-        await updateProduto(item.produto.id, {
-          estoque: Number(item.produto.estoque || 0) - parseDecimalInput(item.quantidade || 0),
-        });
-      }
-      if (loja?.impressaoHabilitada !== false) {
-        imprimirComprovanteTermico({
+      const resultadoVenda = await operacaoPersistente('registrarVenda', caixaAtual.id, {
+        uid, caixaId: caixaAtual.id, data: dataVenda,
+        itens: itensVendaDetalhados.map(item => ({ produtoId: item.produto.id, quantidade: item.quantidade, valor: item.subtotal, valorUnitario: item.precoUnitario })),
+        pagamentos: pagamentosValidos,
+      });
+      const vendaGrupoId = resultadoVenda.id;
+      const comprovante = {
           loja,
           venda: {
-            itens: itensVendaDetalhados,
-            total: totalCarrinho,
+            vendaGrupoId,
+            itens: resultadoVenda.itens,
+            total: resultadoVenda.total,
             formaPagamento,
-            pagamentos: pagamentosParaRegistro,
-            valorRecebido,
-            troco,
-            atendenteNome: atendenteLogado.nome,
+            pagamentos: resultadoVenda.pagamentos,
+            valorRecebido: resultadoVenda.valorRecebido,
+            troco: resultadoVenda.troco,
+            atendenteNome: resultadoVenda.atendenteNome,
             caixaId: caixaAtual.id,
             dataHora: new Date().toLocaleString("pt-BR"),
           },
-        });
-      }
+      };
+      setUltimoComprovante(comprovante);
       resetVendaForm();
-      setToastVenda("Venda registrada com sucesso.");
+      setToastVenda(resultadoVenda.recuperada ? "Pedido pendente confirmado. Confira o historico antes de uma nova venda." : "Venda registrada com sucesso.");
+      if (resultadoVenda.recuperada) { setFeedbackVenda("Operacao anterior confirmada. Consulte o historico para reimprimir."); return; }
+      if (loja?.impressaoHabilitada !== false) {
+        try {
+          const resultado = await imprimirComprovanteTermico(comprovante);
+          if (resultado?.pending || resultado?.queued) {
+            setFeedbackVenda('Venda registrada. Impressão enviada; confira a saída do papel antes de reimprimir.');
+          }
+        } catch (error) {
+          setFeedbackVenda(`Venda registrada. Falha na impressão: ${error?.message || 'Impressora indisponível.'} Use Reimprimir último comprovante.`);
+        }
+      }
     } catch (error) {
       setFeedbackVenda(error?.message || "Nao foi possivel registrar a venda.");
     } finally {
       setSalvandoVenda(false);
+      gravandoVenda.current = false;
+    }
+  }
+
+  async function reimprimirUltimoComprovante() {
+    if (!ultimoComprovante || imprimindo || salvandoVenda) return;
+    setImprimindo(true);
+    try {
+      const resultado = await imprimirComprovanteTermico(ultimoComprovante);
+      setFeedbackVenda(resultado?.pending || resultado?.queued
+        ? 'Impressão enviada; confira a saída do papel antes de reimprimir.'
+        : 'Comprovante enviado para impressão.');
+    } catch (error) {
+      setFeedbackVenda(`Falha na impressão: ${error?.message || 'Impressora indisponível.'}`);
+    } finally {
+      setImprimindo(false);
     }
   }
 
@@ -1471,8 +1513,8 @@ export default function Caixa({
         ) : (
           <>
             <div className="pdv-main-column">
-              <div className="stats-grid pdv-stats-grid">
-                {!compactMode && mostrandoResumoExpandido ? (
+              {compactMode ? <div className="stats-grid pdv-stats-grid">
+                {podeVerDetalhesFinanceiros && !compactMode && mostrandoResumoExpandido ? (
                   <>
                     <div className="section-card stat-card">
                       <span className="stat-label">Fundo inicial</span>
@@ -1490,7 +1532,7 @@ export default function Caixa({
                       <strong className="stat-value positive">{formatMoney(totalBruto)}</strong>
                     </div>
                   </>
-                ) : !compactMode ? (
+                ) : podeVerDetalhesFinanceiros && !compactMode ? (
                   <button
                     className="section-card stat-card stat-card-toggle"
                     type="button"
@@ -1505,20 +1547,20 @@ export default function Caixa({
                   <span className="stat-label">Itens no turno</span>
                   <strong className="stat-value">{totalItens}</strong>
                 </div> : null}
-                {!compactMode ? <div className="section-card stat-card">
+                {podeVerDetalhesFinanceiros && !compactMode ? <div className="section-card stat-card">
                   <span className="stat-label">Ticket medio turno</span>
                   <strong className="stat-value positive">
                     {formatMoney(totalItens ? totalVendas / totalItens : 0)}
                   </strong>
                 </div> : null}
-                <div className="section-card stat-card stat-card-highlight">
+                {podeVerDetalhesFinanceiros ? <div className="section-card stat-card stat-card-highlight">
                   <span className="stat-label">Total de vendas</span>
                   {!compactMode ? <small className="stat-note">valor vendido neste turno</small> : null}
                   <strong className="stat-value positive">
                     {formatMoney(totalVendas)}
                   </strong>
-                </div>
-                {!compactMode && mostrandoResumoExpandido ? (
+                </div> : null}
+                {podeVerDetalhesFinanceiros && !compactMode && mostrandoResumoExpandido ? (
                   <button
                     className="section-card stat-card stat-card-toggle stat-card-toggle-close"
                     type="button"
@@ -1529,7 +1571,7 @@ export default function Caixa({
                     <strong className="stat-value">Ocultar</strong>
                   </button>
                 ) : null}
-              </div>
+              </div> : null}
 
               <section className="section-card pdv-card pdv-catalog-panel">
                 <div className="pdv-catalog-topbar">
@@ -1644,12 +1686,12 @@ export default function Caixa({
                     }
                     placeholder="Motivo da sangria"
                   />
-                  <div className="pdv-cash-summary">
+                  {podeVerDetalhesFinanceiros ? <div className="pdv-cash-summary">
                     <div className="pdv-cash-row">
                       <span>Disponivel no caixa</span>
                       <strong className="positive">{formatMoney(totalDisponivelEmCaixa)}</strong>
                     </div>
-                  </div>
+                  </div> : null}
                   <button
                     className="action-btn action-btn-danger"
                     type="submit"
@@ -1825,7 +1867,7 @@ export default function Caixa({
                   <button
                     className="action-btn action-btn-primary pdv-submit"
                     type="submit"
-                    disabled={salvandoVenda || !itensVendaDetalhados.length || carrinhoTemPendencias}
+                    disabled={salvandoVenda || imprimindo || !itensVendaDetalhados.length || carrinhoTemPendencias}
                   >
                     {salvandoVenda ? "Salvando..." : "Receber e Finalizar"}
                   </button>
@@ -1837,6 +1879,14 @@ export default function Caixa({
                   </p>
                 ) : null}
                 {feedbackVenda ? <p className="inline-feedback">{feedbackVenda}</p> : null}
+                {caixaAtual && temOperacaoPendente('registrarVenda', caixaAtual.id) ? (
+                  <button type="button" className="button button-secondary" disabled={salvandoVenda} onClick={recuperarVendaPendente}>Verificar venda pendente</button>
+                ) : null}
+                {usaImpressoraInterna() && ultimoComprovante ? (
+                  <button type="button" className="action-btn" disabled={imprimindo || salvandoVenda} onClick={reimprimirUltimoComprovante}>
+                    {imprimindo ? 'Imprimindo...' : 'Reimprimir último comprovante'}
+                  </button>
+                ) : null}
                 {feedbackCaixa ? <p className="inline-feedback">{feedbackCaixa}</p> : null}
                 {!mostrandoRetirada && feedbackRetirada ? (
                   <p className="inline-feedback">{feedbackRetirada}</p>
@@ -1862,14 +1912,16 @@ export default function Caixa({
                     {formatQuantidadeVenda(venda.quantidade, venda.unidadeVenda)} -{" "}
                     {descreverPagamentos(venda) || "Sem forma"}
                   </small>
-                  {descreverPagamentos(venda).includes("Dinheiro") ? (
+                  {podeVerDetalhesFinanceiros && descreverPagamentos(venda).includes("Dinheiro") ? (
                     <small>
                       Recebido {formatMoney(venda.valorRecebido || 0)} - Troco{" "}
                       {formatMoney(venda.troco || 0)}
                     </small>
                   ) : null}
                 </div>
-                <strong className="positive">{formatMoney(venda.valor)}</strong>
+                {podeVerDetalhesFinanceiros ? (
+                  <strong className="positive">{formatMoney(venda.valor)}</strong>
+                ) : null}
               </div>
             ))}
             {!vendasCaixa.length ? (
@@ -1887,7 +1939,7 @@ export default function Caixa({
             <span className="section-subtitle">{caixaAtual.atendenteNome}</span>
           </div>
 
-          <div className="stats-grid fechamento-grid">
+          {podeVerDetalhesFinanceiros ? <div className="stats-grid fechamento-grid">
             <div className="stat-card">
               <span className="stat-label">Fundo inicial</span>
               <small className="stat-note">entrada inicial do caixa</small>
@@ -1916,28 +1968,58 @@ export default function Caixa({
               <span className="stat-label">Registros</span>
               <strong className="stat-value">{vendasCaixa.length}</strong>
             </div>
-          </div>
+          </div> : null}
 
           <div className="fechamento-pagamentos">
-            <div className="fechamento-pagamento">
-              <span>PIX</span>
-              <strong className="positive">{formatMoney(resumoPagamentos.PIX)}</strong>
-            </div>
-            <div className="fechamento-pagamento">
-              <span>Dinheiro</span>
-              <strong className="positive">{formatMoney(resumoPagamentos.Dinheiro)}</strong>
-            </div>
-            <div className="fechamento-pagamento">
-              <span>Cartao de debito</span>
-              <strong className="positive">{formatMoney(resumoPagamentos.Debito)}</strong>
-            </div>
-            <div className="fechamento-pagamento">
-              <span>Cartao de credito</span>
-              <strong className="positive">{formatMoney(resumoPagamentos.Credito)}</strong>
-            </div>
+            {usaFechamentoSimplificadoGelato ? (
+              <label className="field-label">
+                Dinheiro contado
+                <input
+                  className="input pdv-panel-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={dinheiroContado}
+                  onChange={(event) => setDinheiroContado(event.target.value)}
+                  placeholder="Informe o valor contado"
+                  autoFocus
+                />
+                <small>Conte apenas as cedulas e moedas que estao fisicamente no caixa.</small>
+              </label>
+            ) : (
+              <>
+                <div className="fechamento-pagamento">
+                  <span>PIX</span>
+                  <strong className="positive">{formatMoney(resumoPagamentos.PIX)}</strong>
+                </div>
+                <div className="fechamento-pagamento">
+                  <span>Dinheiro</span>
+                  <strong className="positive">{formatMoney(resumoPagamentos.Dinheiro)}</strong>
+                </div>
+                {podeVerDetalhesFinanceiros ? (
+                  <>
+                    <div className="fechamento-pagamento">
+                      <span>Cartao de debito</span>
+                      <strong className="positive">{formatMoney(resumoPagamentos.Debito)}</strong>
+                    </div>
+                    <div className="fechamento-pagamento">
+                      <span>Cartao de credito</span>
+                      <strong className="positive">{formatMoney(resumoPagamentos.Credito)}</strong>
+                    </div>
+                  </>
+                ) : (
+                  <div className="fechamento-pagamento">
+                    <span>Cartao</span>
+                    <strong className="positive">
+                      {formatMoney(resumoPagamentos.Debito + resumoPagamentos.Credito)}
+                    </strong>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          {retiradasCaixa.length ? (
+          {podeVerDetalhesFinanceiros && retiradasCaixa.length ? (
             <div className="scroll-list fechamento-lista">
               {retiradasCaixa.map((retirada) => (
                 <div className="list-row" key={retirada.id}>
@@ -1951,7 +2033,7 @@ export default function Caixa({
             </div>
           ) : null}
 
-          <div className="scroll-list fechamento-lista">
+          {podeVerDetalhesFinanceiros ? <div className="scroll-list fechamento-lista">
             {vendasCaixa.map((venda) => (
               <div className="list-row" key={venda.id}>
                 <div>
@@ -1969,15 +2051,17 @@ export default function Caixa({
                 <strong className="positive">{formatMoney(venda.valor)}</strong>
               </div>
             ))}
-          </div>
+          </div> : null}
 
           <div className="section-actions fechamento-actions">
             <button className="action-btn action-btn-danger" type="button" onClick={() => setMostrandoFechamento(false)}>
               Cancelar
             </button>
-            <button className="action-btn action-btn-warning" type="button" onClick={exportarFechamentoPDF}>
-              Exportar PDF
-            </button>
+            {podeVerDetalhesFinanceiros ? (
+              <button className="action-btn action-btn-warning" type="button" onClick={exportarFechamentoPDF}>
+                Exportar PDF
+              </button>
+            ) : null}
             <button className="action-btn action-btn-primary" type="button" onClick={encerrarCaixa} disabled={fechandoSessao}>
               {fechandoSessao ? "Fechando..." : "Confirmar fechamento"}
             </button>

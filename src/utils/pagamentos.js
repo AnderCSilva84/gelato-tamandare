@@ -1,4 +1,19 @@
 export const FORMAS_PAGAMENTO = ["PIX", "Dinheiro", "Debito", "Credito"];
+
+export function normalizarFormaPagamento(forma) {
+  const valor = String(forma || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (valor === "pix") return "PIX";
+  if (valor === "dinheiro") return "Dinheiro";
+  if (valor === "debito" || valor === "cartao de debito") return "Debito";
+  if (valor === "credito" || valor === "cartao de credito") return "Credito";
+  return String(forma || "").trim();
+}
+
 export function pagamentosDaVenda(venda) {
   if (Array.isArray(venda?.pagamentos) && venda.pagamentos.length) {
     return venda.pagamentos.filter((item) => Number(item?.valor || 0) > 0);
@@ -10,14 +25,14 @@ export function pagamentosDaVenda(venda) {
 
 export function resumirPagamentos(vendas) {
   const totais = { PIX: 0, Dinheiro: 0, Debito: 0, Credito: 0 };
-  (vendas || []).forEach((venda) => {
+  (vendas || []).filter(venda => venda.status !== "cancelada").forEach((venda) => {
     pagamentosDaVenda(venda).forEach((pagamento) => {
-      const forma = String(pagamento.forma || "");
+      const forma = normalizarFormaPagamento(pagamento.forma);
       const valor = Number(pagamento.valor || 0);
-      if (Object.hasOwn(totais, forma)) totais[forma] += valor;
+      if (Object.hasOwn(totais, forma)) totais[forma] += Math.round(valor * 100);
     });
   });
-  return totais;
+  return Object.fromEntries(Object.entries(totais).map(([forma, centavos]) => [forma, centavos / 100]));
 }
 
 export function descreverPagamentos(venda) {

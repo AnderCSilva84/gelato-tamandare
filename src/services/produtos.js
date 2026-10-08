@@ -5,7 +5,10 @@ import {
   doc,
   getDocs,
   onSnapshot,
+  orderBy,
+  limit,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -13,6 +16,7 @@ import {
 import { db } from "./firebase";
 
 const produtosRef = collection(db, "produtos");
+const movimentacoesEstoqueRef = collection(db, "movimentacoes_estoque");
 
 function cleanData(data) {
   return Object.fromEntries(
@@ -44,6 +48,7 @@ export async function addProduto(uid, produto) {
     precoFinal,
     estoque: Number(produto?.estoque || 0),
     notaFiscal: String(produto?.notaFiscal || "").trim(),
+    ...(produto?.notaFiscalAnexo ? { notaFiscalAnexo: produto.notaFiscalAnexo } : {}),
     grupoId: String(produto?.grupoId || "").trim(),
     grupoNome: String(produto?.grupoNome || "").trim(),
     unidadeVenda,
@@ -69,6 +74,7 @@ export async function copiarProdutoParaLojas(produto, lojaIds = []) {
   delete payload.id;
   delete payload.uid;
   delete payload.criadoEm;
+  delete payload.notaFiscalAnexo;
 
   const verificacoes = await Promise.all(destinos.map(async (lojaId) => ({
     lojaId,
@@ -116,6 +122,66 @@ export async function updateProduto(id, dados) {
           : undefined,
     })
   );
+}
+
+export async function registrarMovimentacaoEstoque(produto, quantidade, observacao, dadosNota = {}) {
+  if (!produto?.id || !produto?.uid) throw new Error("Produto invalido.");
+
+  const quantidadeMovimentada = Number(quantidade);
+  const descricao = String(observacao || "").trim();
+  if (!Number.isFinite(quantidadeMovimentada) || quantidadeMovimentada === 0) {
+    throw new Error("Informe uma quantidade diferente de zero.");
+  }
+  if (!descricao) throw new Error("Informe a observacao da movimentacao.");
+
+  const produtoRef = doc(db, "produtos", produto.id);
+  const movimentacaoRef = doc(movimentacoesEstoqueRef);
+
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(produtoRef);
+    if (!snapshot.exists()) throw new Error("Produto nao encontrado.");
+
+    const estoqueAnterior = Number(snapshot.data().estoque || 0);
+    const estoqueAtual = estoqueAnterior + quantidadeMovimentada;
+    if (estoqueAtual < 0) {
+      throw new Error("A retirada nao pode deixar o estoque negativo.");
+    }
+
+    transaction.update(produtoRef, cleanData({ ...dadosNota.produtoDados, estoque: estoqueAtual }));
+    transaction.set(movimentacaoRef, {
+      uid: produto.uid,
+      produtoId: produto.id,
+      produto: String(snapshot.data().nome || produto.nome || "").trim(),
+      tipo: quantidadeMovimentada > 0 ? "ENTRADA" : "SAIDA",
+      quantidade: Math.abs(quantidadeMovimentada),
+      variacao: quantidadeMovimentada,
+      estoqueAnterior,
+      estoqueAtual,
+      observacao: descricao,
+      ...(dadosNota.notaFiscal !== undefined ? { notaFiscal: String(dadosNota.notaFiscal).trim() } : {}),
+      ...(dadosNota.anexo ? { notaFiscalAnexo: dadosNota.anexo } : {}),
+      criadoEm: serverTimestamp(),
+    });
+
+    return estoqueAtual;
+  });
+}
+
+export function subscribeMovimentacoesEstoque(uid, callback, onError) {
+  const movimentacoesQuery = query(movimentacoesEstoqueRef, where("uid", "==", uid), orderBy("criadoEm", "desc"), limit(30));
+  return onSnapshot(movimentacoesQuery, (snapshot) => {
+    const lista = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+    lista.sort((a, b) => {
+      const dataA = a.criadoEm?.toMillis?.() || 0;
+      const dataB = b.criadoEm?.toMillis?.() || 0;
+      return dataB - dataA;
+    });
+    callback(lista);
+  }, (error) => {
+    console.error("Erro ao carregar movimentacoes de estoque:", error);
+    callback([]);
+    if (typeof onError === "function") onError(error);
+  });
 }
 
 export async function deleteProduto(id) {

@@ -18,6 +18,7 @@ import {
   updateDespesaFixa,
 } from "../services/vendas";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
+import { descreverPagamentos, resumirPagamentos } from "../utils/pagamentos";
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -259,6 +260,7 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
       }),
     [caixas, despesas, entradasConsolidadas, retiradas, vendas]
   );
+  const totaisVendasPorPagamento = useMemo(() => resumirPagamentos(vendas), [vendas]);
   const saidasDoDia = useMemo(
     () =>
       [
@@ -688,13 +690,30 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
       y += 4;
       autoTable(doc, {
         startY: y,
-        head: [["Data", "Produto", "Qtd.", "Atendente", "Valor"]],
+        head: [["Dinheiro", "Pix", "Cartao de debito", "Cartao de credito", "Total vendido"]],
+        body: [[
+          formatMoney(totaisVendasPorPagamento.Dinheiro),
+          formatMoney(totaisVendasPorPagamento.PIX),
+          formatMoney(totaisVendasPorPagamento.Debito),
+          formatMoney(totaisVendasPorPagamento.Credito),
+          formatMoney(vendas.reduce((acc, item) => acc + Number(item.valor || 0), 0)),
+        ]],
+        theme: "grid",
+        headStyles: { fillColor: [14, 116, 144], textColor: 255 },
+        styles: { fontSize: 8, cellPadding: 2.2, halign: "right" },
+        bodyStyles: { fontStyle: "bold" },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+      autoTable(doc, {
+        startY: y,
+        head: [["Data", "Produto", "Qtd.", "Atendente", "Pagamento", "Valor"]],
         body: vendas.length
           ? vendas.map((item) => [
               formatDateLabel(item.data),
               item.produto,
               String(item.quantidade || 0),
               item.atendenteNome || item.atendente || "-",
+              descreverPagamentos(item) || "Nao informado",
               formatMoney(item.valor),
             ])
           : [[
@@ -705,13 +724,15 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
               "-",
               "-",
               "-",
+              "-",
             ]],
         theme: "grid",
         headStyles: { fillColor: [22, 101, 52], textColor: 255 },
-        styles: { fontSize: 10, cellPadding: 3 },
+        styles: { fontSize: 8, cellPadding: 2.2 },
         columnStyles: {
           2: { halign: "center" },
-          4: { halign: "right", textColor: [22, 101, 52], fontStyle: "bold" },
+          4: { cellWidth: 38 },
+          5: { halign: "right", textColor: [22, 101, 52], fontStyle: "bold" },
         },
       });
       y = doc.lastAutoTable.finalY + 10;
@@ -1309,13 +1330,31 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
           <div className="section-title">{modoFiltro === "periodo" ? "Vendas do periodo" : "Vendas do dia"}</div>
           <span className="section-subtitle">{vendas.length} itens</span>
         </div>
+        <div className="stats-grid fechamento-grid">
+          <div className="stat-card">
+            <span className="stat-label">Dinheiro</span>
+            <strong className="stat-value positive">{formatMoney(totaisVendasPorPagamento.Dinheiro)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Pix</span>
+            <strong className="stat-value positive">{formatMoney(totaisVendasPorPagamento.PIX)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Cartao de debito</span>
+            <strong className="stat-value positive">{formatMoney(totaisVendasPorPagamento.Debito)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Cartao de credito</span>
+            <strong className="stat-value positive">{formatMoney(totaisVendasPorPagamento.Credito)}</strong>
+          </div>
+        </div>
         <div className="scroll-list">
           {vendas.map((item) => (
             <div className="list-row" key={item.id}>
               <div>
                 <strong>{item.produto}</strong>
                 <small>
-                  {item.quantidade} un. â€¢ {item.atendenteNome || item.atendente}
+                  {item.quantidade} un. - {item.atendenteNome || item.atendente} - {descreverPagamentos(item) || "Pagamento nao informado"}
                 </small>
               </div>
               <strong className="positive">{formatMoney(item.valor)}</strong>

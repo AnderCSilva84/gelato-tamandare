@@ -1,3 +1,4 @@
+import { confirmarSenhaAtual } from "../services/auth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiBarChart2 } from "react-icons/fi";
 import { getPdfLogo } from "../utils/pdfLogo";
@@ -16,7 +17,6 @@ import {
   getVendas,
   getVendasPorCaixa,
 } from "../services/vendas";
-import { criarLancamento } from "../services/lancamentos";
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 import { isManagementRole } from "../utils/access";
 import { descreverPagamentos, resumirPagamentos } from "../utils/pagamentos";
@@ -442,6 +442,26 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
         : [],
     [caixaSelecionado?.id, vendasPeriodoVisiveis]
   );
+  const retiradasCaixaSelecionado = useMemo(
+    () =>
+      caixaSelecionado?.id
+        ? retiradas.filter((item) => item.caixaId === caixaSelecionado.id)
+        : [],
+    [caixaSelecionado?.id, retiradas]
+  );
+  const pagamentosHoje = useMemo(() => resumirPagamentos(vendasHoje), [vendasHoje]);
+  const pagamentosCaixaSelecionado = useMemo(
+    () => resumirPagamentos(vendasCaixaSelecionado),
+    [vendasCaixaSelecionado]
+  );
+  const totalVendasCaixaSelecionado = useMemo(
+    () => vendasCaixaSelecionado.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [vendasCaixaSelecionado]
+  );
+  const totalRetiradasCaixaSelecionado = useMemo(
+    () => retiradasCaixaSelecionado.reduce((acc, item) => acc + Number(item.valor || 0), 0),
+    [retiradasCaixaSelecionado]
+  );
   const retiradasPeriodoVisiveis = useMemo(() => retiradas, [retiradas]);
   const despesasPeriodo = useMemo(
     () => [...despesas].sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
@@ -528,7 +548,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     const retiradasDoCaixa = retiradas.filter((retirada) => retirada.caixaId === item.id);
     const totalVendas = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.valor || 0), 0);
     const totalItens = vendasDoCaixa.reduce((acc, venda) => acc + Number(venda.quantidade || 0), 0);
-    const totalDinheiro = resumirPagamentos(vendasDoCaixa).Dinheiro;
+    const pagamentosCaixa = resumirPagamentos(vendasDoCaixa);
+    const totalDinheiro = pagamentosCaixa.Dinheiro;
     const totalRetiradas = retiradasDoCaixa.reduce(
       (acc, retirada) => acc + Number(retirada.valor || 0),
       0
@@ -540,10 +561,105 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
       totalVendas,
       totalItens,
       totalDinheiro,
+      totalPix: pagamentosCaixa.PIX,
+      totalDebito: pagamentosCaixa.Debito,
+      totalCredito: pagamentosCaixa.Credito,
       totalRetiradas,
       valorEmCaixa,
     });
     setReloadPeriodoKey((prev) => prev + 1);
+  }
+
+  async function exportarFechamentoCaixaPDF() {
+    if (!caixaSelecionado) return;
+
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+    const doc = new jsPDF();
+    const fundo = Number(caixaSelecionado.fundoCaixa || 0);
+    const dinheiroEsperado = fundo + pagamentosCaixaSelecionado.Dinheiro - totalRetiradasCaixaSelecionado;
+    const possuiContagem = caixaSelecionado.dinheiroContado !== undefined && caixaSelecionado.dinheiroContado !== null;
+    const dinheiroContado = Number(caixaSelecionado.dinheiroContado || 0);
+    const diferencaCaixa = possuiContagem
+      ? Number(caixaSelecionado.diferencaCaixa ?? dinheiroContado - dinheiroEsperado)
+      : null;
+    let y = 18;
+
+    try {
+      const logo = await getPdfLogo(loja?.logomarca);
+      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
+      y = 38;
+    } catch {
+      y = 18;
+    }
+
+    doc.setTextColor(24, 33, 47);
+    doc.setFontSize(18);
+    doc.text("Fechamento diario de caixa", 42, y - 8);
+    doc.setFontSize(10);
+    doc.setTextColor(96, 112, 134);
+    doc.text(`Operadora: ${caixaSelecionado.atendenteNome || "Nao informada"}`, 42, y - 2);
+    doc.text(`Data: ${formatDateLabel(getCaixaReferenceDate(caixaSelecionado))}`, 42, y + 4);
+    y += 14;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Forma de pagamento", "Total vendido"]],
+      body: [
+        ["Dinheiro", formatMoney(pagamentosCaixaSelecionado.Dinheiro)],
+        ["Pix", formatMoney(pagamentosCaixaSelecionado.PIX)],
+        ["Cartao de debito", formatMoney(pagamentosCaixaSelecionado.Debito)],
+        ["Cartao de credito", formatMoney(pagamentosCaixaSelecionado.Credito)],
+        ["TOTAL DE VENDAS", formatMoney(totalVendasCaixaSelecionado)],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [["Conferencia do dinheiro", "Valor"]],
+      body: [
+        ["Fundo inicial", formatMoney(fundo)],
+        ["Vendas em dinheiro", formatMoney(pagamentosCaixaSelecionado.Dinheiro)],
+        ["Retiradas / sangrias", formatMoney(totalRetiradasCaixaSelecionado)],
+        ["DINHEIRO ESPERADO NO CAIXA", formatMoney(dinheiroEsperado)],
+        ...(possuiContagem
+          ? [
+              ["DINHEIRO CONTADO", formatMoney(dinheiroContado)],
+              [diferencaCaixa >= 0 ? "SOBRA" : "FALTA", formatMoney(Math.abs(diferencaCaixa))],
+            ]
+          : []),
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [14, 116, 144], textColor: 255 },
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [["Horario", "Produto", "Pagamento(s)", "Valor"]],
+      body: vendasCaixaSelecionado.length
+        ? vendasCaixaSelecionado.map((item) => [
+            formatVendaHorario(item) || "-",
+            item.produto || "-",
+            descreverPagamentos(item) || "Sem forma",
+            formatMoney(item.valor),
+          ])
+        : [["-", "Nenhuma venda", "-", "-"]],
+      theme: "grid",
+      headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      styles: { fontSize: 8 },
+      columnStyles: { 3: { halign: "right", fontStyle: "bold" } },
+    });
+
+    const dataArquivo = String(getCaixaReferenceDate(caixaSelecionado) || "").replaceAll("-", "");
+    const operadoraArquivo = String(caixaSelecionado.atendenteNome || "operadora")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    doc.save(`fechamento-caixa-${dataArquivo}-${operadoraArquivo}.pdf`);
   }
 
   function iniciarCancelamentoVenda(venda) {
@@ -568,20 +684,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
       return;
     }
 
-    const senhaCadastrada = String(accessUser?.senha || "");
-    const senhaInformada = String(senhaCancelamento || "");
+    try { await confirmarSenhaAtual(senhaCancelamento); } catch { setFeedbackCancelamento("Senha invalida. Confirme a senha da sua conta."); return; }
     const motivoInformado = String(motivoCancelamento || "").trim();
-
-    if (!senhaCadastrada) {
-      setFeedbackCancelamento("Cadastre uma senha para a gerencia antes de cancelar itens.");
-      return;
-    }
-
-    if (senhaInformada !== senhaCadastrada) {
-      setFeedbackCancelamento("Senha de gerencia invalida.");
-      return;
-    }
-
     if (!motivoInformado) {
       setFeedbackCancelamento("Informe o motivo do cancelamento.");
       return;
@@ -591,21 +695,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     setFeedbackCancelamento("");
 
     try {
-      await criarLancamento({
-        uid,
-        tipo: "cancelamento_venda_caixa",
-        data: String(vendaCancelando.data || caixaSelecionado.data || dataHoje),
-        mes: mesDaData(vendaCancelando.data || caixaSelecionado.data || dataHoje),
-        descricao: `Cancelamento de item do caixa ${caixaSelecionado?.atendenteNome || ""}`.trim(),
-        motivo: motivoInformado,
-        valor: Number(vendaCancelando.valor || 0),
-        caixaId: String(caixaSelecionado?.id || ""),
-        vendaId: String(vendaCancelando.id || ""),
-        produto: String(vendaCancelando.produto || ""),
-        atendenteNome: String(vendaCancelando.atendenteNome || vendaCancelando.atendente || ""),
-        autorizadoPor: String(accessUser?.nome || accessUser?.email || "Gerencia"),
-      });
-      await deleteVenda(vendaCancelando.id);
+      await deleteVenda(vendaCancelando.id, motivoInformado);
       cancelarFluxoCancelamentoVenda();
       setReloadPeriodoKey((prev) => prev + 1);
     } catch {
@@ -978,6 +1068,24 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
             <strong className="stat-value">{vendasHojeVisiveis.length}</strong>
           </div>
         </div>
+        <div className="stats-grid fechamento-grid">
+          <div className="stat-card">
+            <span className="stat-label">Dinheiro</span>
+            <strong className="stat-value positive">{formatMoney(pagamentosHoje.Dinheiro)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Pix</span>
+            <strong className="stat-value positive">{formatMoney(pagamentosHoje.PIX)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Cartao de debito</span>
+            <strong className="stat-value positive">{formatMoney(pagamentosHoje.Debito)}</strong>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Cartao de credito</span>
+            <strong className="stat-value positive">{formatMoney(pagamentosHoje.Credito)}</strong>
+          </div>
+        </div>
         <div className="scroll-list">
           {vendasHojeVisiveis.map((item) => (
             <div className="list-row" key={item.id}>
@@ -1023,7 +1131,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
           >
             {formatMoney(resumoFinanceiro.emCaixa)}
           </strong>
-          <small className="stat-note">Fundo + entradas - despesas - retiradas apenas do intervalo filtrado.</small>
+          <small className="stat-note">Fundo + entradas - despesas - retiradas do intervalo.</small>
         </div>
       </div>
 
@@ -1036,7 +1144,12 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
           >
             {formatMoney(resumoFinanceiro.resultado)}
           </strong>
-          <small className="stat-note">Entradas do periodo menos gastos do periodo.</small>
+          <small className="stat-note">Entradas menos despesas; retiradas sao transferencias.</small>
+        </div>
+        <div className="section-card stat-card">
+          <span className="stat-label">Dinheiro dos caixas</span>
+          <strong className="stat-value">{formatMoney(resumoFinanceiro.dinheiroEmCaixa)}</strong>
+          <small className="stat-note">Fundo + vendas em dinheiro + entradas em dinheiro - sangrias. Despesas avulsas nao vinculadas ao caixa nao entram nesta conferencia.</small>
         </div>
         <div className="section-card stat-card">
           <span className="stat-label">Despesas do periodo</span>
@@ -1124,6 +1237,59 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
                 : "Selecione um caixa"}
             </span>
           </div>
+          {caixaSelecionado ? (
+            <>
+              <div className="stats-grid fechamento-grid">
+                <div className="stat-card">
+                  <span className="stat-label">Dinheiro</span>
+                  <strong className="stat-value positive">{formatMoney(pagamentosCaixaSelecionado.Dinheiro)}</strong>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Pix</span>
+                  <strong className="stat-value positive">{formatMoney(pagamentosCaixaSelecionado.PIX)}</strong>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Debito</span>
+                  <strong className="stat-value positive">{formatMoney(pagamentosCaixaSelecionado.Debito)}</strong>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Credito</span>
+                  <strong className="stat-value positive">{formatMoney(pagamentosCaixaSelecionado.Credito)}</strong>
+                </div>
+                {caixaSelecionado.dinheiroContado !== undefined && caixaSelecionado.dinheiroContado !== null ? (
+                  <>
+                    <div className="stat-card">
+                      <span className="stat-label">Dinheiro esperado</span>
+                      <strong className="stat-value positive">
+                        {formatMoney(
+                          Number(caixaSelecionado.fundoCaixa || 0) +
+                          pagamentosCaixaSelecionado.Dinheiro -
+                          totalRetiradasCaixaSelecionado
+                        )}
+                      </strong>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-label">Dinheiro contado</span>
+                      <strong className="stat-value">{formatMoney(caixaSelecionado.dinheiroContado)}</strong>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-label">
+                        {Number(caixaSelecionado.diferencaCaixa || 0) >= 0 ? "Sobra" : "Falta"}
+                      </span>
+                      <strong className={`stat-value ${Number(caixaSelecionado.diferencaCaixa || 0) >= 0 ? "positive" : "negative"}`}>
+                        {formatMoney(Math.abs(Number(caixaSelecionado.diferencaCaixa || 0)))}
+                      </strong>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+              <div className="section-actions report-filter-actions">
+                <button className="action-btn action-btn-warning" type="button" onClick={exportarFechamentoCaixaPDF}>
+                  Emitir fechamento deste caixa
+                </button>
+              </div>
+            </>
+          ) : null}
           <div className="scroll-list">
             {vendasCaixaSelecionado.map((item) => (
               <div className="list-row" key={item.id}>

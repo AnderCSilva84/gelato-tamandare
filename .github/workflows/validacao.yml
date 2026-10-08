@@ -1,0 +1,32 @@
+name: Validacao Gelato
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm ci
+        working-directory: functions
+      - run: npm install --global firebase-tools@15.25.1
+      - run: npm run lint
+      - run: npm run test:seguranca
+      - run: npm run test:backup
+      - run: node --experimental-vm-modules scripts/test-nota-fiscal.mjs
+      - run: node --experimental-vm-modules scripts/test-login-atendente.mjs
+      - run: node scripts/test-migration-links.mjs
+      - run: node scripts/test-comprovante.mjs
+      - run: npm run build:gelato
+      - run: npm run build:cafe-guajara

@@ -1,3 +1,4 @@
+import { executarOperacao, operacaoPersistente } from "./operacoes";
 import {
   addDoc,
   collection,
@@ -5,11 +6,9 @@ import {
   doc,
   getDoc,
   getDocs,
-  increment,
   onSnapshot,
   query,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -26,24 +25,18 @@ function cleanData(data) {
   );
 }
 
-function rangeQuery(ref, uid) {
-  return query(ref, where("uid", "==", uid));
+function rangeQuery(ref, uid, inicio, fim = inicio) {
+  return query(ref, where("uid", "==", uid), where("data", ">=", inicio), where("data", "<=", fim));
 }
 
-function dayQuery(ref, uid) {
-  return query(ref, where("uid", "==", uid));
+function dayQuery(ref, uid, data) {
+  return query(ref, where("uid", "==", uid), where("data", "==", data));
 }
 
 function filterPeriod(items, dataInicio, dataFim = dataInicio) {
   return items.filter((item) => String(item?.data || "") >= dataInicio && String(item?.data || "") <= dataFim);
 }
 
-function getCurrentTimeLabel() {
-  return new Date().toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function getItemTimestamp(item) {
   const registradoEmMs = Number(item?.registradoEmMs || 0);
@@ -68,7 +61,7 @@ function getItemTimestamp(item) {
 }
 
 function sortByDateAndId(items) {
-  return [...items].sort((a, b) => {
+  return items.filter(item => item.status !== "cancelada").sort((a, b) => {
     const dataA = String(a?.data || "");
     const dataB = String(b?.data || "");
     const byDate = dataB.localeCompare(dataA);
@@ -92,164 +85,11 @@ function sortByDescricao(items) {
   );
 }
 
-function resumoRef(uid, dataKey) {
-  return doc(db, "resumo_diario", `${uid}__${dataKey}`);
-}
+function resumoRef(uid, data) { return doc(db, 'resumo_diario', uid + '__' + data); }
+function rankingRef(uid, data) { return doc(db, 'ranking_diario', uid + '__' + data); }
 
-function rankingRef(uid, dataKey) {
-  return doc(db, "ranking_diario", `${uid}__${dataKey}`);
-}
-
-async function ensureDailyDocs(uid, dataKey) {
-  await setDoc(
-    resumoRef(uid, dataKey),
-    {
-      totalVendas: 0,
-      totalDespesas: 0,
-      lucro: 0,
-      totalItens: 0,
-      uid,
-      data: dataKey,
-    },
-    { merge: true }
-  );
-
-  await setDoc(
-    rankingRef(uid, dataKey),
-    {
-      atendentes: {},
-      uid,
-      data: dataKey,
-    },
-    { merge: true }
-  );
-}
-
-async function applyVendaAggregation(venda, multiplier = 1) {
-  const dataKey = String(venda?.data || "");
-  const uid = String(venda?.uid || "");
-  if (!dataKey || !uid) return;
-
-  const valor = Number(venda?.valor || 0) * multiplier;
-  const quantidade = Number(venda?.quantidade || 0) * multiplier;
-  const atendenteId = String(venda?.atendenteId || venda?.atendente || "");
-  const atendenteNome = String(venda?.atendenteNome || venda?.atendente || "");
-
-  await ensureDailyDocs(uid, dataKey);
-  await updateDoc(resumoRef(uid, dataKey), {
-    totalVendas: increment(valor),
-    lucro: increment(valor),
-    totalItens: increment(quantidade),
-  });
-
-  if (atendenteId) {
-    await updateDoc(rankingRef(uid, dataKey), {
-      [`atendentes.${atendenteId}.nome`]: atendenteNome,
-      [`atendentes.${atendenteId}.total`]: increment(valor),
-    });
-  }
-}
-
-async function applyDespesaAggregation(despesa, multiplier = 1) {
-  const dataKey = String(despesa?.data || "");
-  const uid = String(despesa?.uid || "");
-  if (!dataKey || !uid) return;
-
-  const valor = Number(despesa?.valor || 0) * multiplier;
-
-  await ensureDailyDocs(uid, dataKey);
-  await updateDoc(resumoRef(uid, dataKey), {
-    totalDespesas: increment(valor),
-    lucro: increment(-valor),
-  });
-}
-
-export async function addVenda(uid, dados) {
-  const pagamentos = Array.isArray(dados?.pagamentos)
-    ? dados.pagamentos
-        .map((item) => ({
-          forma: String(item?.forma || "").trim(),
-          valor: Number(item?.valor || 0),
-        }))
-        .filter((item) => item.forma && item.valor > 0)
-    : [];
-  const venda = {
-    uid: uid || null,
-    produto: String(dados?.produto || "").trim(),
-    produtoId: String(dados?.produtoId || "").trim(),
-    valor: Number(dados?.valor || 0),
-    quantidade: Number(dados?.quantidade || 1),
-    unidadeVenda: String(dados?.unidadeVenda || "un").trim() || "un",
-    valorUnitario: Number(dados?.valorUnitario || 0),
-    atendente: String(dados?.atendente || "").trim(),
-    atendenteId: String(dados?.atendenteId || "").trim(),
-    atendenteNome: String(dados?.atendenteNome || dados?.atendente || "").trim(),
-    caixaId: String(dados?.caixaId || "").trim(),
-    formaPagamento: String(dados?.formaPagamento || "").trim(),
-    pagamentos,
-    vendaGrupoId: String(dados?.vendaGrupoId || "").trim(),
-    valorRecebido: Number(dados?.valorRecebido || 0),
-    troco: Number(dados?.troco || 0),
-    data: String(dados?.data || ""),
-    horario: String(dados?.horario || getCurrentTimeLabel()).trim(),
-    registradoEmMs: Number(dados?.registradoEmMs || Date.now()),
-    criadoEm: serverTimestamp(),
-  };
-
-  const result = await addDoc(vendasRef, venda);
-  await applyVendaAggregation(venda, 1);
-  return result;
-}
-
-export async function updateVenda(id, dados) {
-  if (!id) throw new Error("Venda invalida.");
-
-  const ref = doc(db, "vendas", id);
-  const currentSnapshot = await getDoc(ref);
-  if (!currentSnapshot.exists()) throw new Error("Venda nao encontrada.");
-
-  const current = currentSnapshot.data();
-  const next = cleanData({
-    ...current,
-    ...dados,
-    valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
-    quantidade: dados?.quantidade !== undefined ? Number(dados.quantidade) : current.quantidade,
-    unidadeVenda:
-      dados?.unidadeVenda !== undefined ? String(dados.unidadeVenda) : current.unidadeVenda,
-    valorUnitario:
-      dados?.valorUnitario !== undefined ? Number(dados.valorUnitario) : current.valorUnitario,
-    produtoId: dados?.produtoId !== undefined ? String(dados.produtoId) : current.produtoId,
-    atendenteId:
-      dados?.atendenteId !== undefined ? String(dados.atendenteId) : current.atendenteId,
-    atendenteNome:
-      dados?.atendenteNome !== undefined
-        ? String(dados.atendenteNome)
-        : dados?.atendente !== undefined
-          ? String(dados.atendente)
-          : current.atendenteNome || current.atendente,
-    atendente:
-      dados?.atendente !== undefined ? String(dados.atendente) : current.atendente,
-    formaPagamento:
-      dados?.formaPagamento !== undefined
-        ? String(dados.formaPagamento)
-        : current.formaPagamento,
-    data: dados?.data !== undefined ? String(dados.data) : current.data,
-  });
-
-  await applyVendaAggregation(current, -1);
-  await updateDoc(ref, cleanData(dados));
-  await applyVendaAggregation(next, 1);
-}
-
-export async function deleteVenda(id) {
-  if (!id) throw new Error("Venda invalida.");
-
-  const ref = doc(db, "vendas", id);
-  const snapshot = await getDoc(ref);
-  if (!snapshot.exists()) return;
-
-  await applyVendaAggregation(snapshot.data(), -1);
-  return deleteDoc(ref);
+export async function deleteVenda(id, motivo) {
+  return executarOperacao('cancelarVenda', { id, motivo });
 }
 
 export async function getVendas(uid, dataInicio, dataFim = dataInicio) {
@@ -286,7 +126,7 @@ export function subscribeVendasPorCaixa(uid, caixaId, callback) {
     return () => {};
   }
 
-  return onSnapshot(query(vendasRef, where("uid", "==", uid)), (snapshot) => {
+  return onSnapshot(query(vendasRef, where("uid", "==", uid), where("caixaId", "==", caixaId)), (snapshot) => {
     callback(sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId)));
   });
 }
@@ -297,72 +137,11 @@ export async function getVendasPorCaixa(uid, caixaId) {
   return sortByDateAndId(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId));
 }
 
-export async function addDespesa(uid, dados) {
-  const despesa = {
-    uid: uid || null,
-    descricao: String(dados?.descricao || "").trim(),
-    observacao: String(dados?.observacao || "").trim(),
-    valor: Number(dados?.valor || 0),
-    data: String(dados?.data || ""),
-    despesaFixaId: String(dados?.despesaFixaId || "").trim(),
-    despesaFixaDescricao: String(dados?.despesaFixaDescricao || "").trim(),
-    criadoEm: serverTimestamp(),
-  };
+export async function addDespesa(uid, dados) { return operacaoPersistente('criarDespesa', uid, { uid, id: crypto.randomUUID(), ...dados }); }
 
-  const result = await addDoc(despesasRef, despesa);
-  await applyDespesaAggregation(despesa, 1);
-  return result;
-}
+export async function updateDespesa(id, dados) { return executarOperacao('editarDespesa', { id, ...dados }); }
 
-export async function updateDespesa(id, dados) {
-  if (!id) throw new Error("Despesa invalida.");
-
-  const ref = doc(db, "despesas", id);
-  const currentSnapshot = await getDoc(ref);
-  if (!currentSnapshot.exists()) throw new Error("Despesa nao encontrada.");
-
-  const current = currentSnapshot.data();
-  const next = cleanData({
-    ...current,
-    ...dados,
-    descricao: dados?.descricao !== undefined ? String(dados.descricao).trim() : current.descricao,
-    observacao:
-      dados?.observacao !== undefined ? String(dados.observacao).trim() : current.observacao,
-    valor: dados?.valor !== undefined ? Number(dados.valor) : current.valor,
-    data: dados?.data !== undefined ? String(dados.data) : current.data,
-    despesaFixaId:
-      dados?.despesaFixaId !== undefined ? String(dados.despesaFixaId).trim() : current.despesaFixaId,
-    despesaFixaDescricao:
-      dados?.despesaFixaDescricao !== undefined
-        ? String(dados.despesaFixaDescricao).trim()
-        : current.despesaFixaDescricao,
-  });
-
-  await applyDespesaAggregation(current, -1);
-  await updateDoc(
-    ref,
-    cleanData({
-      descricao: next.descricao,
-      observacao: next.observacao || "",
-      valor: next.valor,
-      data: next.data,
-      despesaFixaId: next.despesaFixaId || "",
-      despesaFixaDescricao: next.despesaFixaDescricao || "",
-    })
-  );
-  await applyDespesaAggregation(next, 1);
-}
-
-export async function deleteDespesa(id) {
-  if (!id) throw new Error("Despesa invalida.");
-
-  const ref = doc(db, "despesas", id);
-  const snapshot = await getDoc(ref);
-  if (!snapshot.exists()) return;
-
-  await applyDespesaAggregation(snapshot.data(), -1);
-  return deleteDoc(ref);
-}
+export async function deleteDespesa(id) { return executarOperacao('cancelarDespesa', { id }); }
 
 export async function getDespesas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
@@ -428,60 +207,9 @@ export async function getDespesasFixas(uid) {
   return sortByDescricao(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 }
 
-function normalizarEntradaConsolidada(dados = {}) {
-  const dinheiro = Number(dados?.dinheiro || 0);
-  const pix = Number(dados?.pix || 0);
-  const cartao = Number(dados?.cartao || 0);
-
-  return {
-    uid: dados?.uid ?? null,
-    data: String(dados?.data || "").trim(),
-    dinheiro,
-    pix,
-    cartao,
-    total: dinheiro + pix + cartao,
-  };
-}
-
-export async function addEntradaConsolidada(uid, dados) {
-  const entrada = {
-    ...normalizarEntradaConsolidada({ ...dados, uid }),
-    criadoEm: serverTimestamp(),
-  };
-
-  return addDoc(entradasConsolidadasRef, entrada);
-}
-
-export async function updateEntradaConsolidada(id, dados) {
-  if (!id) throw new Error("Entrada consolidada invalida.");
-
-  const ref = doc(db, "entradas_consolidadas", id);
-  const currentSnapshot = await getDoc(ref);
-  if (!currentSnapshot.exists()) throw new Error("Entrada consolidada nao encontrada.");
-
-  const current = currentSnapshot.data();
-  const next = normalizarEntradaConsolidada({
-    ...current,
-    ...dados,
-    uid: current.uid ?? null,
-  });
-
-  await updateDoc(
-    ref,
-    cleanData({
-      data: next.data,
-      dinheiro: next.dinheiro,
-      pix: next.pix,
-      cartao: next.cartao,
-      total: next.total,
-    })
-  );
-}
-
-export async function deleteEntradaConsolidada(id) {
-  if (!id) throw new Error("Entrada consolidada invalida.");
-  return deleteDoc(doc(db, "entradas_consolidadas", id));
-}
+export async function addEntradaConsolidada(uid, dados) { return operacaoPersistente('criarEntrada', uid, { uid, id: crypto.randomUUID(), ...dados }); }
+export async function updateEntradaConsolidada(id, dados) { return executarOperacao('editarEntrada', { id, ...dados }); }
+export async function deleteEntradaConsolidada(id) { return executarOperacao('cancelarEntrada', { id }); }
 
 export async function getEntradasConsolidadas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];

@@ -1,0 +1,11 @@
+{
+  "projectId": "gelato-cb6fd",
+  "bucket": "gelato-cb6fd-resgate",
+  "verificadoEm": "2026-10-08T14:15:05.752Z",
+  "objetosRecuperados": 1,
+  "bytes": 4970,
+  "manifestoEConteudosConferidos": true,
+  "somenteBucketDeBackup": true,
+  "escritaRealizada": false,
+  "dadosPessoaisNoRelatorio": false
+}

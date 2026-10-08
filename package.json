@@ -12,22 +12,32 @@
     "build:gelato": "vite build --mode gelato",
     "build:cafe-guajara": "vite build --mode cafe-guajara",
     "build:lojas": "npm run build:gelato && npm run build:cafe-guajara",
+    "build:android": "vite build --mode gelato --outDir dist/android-gelato",
+    "android:sync": "npm run build:android && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:open": "npx cap open android",
     "lint": "eslint .",
     "preview": "vite preview",
     "backfill:agregados": "node scripts/backfill-agregados.mjs",
-    "screenshots": "node scripts/screenshot.mjs"
+    "screenshots": "node scripts/screenshot.mjs",
+    "test:seguranca": "firebase emulators:exec --project demo-gelato-audit --only firestore,storage,auth,functions --config firebase.audit.json \"node scripts/audit-firestore.mjs && node scripts/audit-storage.mjs && node scripts/test-operacoes.mjs && node scripts/audit-financeiro.mjs\"",
+    "migrar:credenciais": "node scripts/migrar-credenciais.mjs",
+    "test:backup": "node scripts/test-backup-auth.mjs && node scripts/test-backup-storage.mjs && node scripts/test-backup.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
     "firebase": "^12.11.0",
     "firebase-admin": "^13.7.0",
-    "jspdf": "^4.2.0",
+    "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.5.0",
-    "react-router-dom": "^6.30.0"
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.9",
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
@@ -36,6 +46,6 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.5"
   }
 }

@@ -10,8 +10,8 @@ import {
 } from "./services/lancamentos";
 import { subscribeAtendentes, updateAtendente } from "./services/atendentes";
 import { login as loginPainel, logout as logoutPainel, observeAuth, registerAndLogin } from "./services/auth";
-import { buildAtendenteEmail } from "./services/loginsAtendentes";
-import { getPanelAccess, savePanelAccess, subscribePanelAccess, updatePanelAccess } from "./services/panelAccess";
+import { resolverEmailAtendente } from "./services/loginsAtendentes";
+import { getPanelAccess, savePanelAccess, subscribePanelAccess } from "./services/panelAccess";
 import { DEFAULT_LOJA, DEFAULT_LOJA_ID, subscribeLojas } from "./services/lojas";
 import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "./utils/access";
 import { FiBarChart2, FiBox, FiCalendar, FiGrid, FiHeadphones, FiHome, FiLayers, FiLogOut, FiMenu, FiShoppingCart, FiTrendingUp, FiUser, FiUsers, FiX } from "react-icons/fi";
@@ -217,13 +217,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.title = lojaAtiva.nome || import.meta.env.VITE_APP_TITLE || "ACS";
+    document.title = lojaAtiva.nome ? `PDV ACS | ${lojaAtiva.nome}` : "PDV ACS";
     const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon && lojaAtiva.logomarca) {
-      favicon.href = lojaAtiva.logomarca;
-    } else if (favicon && IS_CAFE_GUAJARA) {
-      favicon.href = "/guajara-192.png";
-    }
+    if (favicon) favicon.href = "/branding/pdv-acs-app-icon.png";
   }, [lojaAtiva.logomarca, lojaAtiva.nome]);
 
   function selecionarLoja(id) {
@@ -325,13 +321,7 @@ export default function App() {
     return () => unsub && unsub();
   }, [authUser?.uid]);
 
-  useEffect(() => {
-    if (!authUser?.uid || !panelAccess || !isManagementRole(panelAccess.role) || !lojas.length) return;
-    const lojaIds = lojas.map((item) => item.id).sort();
-    const atuais = Array.isArray(panelAccess.lojaIds) ? [...panelAccess.lojaIds].map(String).sort() : [];
-    if (lojaIds.length === atuais.length && lojaIds.every((id, index) => id === atuais[index])) return;
-    updatePanelAccess(authUser.uid, { lojaIds }).catch((error) => console.error("Erro ao liberar unidades para a gerencia:", error));
-  }, [authUser?.uid, lojas, panelAccess]);
+
 
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
@@ -355,19 +345,24 @@ export default function App() {
     [atendentesAtivos, panelAccess]
   );
 
-  const forceScreens = typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("screenshots") === "true" || window.location.hash.includes("screenshots"));
+  const forceScreens = import.meta.env.DEV && typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("screenshots") === "true" || window.location.hash.includes("screenshots"));
 
   const accessRole = normalizeRole(simulation?.role || panelAccess?.role || accessUser?.role || (forceScreens ? "gerencia" : undefined));
   const effectiveAccessUser = simulation || accessUser;
   const podeAcessarEstoque = isManagementRole(accessRole)
     || Boolean(effectiveAccessUser?.podeGerenciarProdutos || panelAccess?.podeGerenciarProdutos);
-  const painelLiberado = Boolean(authUser && panelAccess && accessUser && accessUser.ativo !== false) || forceScreens;
+  const painelLiberado = Boolean(authUser && panelAccess && panelAccess.ativo === true && accessUser && accessUser.ativo !== false) || forceScreens;
   const unitUnavailable = lojaAtiva.status && lojaAtiva.status !== "ativa";
   const maintenanceModeEnabled = unitUnavailable;
-  const maintenanceScope = "total";
+  const maintenanceScope = ["total", "adm", "pdv"].includes(lojaAtiva.bloqueioEscopo)
+    ? lojaAtiva.bloqueioEscopo
+    : "total";
   const canBypassMaintenance = isSuperAdminRole(panelAccess?.role) && !simulation;
   const maintenanceBlocksEntireSystem = maintenanceModeEnabled && maintenanceScope === "total";
-  const gerencialLiberado = painelLiberado && (!maintenanceModeEnabled || canBypassMaintenance);
+  const maintenanceBlocksAdmin = maintenanceModeEnabled && ["total", "adm"].includes(maintenanceScope);
+  const maintenanceBlocksPdv = maintenanceModeEnabled && ["total", "pdv"].includes(maintenanceScope);
+  const gerencialLiberado = painelLiberado && (!maintenanceBlocksAdmin || canBypassMaintenance);
+  const pdvLiberado = painelLiberado && (!maintenanceBlocksPdv || canBypassMaintenance);
   const navItems = useMemo(
     () =>
       NAV_ITEMS.filter(
@@ -385,7 +380,7 @@ export default function App() {
   const maintenanceMessage = lojaAtiva.mensagemManutencao || "Unidade temporariamente indisponivel.";
   const maintenanceBannerVisible = false;
   const maintenanceScreenLocked = maintenanceLocked && maintenanceBlocksEntireSystem;
-  const shouldShowBootstrap = !authUser && superadminsSemAcesso.length > 0;
+  const shouldShowBootstrap = false;
 
   useEffect(() => {
     if (!maintenanceModeEnabled) {
@@ -420,17 +415,19 @@ export default function App() {
 
   useEffect(() => {
     if (!maintenanceLocked) return;
+    if (maintenanceScope === "pdv" && isManagementRole(accessRole)) {
+      setTela("gerencia");
+      return;
+    }
     setTela("pdv");
-  }, [maintenanceLocked]);
+  }, [accessRole, maintenanceLocked, maintenanceScope]);
 
   useEffect(() => {
-    if (!maintenanceModeEnabled || !authUser || !panelAccess) return;
+    if (!maintenanceBlocksAdmin || !authUser || !panelAccess) return;
     if (isSuperAdminRole(panelAccess.role)) return;
-
-    logoutPainel().catch((error) => console.error(error));
-    setAccessError("Sistema em manutencao. Somente o superadmin pode acessar o painel.");
+    setAccessError("A area administrativa esta bloqueada. Somente o superadmin pode acessar.");
     setTela("pdv");
-  }, [authUser, maintenanceModeEnabled, panelAccess]);
+  }, [authUser, maintenanceBlocksAdmin, panelAccess]);
 
   const lancamentosFiltrados = useMemo(() => {
     if (!buscaDataAtiva || !dataInicio || !dataFim) return lancamentos;
@@ -538,14 +535,14 @@ export default function App() {
           ) : null}
           <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
             <button className="mobile-sidebar-close" type="button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><FiX /></button>
-            <div className="sidebar-brand">
+            <div className="sidebar-brand pdv-system-brand">
               <img
                 className="sidebar-logo"
-                src={lojaAtiva.logomarca || (IS_CAFE_GUAJARA ? "/guajara-192.png" : logoGelato)}
-                alt={lojaAtiva.nome}
+                src="/branding/pdv-acs-horizontal-transparent.png"
+                alt="PDV ACS — Gestão e Vendas"
               />
               <div className="sidebar-title">{lojaAtiva.nome}</div>
-              <div className="sidebar-subtitle">ACS · Painel de gestao</div>
+              <div className="sidebar-subtitle">PDV ACS · Gestão e Vendas</div>
             </div>
 
             <div className="sidebar-access section-card">
@@ -667,7 +664,7 @@ export default function App() {
 
           <header className="app-topbar">
             <button className="topbar-menu-btn" type="button" aria-label="Abrir menu" onClick={() => setSidebarOpen((prev) => !prev)}><FiMenu /></button>
-            <div className="topbar-greeting"><strong>Ola, {effectiveAccessUser?.nome || "Usuario"}! 👋</strong><span>Bem vindo ao ACS Sistemas</span></div>
+            <div className="topbar-greeting"><strong>Ola, {effectiveAccessUser?.nome || "Usuario"}! 👋</strong><span>Bem-vindo ao PDV ACS</span></div>
             <div className="topbar-actions">
               {isManagementRole(accessRole) && lojas.length > 1 ? (
                 <select className="input select topbar-store-select" value={lojaAtivaId} onChange={(event) => selecionarLoja(event.target.value)} aria-label="Escolher unidade">
@@ -679,7 +676,15 @@ export default function App() {
           </header>
 
           <main className="content">
-            {telaAtiva === "pdv" && painelLiberado ? (
+            {telaAtiva === "pdv" && !pdvLiberado ? (
+              <div className="dashboard-screen">
+                <div className="section-card access-block-card">
+                  <div className="section-title">PDV bloqueado</div>
+                  <p className="screen-description">{maintenanceMessage}</p>
+                  <span className="section-subtitle">O acesso administrativo continua disponivel para usuarios autorizados.</span>
+                </div>
+              </div>
+            ) : telaAtiva === "pdv" && painelLiberado ? (
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                 <TelaCaixa
                   uid={operationalUid}
@@ -703,7 +708,7 @@ export default function App() {
                 {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={operationalUid} dataHoje={currentDate} loja={lojaAtiva} />}
                 {telaAtiva === "estoque" && <TelaEstoque uid={operationalUid} loja={lojaAtiva} lojas={lojas} />}
                 {telaAtiva === "atendentes" && <TelaAtendentes uid={operationalUid} accessUser={effectiveAccessUser} lojas={lojas} />}
-                {telaAtiva === "lojas" && <TelaLojas lojaAtivaId={lojaAtivaId} onSelectLoja={selecionarLoja} redeId={DEPLOY_REDE_ID} onSimulate={iniciarSimulacao} canManageAvailability={isSuperAdminRole(accessRole)} />}
+                {telaAtiva === "lojas" && <TelaLojas lojaAtivaId={lojaAtivaId} onSelectLoja={selecionarLoja} redeId={DEPLOY_REDE_ID} onSimulate={iniciarSimulacao} canManageAvailability={isSuperAdminRole(panelAccess?.role) && !simulation} />}
                 {telaAtiva === "rede" && <TelaRede lojas={lojas} />}
                 {telaAtiva === "relatorio" && (
                   <TelaRelatorio
@@ -723,14 +728,14 @@ export default function App() {
                   <div className="section-header section-header-main">
                   <div className="section-title">Painel bloqueado</div>
                     <span className="section-subtitle">
-                      {maintenanceLocked
-                        ? "Somente superadmin pode acessar o gerencial durante a manutencao"
+                      {maintenanceBlocksAdmin && !canBypassMaintenance
+                        ? "Area gerencial temporariamente indisponivel"
                         : "Entre com um usuario autenticado para continuar"}
                     </span>
                   </div>
                   <p className="screen-description">
-                    {maintenanceLocked
-                      ? "O PDV continua disponivel. As telas gerenciais ficam bloqueadas ate que um superadmin entre no painel."
+                    {maintenanceBlocksAdmin && !canBypassMaintenance
+                      ? "O PDV continua disponivel. As telas gerenciais estao temporariamente bloqueadas."
                       : "O PDV continua disponivel. As telas gerenciais exigem acesso autenticado com email e senha."}
                   </p>
                 </div>
@@ -779,7 +784,7 @@ export default function App() {
           <p className="maintenance-lock-note">
             {totalMode
               ? maintenanceMessage || "Sistema temporariamente indisponivel."
-              : "O PDV segue operante. O acesso gerencial esta bloqueado e liberado apenas para superadmin."}
+              : "O PDV segue operante. A area gerencial esta temporariamente indisponivel."}
           </p>
           {maintenanceAccessUnlocked ? (
               <div
@@ -809,13 +814,7 @@ export default function App() {
                   {accessError ? <p className="inline-feedback">{accessError}</p> : null}
                 </form>
               </div>
-          ) : (
-            <p className="maintenance-lock-note">
-              {totalMode
-                ? "Toque 6 vezes nesta tela para abrir o login de superadmin."
-                : "Toque 6 vezes nesta faixa para abrir o login de superadmin."}
-            </p>
-          )}
+          ) : null}
         </div>
       </div>
     );
@@ -976,6 +975,7 @@ export default function App() {
     e.preventDefault();
     const identificacao = String(accessForm.email || "").trim();
     const senha = String(accessForm.senha || "");
+    const loginDeManutencao = maintenanceLocked && maintenanceAccessUnlocked;
 
     if (!identificacao || !senha) {
       setAccessError("Informe seu nome ou email e a senha para entrar.");
@@ -987,7 +987,7 @@ export default function App() {
       const loginPorEmail = identificacao.includes("@");
       const email = loginPorEmail
         ? identificacao.toLowerCase()
-        : buildAtendenteEmail(operationalUid, identificacao);
+        : await resolverEmailAtendente(operationalUid, identificacao);
       const credencial = await loginPainel(email, senha);
       const acesso = await getPanelAccess(credencial.user.uid);
 
@@ -995,7 +995,11 @@ export default function App() {
         await logoutPainel();
         throw new Error("Acesso inativo ou sem vinculo com o painel.");
       }
-      if (normalizeRole(acesso.role) !== normalizeRole(loginRole)) {
+      if (loginDeManutencao && !isSuperAdminRole(acesso.role)) {
+        await logoutPainel();
+        throw new Error("Acesso nao autorizado.");
+      }
+      if (!loginDeManutencao && normalizeRole(acesso.role) !== normalizeRole(loginRole)) {
         await logoutPainel();
         throw new Error(`Este usuario esta cadastrado como ${getRoleLabel(acesso.role)}.`);
       }
@@ -1036,7 +1040,7 @@ export default function App() {
       <main className="access-login-screen">
         <section className="access-login-card">
           <div className="access-login-heading">
-            <span className="access-login-kicker">ACS Sistemas</span>
+            <img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS — Gestão e Vendas" />
             <h1>Bem-vindo</h1>
             <p>Escolha a unidade e o seu perfil para acessar.</p>
           </div>
@@ -1054,7 +1058,7 @@ export default function App() {
                   <span className="access-brand-logo">
                     <img src={loja.logomarca || logoGelato} alt="" />
                   </span>
-                  <strong>{isAcai ? "Sabor Açaí" : loja.nome}</strong>
+                  <strong>{isAcai ? "Sabor & Açaí" : loja.nome}</strong>
                   <small>{loja.id === lojaAtivaId ? "Unidade selecionada" : "Selecionar unidade"}</small>
                 </button>
               );

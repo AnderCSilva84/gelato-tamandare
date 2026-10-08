@@ -12,7 +12,7 @@ import {
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 
 const CONVERSAS_COLLECTION = "conversas";
 const MENSAGENS_COLLECTION = "mensagens";
@@ -45,11 +45,14 @@ function getMensagensRef(conversaId) {
 
 export async function enviarMensagemSuporte(usuarioEmail, usuarioUid, usuarioNome, texto) {
   const mensagem = sanitizeText(texto);
-  const uid = sanitizeText(usuarioUid);
-  const email = sanitizeText(usuarioEmail).toLowerCase() || `${uid}@pdv.local`;
+  const uid = auth.currentUser?.uid;
+  if (!uid || uid !== sanitizeText(usuarioUid)) throw new Error("Entre novamente para usar o suporte.");
+  const email = auth.currentUser.email;
+  if (!email || email.toLowerCase() !== sanitizeText(usuarioEmail).toLowerCase()) throw new Error("Identidade de suporte invalida.");
   const nome = sanitizeText(usuarioNome);
 
   if (!uid) throw new Error("Usuario invalido para abrir suporte.");
+  if (mensagem.length > 4000) throw new Error("Limite de 4000 caracteres.");
   if (!mensagem) throw new Error("Digite uma mensagem antes de enviar.");
 
   const conversaId = uid;
@@ -183,6 +186,7 @@ export async function responderConversaSuporte(conversaId, mensagem, adminEmail)
 
   if (!conversaId) throw new Error("Conversa invalida.");
   if (!email) throw new Error("Admin invalido para responder.");
+  if (texto.length > 4000) throw new Error("Limite de 4000 caracteres.");
   if (!texto) throw new Error("Digite uma resposta antes de enviar.");
 
   const conversaRef = getConversaRef(conversaId);

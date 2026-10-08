@@ -1,3 +1,6 @@
+import { imprimirTextoNativo, usaImpressoraInterna } from './impressoraNativa';
+import { montarTextoComprovante } from './textoComprovante';
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -29,6 +32,9 @@ function paymentRows(venda) {
 }
 
 export function imprimirComprovanteTermico({ loja, venda }) {
+  if (usaImpressoraInterna()) {
+    return imprimirTextoNativo(montarTextoComprovante({ loja, venda }));
+  }
   const popup = window.open("", "_blank", "width=420,height=720");
   if (!popup) {
     throw new Error("Permita pop-ups para imprimir o comprovante da venda.");

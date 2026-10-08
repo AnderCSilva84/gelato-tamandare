@@ -1,22 +1,21 @@
 {
-  "name": "Gelato Tamandare",
-  "short_name": "Gelato",
+  "name": "PDV ACS",
+  "short_name": "PDV ACS",
   "start_url": ".",
-  "display_override": ["fullscreen", "standalone"],
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
   "display": "standalone",
   "background_color": "#f5f6f8",
   "theme_color": "#111827",
   "orientation": "landscape",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/branding/pdv-acs-app-icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

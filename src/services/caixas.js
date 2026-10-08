@@ -1,25 +1,21 @@
 import {
-  addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
   onSnapshot,
   query,
-  serverTimestamp,
-  updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { getProdutos, updateProduto } from "./produtos";
-import { deleteVenda, getVendasPorCaixa } from "./vendas";
+import { executarOperacao, operacaoPersistente } from "./operacoes";
+
 
 const caixasRef = collection(db, "caixas");
 const retiradasRef = collection(db, "retiradas_caixa");
 
-function rangeQuery(uid) {
-  return query(caixasRef, where("uid", "==", uid));
+function rangeQuery(uid, inicio, fim = inicio) {
+  return query(caixasRef, where("uid", "==", uid), where("data", ">=", inicio), where("data", "<=", fim));
 }
 
 function filterPeriod(items, dataInicio, dataFim = dataInicio) {
@@ -31,7 +27,7 @@ function retiradaDayQuery(data) {
 }
 
 function sortByDateAndStatus(items) {
-  return [...items].sort((a, b) => {
+  return items.filter(item => item.status !== "arquivado" && item.status !== "cancelada").sort((a, b) => {
     const dataA = String(a?.data || "");
     const dataB = String(b?.data || "");
     const byDate = dataB.localeCompare(dataA);
@@ -43,31 +39,11 @@ function sortByDateAndStatus(items) {
 }
 
 export async function abrirCaixa(uid, dados) {
-  return addDoc(caixasRef, {
-    uid: uid || null,
-    atendenteId: String(dados?.atendenteId || "").trim(),
-    atendenteNome: String(dados?.atendenteNome || "").trim(),
-    data: String(dados?.data || "").trim(),
-    fundoCaixa: Number(dados?.fundoCaixa || 0),
-    status: "aberto",
-    abertoEm: serverTimestamp(),
-    fechadoEm: null,
-    totalVendas: 0,
-    totalItens: 0,
-  });
+  return operacaoPersistente('abrirCaixa', uid + ':' + dados.atendenteId, { uid, ...dados });
 }
 
 export async function fecharCaixa(id, dados) {
-  if (!id) throw new Error("Caixa invalido.");
-
-  await updateDoc(doc(db, "caixas", id), {
-    status: "fechado",
-    fechadoEm: serverTimestamp(),
-    totalVendas: Number(dados?.totalVendas || 0),
-    totalItens: Number(dados?.totalItens || 0),
-    totalDinheiro: Number(dados?.totalDinheiro || 0),
-    valorEmCaixa: Number(dados?.valorEmCaixa || 0),
-  });
+  return executarOperacao('fecharCaixa', { caixaId: id, dinheiroContado: dados?.dinheiroContado ?? null });
 }
 
 export async function getCaixa(id) {
@@ -106,7 +82,7 @@ export function subscribeCaixasPeriodo(uid, dataInicio, dataFim, callback) {
 
 export function subscribeCaixasAbertos(uid, callback, onError) {
   return onSnapshot(
-    query(caixasRef, where("uid", "==", uid)),
+    query(caixasRef, where("uid", "==", uid), where("status", "==", "aberto")),
     (snapshot) => {
       callback(sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === "aberto")));
     },
@@ -124,68 +100,21 @@ export async function getCaixasAbertos(uid) {
 }
 
 export async function updateCaixaData(id, data) {
-  if (!id) throw new Error("Caixa invalido.");
-  await updateDoc(doc(db, "caixas", id), {
-    data: String(data || "").trim(),
-  });
+  return executarOperacao('dataCaixa', { caixaId: id, data });
 }
 
 export async function getRetiradas(uid, dataInicio, dataFim = dataInicio) {
   if (!dataInicio) return [];
-  const snapshot = await getDocs(query(retiradasRef, where("uid", "==", uid)));
+  const snapshot = await getDocs(query(retiradasRef, where("uid", "==", uid), where("data", ">=", dataInicio), where("data", "<=", dataFim)));
   return sortByCreatedAt(filterPeriod(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })), dataInicio, dataFim));
 }
 
-export async function deleteCaixa(id, uid) {
-  if (!id) throw new Error("Caixa invalido.");
-
-  const [vendasDoCaixa, retiradasDaUnidade] = await Promise.all([
-    getVendasPorCaixa(uid, id),
-    getDocs(query(retiradasRef, where("uid", "==", uid))),
-  ]);
-  const retiradasDoCaixa = retiradasDaUnidade.docs.filter((item) => item.data()?.caixaId === id);
-
-  if (vendasDoCaixa.length) {
-    const produtos = await getProdutos(uid);
-    const produtosPorId = new Map(produtos.map((produto) => [produto.id, produto]));
-    const produtosPorNome = new Map(produtos.map((produto) => [String(produto.nome || "").trim(), produto]));
-    const reposicaoPorProduto = new Map();
-
-    vendasDoCaixa.forEach((venda) => {
-      const quantidade = Number(venda?.quantidade || 0);
-      if (!quantidade) return;
-
-      const produto =
-        (venda?.produtoId && produtosPorId.get(String(venda.produtoId))) ||
-        produtosPorNome.get(String(venda?.produto || "").trim());
-
-      if (!produto?.id) return;
-
-      reposicaoPorProduto.set(
-        produto.id,
-        (reposicaoPorProduto.get(produto.id) || 0) + quantidade
-      );
-    });
-
-    await Promise.all(
-      Array.from(reposicaoPorProduto.entries()).map(([produtoId, quantidade]) => {
-        const produto = produtosPorId.get(produtoId);
-        if (!produto) return Promise.resolve();
-        return updateProduto(produtoId, {
-          estoque: Number(produto.estoque || 0) + Number(quantidade || 0),
-        });
-      })
-    );
-  }
-
-  await Promise.all(vendasDoCaixa.map((venda) => deleteVenda(venda.id)));
-  await Promise.all(retiradasDoCaixa.map((item) => deleteDoc(doc(db, "retiradas_caixa", item.id))));
-
-  return deleteDoc(doc(db, "caixas", id));
+export async function deleteCaixa(id) {
+  return executarOperacao('arquivarCaixa', { caixaId: id });
 }
 
 function sortByCreatedAt(items) {
-  return [...items].sort((a, b) => {
+  return items.filter(item => item.status !== "cancelada").sort((a, b) => {
     const dateA =
       typeof a?.criadoEm?.toDate === "function" ? a.criadoEm.toDate().getTime() : 0;
     const dateB =
@@ -196,35 +125,15 @@ function sortByCreatedAt(items) {
 }
 
 export async function addRetiradaCaixa(uid, dados) {
-  return addDoc(retiradasRef, {
-    uid: uid || null,
-    caixaId: String(dados?.caixaId || "").trim(),
-    atendenteId: String(dados?.atendenteId || "").trim(),
-    atendenteNome: String(dados?.atendenteNome || "").trim(),
-    valor: Number(dados?.valor || 0),
-    motivo: String(dados?.motivo || "").trim(),
-    data: String(dados?.data || "").trim(),
-    criadoEm: serverTimestamp(),
-  });
+  return operacaoPersistente('retirarCaixa', dados.caixaId, { uid, ...dados });
 }
 
 export async function updateRetiradaCaixa(id, dados) {
-  if (!id) throw new Error("Retirada invalida.");
-
-  const payload = Object.fromEntries(
-    Object.entries({
-      valor: dados?.valor !== undefined ? Number(dados.valor) : undefined,
-      motivo: dados?.motivo !== undefined ? String(dados.motivo).trim() : undefined,
-      data: dados?.data !== undefined ? String(dados.data).trim() : undefined,
-    }).filter(([, value]) => value !== undefined)
-  );
-
-  await updateDoc(doc(db, "retiradas_caixa", id), payload);
+  return executarOperacao('editarRetirada', { id, ...dados });
 }
 
 export async function deleteRetiradaCaixa(id) {
-  if (!id) throw new Error("Retirada invalida.");
-  return deleteDoc(doc(db, "retiradas_caixa", id));
+  return executarOperacao('cancelarRetirada', { id });
 }
 
 export function subscribeRetiradasCaixa(uid, caixaId, callback, onError) {
@@ -234,7 +143,7 @@ export function subscribeRetiradasCaixa(uid, caixaId, callback, onError) {
   }
 
   return onSnapshot(
-    query(retiradasRef, where("uid", "==", uid)),
+    query(retiradasRef, where("uid", "==", uid), where("caixaId", "==", caixaId)),
     (snapshot) => {
       callback(sortByCreatedAt(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.caixaId === caixaId)));
     },

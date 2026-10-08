@@ -1,115 +1,36 @@
-import { readFileSync } from "node:fs";
-import process from "node:process";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-
-function getServiceAccount() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  }
-
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
-    return JSON.parse(readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, "utf8"));
-  }
-
-  throw new Error(
-    "Defina FIREBASE_SERVICE_ACCOUNT_JSON ou FIREBASE_SERVICE_ACCOUNT_PATH para executar o backfill."
-  );
-}
-
-if (!getApps().length) {
-  initializeApp({
-    credential: cert(getServiceAccount()),
-  });
-}
-
+﻿import { readFileSync } from 'node:fs';
+import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+const args = process.argv.slice(2), apply = args.includes('--apply');
+if (apply && args.includes('--dry-run')) throw new Error('--dry-run e --apply sao mutuamente exclusivos.');
+const projectId = args[args.indexOf('--project') + 1];
+if (!args.includes('--project') || !projectId || projectId.startsWith('--')) throw new Error('Informe --project. Sem --apply, apenas simula. Execute em janela sem gravacoes concorrentes.');
+initializeApp({ projectId, credential: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ? cert(JSON.parse(readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, 'utf8'))) : applicationDefault() });
 const db = getFirestore();
-
-function ensureResumo(mapa, dataKey) {
-  if (!mapa[dataKey]) {
-    mapa[dataKey] = {
-      totalVendas: 0,
-      totalDespesas: 0,
-      lucro: 0,
-      totalItens: 0,
-    };
-  }
-  return mapa[dataKey];
+const [sales, expenses, summaries, rankings] = await Promise.all(['vendas', 'despesas', 'resumo_diario', 'ranking_diario'].map(c => db.collection(c).get()));
+const totals = new Map(), ranks = new Map();
+function ensure(uid, data) {
+ const key = `${uid}__${data}`;
+ if (!totals.has(key)) totals.set(key, { uid, data, totalVendas: 0, totalDespesas: 0, lucro: 0, totalItens: 0 });
+ if (!ranks.has(key)) ranks.set(key, { uid, data, atendentes: {} });
+ return key;
 }
-
-function ensureRanking(mapa, dataKey) {
-  if (!mapa[dataKey]) {
-    mapa[dataKey] = { atendentes: {} };
-  }
-  return mapa[dataKey];
+for (const doc of [...summaries.docs, ...rankings.docs]) { const d = doc.data(); if (d.uid && d.data) ensure(d.uid, d.data); }
+for (const doc of sales.docs) {
+ const s = doc.data(); if (!s.uid || !s.data || s.status === 'cancelada') continue;
+ const key = ensure(s.uid, s.data), total = totals.get(key), cents = Math.round(Number(s.valor || 0) * 100);
+ total.totalVendas += cents; total.lucro += cents; total.totalItens += Number(s.quantidade || 0);
+ const attendee = s.atendenteId || s.atendente;
+ if (attendee) { const rank = ranks.get(key); rank.atendentes[attendee] ||= { nome: s.atendenteNome || s.atendente || 'Sem atendente', total: 0 }; rank.atendentes[attendee].total += cents; }
 }
-
-async function main() {
-  const [vendasSnap, despesasSnap] = await Promise.all([
-    db.collection("vendas").get(),
-    db.collection("despesas").get(),
-  ]);
-
-  const resumoDiario = {};
-  const rankingDiario = {};
-
-  vendasSnap.forEach((docSnap) => {
-    const venda = docSnap.data();
-    const dataKey = String(venda?.data || "");
-    if (!dataKey) return;
-
-    const valor = Number(venda?.valor || 0);
-    const quantidade = Number(venda?.quantidade || 0);
-    const atendenteId = String(venda?.atendenteId || venda?.atendente || "");
-    const atendenteNome = String(venda?.atendenteNome || venda?.atendente || "Sem atendente");
-
-    const resumo = ensureResumo(resumoDiario, dataKey);
-    resumo.totalVendas += valor;
-    resumo.lucro += valor;
-    resumo.totalItens += quantidade;
-
-    if (atendenteId) {
-      const ranking = ensureRanking(rankingDiario, dataKey);
-      if (!ranking.atendentes[atendenteId]) {
-        ranking.atendentes[atendenteId] = {
-          nome: atendenteNome,
-          total: 0,
-        };
-      }
-      ranking.atendentes[atendenteId].nome = atendenteNome;
-      ranking.atendentes[atendenteId].total += valor;
-    }
-  });
-
-  despesasSnap.forEach((docSnap) => {
-    const despesa = docSnap.data();
-    const dataKey = String(despesa?.data || "");
-    if (!dataKey) return;
-
-    const valor = Number(despesa?.valor || 0);
-    const resumo = ensureResumo(resumoDiario, dataKey);
-    resumo.totalDespesas += valor;
-    resumo.lucro -= valor;
-  });
-
-  const batch = db.batch();
-
-  Object.entries(resumoDiario).forEach(([dataKey, resumo]) => {
-    batch.set(db.collection("resumo_diario").doc(dataKey), resumo, { merge: true });
-  });
-
-  Object.entries(rankingDiario).forEach(([dataKey, ranking]) => {
-    batch.set(db.collection("ranking_diario").doc(dataKey), ranking, { merge: true });
-  });
-
-  await batch.commit();
-
-  console.log(
-    `Backfill concluido: ${Object.keys(resumoDiario).length} resumos e ${Object.keys(rankingDiario).length} rankings atualizados.`
-  );
+for (const doc of expenses.docs) {
+ const d = doc.data(); if (!d.uid || !d.data || d.status === 'cancelada') continue;
+ const total = totals.get(ensure(d.uid, d.data)), cents = Math.round(Number(d.valor || 0) * 100);
+ total.totalDespesas += cents; total.lucro -= cents;
 }
-
-main().catch((error) => {
-  console.error("Falha no backfill dos agregados:", error);
-  process.exit(1);
-});
+const writes = [];
+for (const [key, total] of totals) writes.push([db.doc(`resumo_diario/${key}`), { ...total, totalVendas: total.totalVendas / 100, totalDespesas: total.totalDespesas / 100, lucro: total.lucro / 100 }]);
+for (const [key, rank] of ranks) writes.push([db.doc(`ranking_diario/${key}`), { ...rank, atendentes: Object.fromEntries(Object.entries(rank.atendentes).map(([id, item]) => [id, { ...item, total: item.total / 100 }])) }]);
+if (apply) for (let offset = 0; offset < writes.length; offset += 400) { const batch = db.batch(); for (const [target, value] of writes.slice(offset, offset + 400)) batch.set(target, value); await batch.commit(); }
+console.log(JSON.stringify({ projectId, modo: apply ? 'aplicacao' : 'simulacao', resumos: totals.size, rankings: ranks.size, limiteLote: 400 }));
+await db.terminate();

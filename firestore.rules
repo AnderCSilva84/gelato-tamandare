@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function hasPanelAccess() {
-      return isSignedIn() && exists(panelAccessPath(request.auth.uid));
+      return isSignedIn() && exists(panelAccessPath(request.auth.uid)) && myPanelAccess().data.get("ativo", false) == true;
     }
 
     function myPanelAccess() {
@@ -69,12 +69,6 @@ service cloud.firestore {
       return exists(attendeePath(id));
     }
 
-    function isBootstrappableSuperadmin(id) {
-      return attendeeExists(id)
-        && attendeeDoc(id).data.role == "superadmin"
-        && (attendeeDoc(id).data.authUid == null || attendeeDoc(id).data.authUid == "");
-    }
-
     function isPromotingToSuperadmin() {
       return request.resource.data.role == "superadmin";
     }
@@ -83,58 +77,17 @@ service cloud.firestore {
       return resource.data.role == "superadmin";
     }
 
-    function isBootstrapBindingUpdate() {
-      return isSignedIn()
-        && resource.data.role == "superadmin"
-        && (resource.data.authUid == null || resource.data.authUid == "")
-        && request.resource.data.authUid == request.auth.uid
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.nome == resource.data.nome
-        && request.resource.data.meta == resource.data.meta
-        && request.resource.data.senha == resource.data.senha
-        && request.resource.data.ativo == resource.data.ativo;
-    }
-
     match /acessos_painel/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isSuperadmin());
-      allow create: if isSignedIn() && (
-        isSuperadmin()
-        || (isManagement()
-          && request.resource.data.role != "superadmin"
-          && request.resource.data.keys().hasAny(["lojaId"])
-          && hasStoreAccess(request.resource.data.lojaId))
-        || (
-          request.auth.uid == uid
-          && isBootstrappableSuperadmin(request.resource.data.atendenteId)
-          && request.resource.data.role == "superadmin"
-        )
-      );
-      allow update: if isSignedIn() && (
-        isSuperadmin()
-        || (isManagement()
-          && resource.data.role != "superadmin"
-          && request.resource.data.role != "superadmin"
-          && resource.data.keys().hasAny(["lojaId"])
-          && hasStoreAccess(resource.data.lojaId)
-          && request.resource.data.lojaId == resource.data.lojaId)
-      );
-      allow delete: if isSignedIn() && (
-        isSuperadmin()
-        || (isManagement()
-          && resource.data.role != "superadmin"
-          && resource.data.keys().hasAny(["lojaId"])
-          && hasStoreAccess(resource.data.lojaId))
-      );
+      allow write: if false;
     }
+
+    // Only synthetic login addresses, never passwords or personal email addresses.
+    match /logins_atendentes/{alias} { allow get: if true; allow list, write: if false; }
 
     match /atendentes/{document} {
       allow read: if canReadStoreData();
-      allow create: if isManagement() && canCreateStoreData() && (!isPromotingToSuperadmin() || isSuperadmin());
-      allow update: if isBootstrapBindingUpdate()
-        || (isManagement() && canReadStoreData() && keepsStore()
-          && !isStoredSuperadmin()
-          && (!isPromotingToSuperadmin() || isSuperadmin()));
-      allow delete: if isManagement() && canReadStoreData() && (!isStoredSuperadmin() || isSuperadmin());
+      allow write: if false;
     }
 
     match /configuracoes/{document} {
@@ -144,11 +97,10 @@ service cloud.firestore {
 
     match /lojas/{lojaId} {
       allow read: if true;
-      allow create: if isSuperadmin()
-        || (isManagement() && request.resource.data.status == "ativa" && request.resource.data.ativa == true);
+      allow create: if isSuperadmin();
       allow update: if isSuperadmin()
         || (isManagement()
-          && resource.data.status == "ativa"
+          && hasStoreAccess(lojaId) && resource.data.status == "ativa"
           && request.resource.data.status == "ativa"
           && request.resource.data.ativa == true);
       allow delete: if isSuperadmin();
@@ -156,12 +108,15 @@ service cloud.firestore {
 
     match /produtos/{document=**} {
       allow read: if canReadStoreData();
-      allow create: if canManageProducts() && canCreateStoreData();
-      allow update: if canReadStoreData() && keepsStore() && (
-        canManageProducts()
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["estoque"])
-      );
+      allow create: if canManageProducts() && canCreateStoreData() && request.resource.data.estoque is number && request.resource.data.estoque >= 0;
+      allow update: if canManageProducts() && canReadStoreData() && keepsStore() && request.resource.data.estoque is number && request.resource.data.estoque >= 0;
       allow delete: if canManageProducts() && canReadStoreData();
+    }
+
+    match /movimentacoes_estoque/{document=**} {
+      allow read: if canReadStoreData();
+      allow create: if canManageProducts() && canCreateStoreData();
+      allow update, delete: if false;
     }
 
     match /grupos_produtos/{document=**} {
@@ -171,15 +126,13 @@ service cloud.firestore {
     }
 
     match /vendas/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if isManagement() && canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /despesas/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if isManagement() && canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /despesas_fixas/{document=**} {
@@ -189,47 +142,62 @@ service cloud.firestore {
     }
 
     match /entradas_consolidadas/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if isManagement() && canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /caixas/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /retiradas_caixa/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /resumo_diario/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
     match /ranking_diario/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow write: if false;
     }
 
+    match /operacoes/{document} { allow read: if canReadStoreData(); allow write: if false; }
+    match /auditoria_financeira/{document} { allow read: if isManagement() && canReadStoreData(); allow write: if false; }
+    match /caixas_ativos/{document} { allow read: if canReadStoreData(); allow write: if false; }
+
     match /lancamentos/{document=**} {
-      allow read, delete: if canReadStoreData();
-      allow create: if canCreateStoreData();
-      allow update: if isManagement() && canReadStoreData() && keepsStore();
+      allow read: if canReadStoreData();
+      allow delete: if isManagement() && canReadStoreData() && resource.data.tipo != "cancelamento_venda_caixa";
+      allow create: if isManagement() && canCreateStoreData() && request.resource.data.tipo != "cancelamento_venda_caixa";
+      allow update: if isManagement() && canReadStoreData() && keepsStore() && resource.data.tipo != "cancelamento_venda_caixa" && request.resource.data.tipo != "cancelamento_venda_caixa";
     }
 
     match /conversas/{conversaId} {
-      allow read, create, update: if true;
+      function ownsConversation() {
+        return hasPanelAccess() && request.auth.uid == conversaId;
+      }
+      allow read: if ownsConversation() || isSuperadmin();
+      allow create: if ownsConversation()
+        && request.resource.data.usuarioUid == request.auth.uid
+        && request.resource.data.usuarioEmail == request.auth.token.email;
+      allow update: if (ownsConversation() || isSuperadmin())
+        && request.resource.data.usuarioUid == resource.data.usuarioUid
+        && request.resource.data.usuarioEmail == resource.data.usuarioEmail;
       allow delete: if false;
-
       match /mensagens/{mensagemId} {
-        allow read, create: if true;
+        allow read: if ownsConversation() || isSuperadmin();
+        allow create: if request.resource.data.texto is string
+          && request.resource.data.texto.size() > 0 && request.resource.data.texto.size() <= 4000
+          && ((ownsConversation() && request.resource.data.tipoRemetente == "usuario"
+            && request.resource.data.remetente == request.auth.token.email)
+          || (isSuperadmin() && request.resource.data.tipoRemetente == "admin"
+            && request.resource.data.adminEmail == request.auth.token.email
+            && request.resource.data.remetente == "admin"));
         allow update, delete: if false;
       }
     }

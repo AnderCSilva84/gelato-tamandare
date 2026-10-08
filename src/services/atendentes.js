@@ -1,3 +1,4 @@
+import { executarOperacao } from "./operacoes";
 import {
   addDoc,
   collection,
@@ -50,7 +51,6 @@ export async function addAtendente(uid, dados) {
     metasMensais: {
       [getCurrentMonthKey()]: meta,
     },
-    senha: String(dados?.senha || "").trim(),
     role: normalizeRole(dados?.role),
     emailAcesso: String(dados?.emailAcesso || "").trim().toLowerCase(),
     authUid: String(dados?.authUid || "").trim(),
@@ -63,26 +63,8 @@ export async function addAtendente(uid, dados) {
 }
 
 export async function copiarAtendenteParaLojas(atendente, lojaIds = []) {
-  if (!atendente?.id) throw new Error("Atendente invalido.");
-  const destinos = [...new Set(lojaIds.map(String).filter((id) => id && id !== atendente.uid))];
-  if (!destinos.length) return 0;
-
-  const cadastroGlobalId = String(atendente.cadastroGlobalId || atendente.id);
-  if (!atendente.cadastroGlobalId) await updateAtendente(atendente.id, { cadastroGlobalId });
-  const payload = { ...atendente, cadastroGlobalId };
-  delete payload.id;
-  delete payload.uid;
-  delete payload.criadoEm;
-
-  const verificacoes = await Promise.all(destinos.map(async (lojaId) => ({
-    lojaId,
-    atendentes: await getAtendentes(lojaId),
-  })));
-  const pendentes = verificacoes
-    .filter(({ atendentes }) => !atendentes.some((item) => String(item.cadastroGlobalId || "") === cadastroGlobalId))
-    .map(({ lojaId }) => lojaId);
-  await Promise.all(pendentes.map((lojaId) => addAtendente(lojaId, payload)));
-  return pendentes.length;
+  const result = await executarOperacao('copiarAtendente', { id: atendente.id, lojaIds });
+  return result.total;
 }
 
 export async function cadastrarGestoresNaLoja(lojaId) {
@@ -114,10 +96,9 @@ export async function updateAtendente(id, dados) {
   return updateDoc(
     doc(db, "atendentes", id),
     cleanData({
-      ...dados,
+      ...Object.fromEntries(Object.entries(dados).filter(([key]) => key !== "senha")),
       nome: dados?.nome !== undefined ? String(dados.nome).trim() : undefined,
       meta: dados?.meta !== undefined ? Number(dados.meta) : undefined,
-      senha: dados?.senha !== undefined ? String(dados.senha).trim() : undefined,
       role: dados?.role !== undefined ? normalizeRole(dados.role) : undefined,
       emailAcesso:
         dados?.emailAcesso !== undefined ? String(dados.emailAcesso).trim().toLowerCase() : undefined,

@@ -1,3 +1,4 @@
+import { confirmarSenhaAtual } from "../services/auth";
 import { useEffect, useMemo, useState } from "react";
 import {
   deleteCaixa,
@@ -37,7 +38,7 @@ function formatDateTimeLabel(valor) {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
 }
 
-export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
+export default function Gerencia({ uid, dataHoje, onNavigate }) {
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
   const [caixasAbertosAtuais, setCaixasAbertosAtuais] = useState([]);
@@ -108,19 +109,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate, accessUser }) {
   async function confirmarAcaoCaixa() {
     if (!acaoCaixa?.caixa?.id) return;
 
-    const senhaCadastrada = String(accessUser?.senha || "");
-    const senhaInformada = String(senhaGerencia || "");
-
-    if (!senhaCadastrada) {
-      setFeedbackAcaoCaixa("Cadastre uma senha para a gerencia antes de usar esta acao.");
-      return;
-    }
-
-    if (senhaInformada !== senhaCadastrada) {
-      setFeedbackAcaoCaixa("Senha da gerencia invalida.");
-      return;
-    }
-
+    try { await confirmarSenhaAtual(senhaGerencia); } catch { setFeedbackAcaoCaixa("Senha invalida. Confirme a senha da sua conta."); return; }
     setSalvandoAcaoCaixa(true);
     setFeedbackAcaoCaixa("");
 

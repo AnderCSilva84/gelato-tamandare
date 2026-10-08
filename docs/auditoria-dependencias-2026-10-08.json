@@ -1,0 +1,932 @@
+{
+  "data": "2026-10-08",
+  "escopo": "npm audit do lockfile local; não é comprovação de exploração",
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 3,
+      "moderate": 16,
+      "high": 16,
+      "critical": 4,
+      "total": 39
+    },
+    "dependencies": {
+      "prod": 187,
+      "dev": 250,
+      "optional": 147,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 531
+    }
+  },
+  "packages": [
+    {
+      "name": "@babel/core",
+      "severity": "low",
+      "isDirect": false,
+      "range": "<=7.29.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "@babel/core: Arbitrary File Read via sourceMappingURL Comment",
+          "url": "https://github.com/advisories/GHSA-4x5r-pxfx-6jf8",
+          "range": "<=7.29.0"
+        }
+      ]
+    },
+    {
+      "name": "@capacitor/android",
+      "severity": "critical",
+      "isDirect": true,
+      "range": "7.0.0 - 7.6.8",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Capacitor Android and iOS: remote content can be loaded at the app origin via the internal HTTP proxy path",
+          "url": "https://github.com/advisories/GHSA-rvm3-566m-v7fv",
+          "range": ">=7.0.0 <7.6.9"
+        }
+      ]
+    },
+    {
+      "name": "@fastify/busboy",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=3.2.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "@fastify/busboy vulnerable to Denial of Service via oversized multipart boundary",
+          "url": "https://github.com/advisories/GHSA-xjh9-v7x6-24jw",
+          "range": ">=3.1.0 <3.2.1"
+        },
+        {
+          "title": "@fastify/busboy vulnerable to Denial of Service via prototype-named multipart part header",
+          "url": "https://github.com/advisories/GHSA-x8mw-p69m-v3mx",
+          "range": ">=1.0.0 <3.2.1"
+        },
+        {
+          "title": "@fastify/busboy vulnerable to CRLF injection via multipart Content-Disposition filename and name",
+          "url": "https://github.com/advisories/GHSA-gxm5-99cw-xjw9",
+          "range": "<3.2.2"
+        }
+      ]
+    },
+    {
+      "name": "@google-cloud/firestore",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "7.5.0-pre.0 || 7.6.0 - 7.11.6",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": []
+    },
+    {
+      "name": "@google-cloud/storage",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "2.2.0 - 2.5.0 || 5.19.0 - 8.0.0",
+      "fixAvailable": true,
+      "advisories": []
+    },
+    {
+      "name": "@grpc/grpc-js",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=1.13.5 || 1.14.0 - 1.14.4",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "@grpc/grpc-js: A malformed request can cause a server crash",
+          "url": "https://github.com/advisories/GHSA-5375-pq7m-f5r2",
+          "range": ">=1.14.0 <1.14.4"
+        },
+        {
+          "title": "@grpc/grpc-js: A malformed request can cause a server crash",
+          "url": "https://github.com/advisories/GHSA-5375-pq7m-f5r2",
+          "range": "<1.9.16"
+        },
+        {
+          "title": "@grpc/grpc-js: An incoming malformed compressed message can cause a client or server crash",
+          "url": "https://github.com/advisories/GHSA-99f4-grh7-6pcq",
+          "range": ">=1.14.0 <1.14.4"
+        },
+        {
+          "title": "@grpc/grpc-js: An incoming malformed compressed message can cause a client or server crash",
+          "url": "https://github.com/advisories/GHSA-99f4-grh7-6pcq",
+          "range": "<1.9.16"
+        },
+        {
+          "title": "@grpc/grpc-js: In certain configurations, getAuthContext can return unauthorized certificates as though they were authorized",
+          "url": "https://github.com/advisories/GHSA-m9gg-hp2v-232j",
+          "range": ">=1.14.0 <1.14.5"
+        },
+        {
+          "title": "@grpc/grpc-js: In certain configurations, getAuthContext can return unauthorized certificates as though they were authorized",
+          "url": "https://github.com/advisories/GHSA-m9gg-hp2v-232j",
+          "range": "<1.13.6"
+        },
+        {
+          "title": "@grpc/grpc-js: The server transmits some error messages thrown by method handlers to the client in status messages",
+          "url": "https://github.com/advisories/GHSA-f596-whhp-79r4",
+          "range": ">=1.14.0 <1.14.5"
+        },
+        {
+          "title": "@grpc/grpc-js: The server transmits some error messages thrown by method handlers to the client in status messages",
+          "url": "https://github.com/advisories/GHSA-f596-whhp-79r4",
+          "range": "<1.13.6"
+        }
+      ]
+    },
+    {
+      "name": "@humanfs/node",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "<0.16.8",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "humanfs: Recursive copy follows symlinked files and copies data from outside the source tree",
+          "url": "https://github.com/advisories/GHSA-p498-v437-472g",
+          "range": "<0.16.8"
+        }
+      ]
+    },
+    {
+      "name": "@protobufjs/utf8",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "<=1.1.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "protobufjs has overlong UTF-8 decoding",
+          "url": "https://github.com/advisories/GHSA-q6x5-8v7m-xcrf",
+          "range": "<=1.1.0"
+        }
+      ]
+    },
+    {
+      "name": "@remix-run/router",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "1.3.0 - 1.23.2",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "React Router's same-origin redirect with path starting // causes open redirect via protocol-relative URL reinterpretation",
+          "url": "https://github.com/advisories/GHSA-2j2x-hqr9-3h42",
+          "range": ">=1.3.0 <1.23.3"
+        }
+      ]
+    },
+    {
+      "name": "@tootallnate/once",
+      "severity": "low",
+      "isDirect": false,
+      "range": "<2.0.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "@tootallnate/once vulnerable to Incorrect Control Flow Scoping",
+          "url": "https://github.com/advisories/GHSA-vpq2-c234-7xj6",
+          "range": "<2.0.1"
+        }
+      ]
+    },
+    {
+      "name": "baseline-browser-mapping",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": ">=2.0.0 <2.11.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "baseline-browser-mapping process termination on invalid input causes denial of service",
+          "url": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv",
+          "range": ">=2.0.0 <2.11.0"
+        }
+      ]
+    },
+    {
+      "name": "brace-expansion",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=1.1.20 || 2.0.0 - 2.1.6",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+          "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v",
+          "range": "<1.1.13"
+        },
+        {
+          "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+          "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v",
+          "range": ">=2.0.0 <2.0.3"
+        },
+        {
+          "title": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+          "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+          "range": ">=2.0.0 <2.1.2"
+        },
+        {
+          "title": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+          "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+          "range": "<1.1.16"
+        },
+        {
+          "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "range": "<1.1.17"
+        },
+        {
+          "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "range": ">=2.0.0 <2.1.3"
+        },
+        {
+          "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "range": ">=2.0.0 <2.1.4"
+        },
+        {
+          "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "range": "<1.1.18"
+        },
+        {
+          "title": "brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service",
+          "url": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr",
+          "range": "<1.1.21"
+        },
+        {
+          "title": "brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service",
+          "url": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr",
+          "range": ">=2.0.0 <2.1.7"
+        },
+        {
+          "title": "brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion",
+          "url": "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
+          "range": "<1.1.20"
+        },
+        {
+          "title": "brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion",
+          "url": "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
+          "range": ">=2.0.0 <2.1.6"
+        },
+        {
+          "title": "brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion",
+          "url": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
+          "range": "<1.1.19"
+        },
+        {
+          "title": "brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion",
+          "url": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
+          "range": ">=2.0.0 <2.1.5"
+        }
+      ]
+    },
+    {
+      "name": "browserslist",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=4.28.6",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Browserslist: Unbounded memory growth (no cache eviction) via distinct query results, leading to eventual OOM",
+          "url": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx",
+          "range": "<=4.28.6"
+        },
+        {
+          "title": "Browserslist: Uncaught crash / prototype write via untrusted browserslist-stats.json custom stats (normalizeStats)",
+          "url": "https://github.com/advisories/GHSA-73wf-gq98-2v4g",
+          "range": "<=4.28.6"
+        }
+      ]
+    },
+    {
+      "name": "dompurify",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "<=3.4.15",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "DOMPurify contains a Cross-site Scripting vulnerability",
+          "url": "https://github.com/advisories/GHSA-v2wj-7wpq-c8vv",
+          "range": ">=3.1.3 <=3.3.1"
+        },
+        {
+          "title": "DOMPurify: FORBID_TAGS bypassed by function-based ADD_TAGS predicate (asymmetry with FORBID_ATTR fix)",
+          "url": "https://github.com/advisories/GHSA-h7mw-gpvr-xq4m",
+          "range": "<3.4.0"
+        },
+        {
+          "title": "DOMPurify has a SAFE_FOR_TEMPLATES bypass in RETURN_DOM mode",
+          "url": "https://github.com/advisories/GHSA-crv5-9vww-q3g8",
+          "range": ">=1.0.10 <3.4.0"
+        },
+        {
+          "title": "DOMPurify: Prototype Pollution to XSS Bypass via CUSTOM_ELEMENT_HANDLING Fallback",
+          "url": "https://github.com/advisories/GHSA-v9jr-rg53-9pgp",
+          "range": ">=3.0.1 <3.4.0"
+        },
+        {
+          "title": "DOMPurify: Cross-realm IN_PLACE sanitization leaves executable markup intact via realm-bound `instanceof` checks",
+          "url": "https://github.com/advisories/GHSA-hpcv-96wg-7vj8",
+          "range": "<=3.4.5"
+        },
+        {
+          "title": "DOMPurify: IN_PLACE mode preserves attributes of a clobbered root element, allowing XSS via attacker-controlled root DOM",
+          "url": "https://github.com/advisories/GHSA-r47g-fvhr-h676",
+          "range": "<=3.4.5"
+        },
+        {
+          "title": "DOMPurify IN_PLACE Sanitization Bypass via Attached Shadow Root Inside <template>.content",
+          "url": "https://github.com/advisories/GHSA-rp9w-3fw7-7cwq",
+          "range": "<=3.4.6"
+        },
+        {
+          "title": "DOMPurify: Permanent `ALLOWED_ATTR` pollution via `setConfig()` bypassing the hook clone-guard (incomplete fix of the 3.4.7 hook-pollution patch)",
+          "url": "https://github.com/advisories/GHSA-cmwh-pvxp-8882",
+          "range": "<=3.4.10"
+        },
+        {
+          "title": "DOMPurify: Trusted Types policy survives `clearConfig()` and can poison later `RETURN_TRUSTED_TYPE` output",
+          "url": "https://github.com/advisories/GHSA-vxr8-fq34-vvx9",
+          "range": "<3.4.9"
+        },
+        {
+          "title": "DOMPurify: SAFE_FOR_TEMPLATES bypass - template expressions survive sanitization inside <template> content when using DOM output modes",
+          "url": "https://github.com/advisories/GHSA-gvmj-g25r-r7wr",
+          "range": ">=3.0.0 <=3.4.7"
+        },
+        {
+          "title": "DOMPurify: `IN_PLACE` mode trusts attacker-controlled `nodeName` on live non-form nodes, allowing script retention and XSS via attacker-supplied DOM objects",
+          "url": "https://github.com/advisories/GHSA-x4vx-rjvf-j5p4",
+          "range": "<=3.4.6"
+        },
+        {
+          "title": "DOMPurify: Hook mutation of `data.allowedTags` / `data.allowedAttributes` permanently pollutes `DEFAULT_ALLOWED_TAGS` / `DEFAULT_ALLOWED_ATTR`",
+          "url": "https://github.com/advisories/GHSA-76mc-f452-cxcm",
+          "range": "<3.4.7"
+        },
+        {
+          "title": "DOMPurify's ADD_TAGS function form bypasses FORBID_TAGS due to short-circuit evaluation",
+          "url": "https://github.com/advisories/GHSA-39q2-94rc-95cp",
+          "range": "<=3.3.3"
+        },
+        {
+          "title": "DOMPurify ADD_ATTR predicate skips URI validation",
+          "url": "https://github.com/advisories/GHSA-cjmm-f4jc-qw8r",
+          "range": "<=3.3.1"
+        },
+        {
+          "title": "DOMPurify USE_PROFILES prototype pollution allows event handlers",
+          "url": "https://github.com/advisories/GHSA-cj63-jhhr-wcxv",
+          "range": "<=3.3.1"
+        },
+        {
+          "title": "DOMPurify is vulnerable to mutation-XSS via Re-Contextualization ",
+          "url": "https://github.com/advisories/GHSA-h8r8-wccr-v5f2",
+          "range": "<3.3.2"
+        },
+        {
+          "title": "DOMPurify: IN_PLACE hook removal leaves a detached subtree executable, causing XSS",
+          "url": "https://github.com/advisories/GHSA-55q2-fjhq-7xh7",
+          "range": "<=3.4.12"
+        },
+        {
+          "title": "DOMPurify: `CUSTOM_ELEMENT_HANDLING` bypasses `afterSanitizeElements` for allowed custom elements.",
+          "url": "https://github.com/advisories/GHSA-c2j3-45gr-mqc4",
+          "range": "<=3.4.11"
+        },
+        {
+          "title": "DOMPurify: IN_PLACE returns a force-removed rawtext root whose text carries attacker markup — pure HTML reparse executes",
+          "url": "https://github.com/advisories/GHSA-6688-9rhm-gjv2",
+          "range": "<=3.4.15"
+        }
+      ]
+    },
+    {
+      "name": "esbuild",
+      "severity": "low",
+      "isDirect": false,
+      "range": "0.27.3 - 0.28.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "esbuild allows arbitrary file read when running the development server on Windows",
+          "url": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+          "range": ">=0.27.3 <0.28.1"
+        }
+      ]
+    },
+    {
+      "name": "fast-xml-builder",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=1.1.6",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "fast-xml-builder allows attribute values with unwanted quotes to bypass malicious or unwanted attributes",
+          "url": "https://github.com/advisories/GHSA-5wm8-gmm8-39j9",
+          "range": "<=1.1.6"
+        }
+      ]
+    },
+    {
+      "name": "fast-xml-parser",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=5.6.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "fast-xml-parser affected by numeric entity expansion bypassing all entity expansion limits (incomplete fix for CVE-2026-26278)",
+          "url": "https://github.com/advisories/GHSA-8gc5-j5rx-235r",
+          "range": ">=5.0.0 <5.5.6"
+        },
+        {
+          "title": "Entity Expansion Limits Bypassed When Set to Zero Due to JavaScript Falsy Evaluation in fast-xml-parser",
+          "url": "https://github.com/advisories/GHSA-jp2q-39xq-3w4g",
+          "range": ">=5.0.0 <5.5.7"
+        },
+        {
+          "title": "fast-xml-parser XMLBuilder: XML Comment and CDATA Injection via Unescaped Delimiters",
+          "url": "https://github.com/advisories/GHSA-gh4j-gqv2-49f6",
+          "range": "<5.7.0"
+        }
+      ]
+    },
+    {
+      "name": "fflate",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "0.8.0 - 0.8.2",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "fflate unzipSync can enter an infinite loop when parsing malformed ZIP64 archives",
+          "url": "https://github.com/advisories/GHSA-px8p-9vwx-vf98",
+          "range": ">=0.8.0 <0.8.3"
+        }
+      ]
+    },
+    {
+      "name": "firebase-admin",
+      "severity": "moderate",
+      "isDirect": true,
+      "range": "12.1.1 - 13.10.0",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": []
+    },
+    {
+      "name": "flatted",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=3.4.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "flatted vulnerable to unbounded recursion DoS in parse() revive phase",
+          "url": "https://github.com/advisories/GHSA-25h7-pfq9-p65f",
+          "range": "<3.4.0"
+        },
+        {
+          "title": "Prototype Pollution via parse() in NodeJS flatted",
+          "url": "https://github.com/advisories/GHSA-rf6f-7fwh-wjgh",
+          "range": "<=3.4.1"
+        }
+      ]
+    },
+    {
+      "name": "form-data",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<2.5.6",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "form-data: CRLF injection in form-data via unescaped multipart field names and filenames",
+          "url": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
+          "range": "<2.5.6"
+        }
+      ]
+    },
+    {
+      "name": "gaxios",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "6.4.0 - 6.7.1",
+      "fixAvailable": true,
+      "advisories": []
+    },
+    {
+      "name": "google-gax",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "4.0.5-experimental - 4.6.1",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": []
+    },
+    {
+      "name": "js-yaml",
+      "severity": "high",
+      "isDirect": false,
+      "range": "4.0.0 - 4.3.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "JS-YAML: Quadratic-complexity DoS in merge key handling via repeated aliases",
+          "url": "https://github.com/advisories/GHSA-h67p-54hq-rp68",
+          "range": ">=4.0.0 <=4.1.1"
+        },
+        {
+          "title": "js-yaml: YAML merge-key chains can force quadratic CPU consumption",
+          "url": "https://github.com/advisories/GHSA-52cp-r559-cp3m",
+          "range": ">=4.0.0 <4.3.0"
+        },
+        {
+          "title": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix not backported",
+          "url": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj",
+          "range": ">=4.0.0 <4.3.1"
+        },
+        {
+          "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "range": ">=4.0.0 <4.3.2"
+        }
+      ]
+    },
+    {
+      "name": "jspdf",
+      "severity": "critical",
+      "isDirect": true,
+      "range": "<=4.2.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "jsPDF has a PDF Object Injection via FreeText color",
+          "url": "https://github.com/advisories/GHSA-7x6v-j9x4-qf24",
+          "range": "<=4.2.0"
+        },
+        {
+          "title": "jsPDF has HTML Injection in New Window paths",
+          "url": "https://github.com/advisories/GHSA-wfv2-pwc8-crg5",
+          "range": "<=4.2.0"
+        }
+      ]
+    },
+    {
+      "name": "minimatch",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<3.1.4",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "minimatch ReDoS: nested *() extglobs generate catastrophically backtracking regular expressions",
+          "url": "https://github.com/advisories/GHSA-23c5-xmqv-rm74",
+          "range": "<3.1.4"
+        }
+      ]
+    },
+    {
+      "name": "nanoid",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=3.3.17",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "nanoid: non-secure generators can loop indefinitely with negative size",
+          "url": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv",
+          "range": "<3.3.16"
+        },
+        {
+          "title": "nanoid: custom generators can loop indefinitely when size is zero",
+          "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8",
+          "range": "<3.3.18"
+        },
+        {
+          "title": "nanoid: Integer Overflow or Wraparound",
+          "url": "https://github.com/advisories/GHSA-xwg4-73v4-xw9w",
+          "range": "<3.3.12"
+        }
+      ]
+    },
+    {
+      "name": "node-forge",
+      "severity": "high",
+      "isDirect": false,
+      "range": "*",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Forge has a basicConstraints bypass in its certificate chain verification (RFC 5280 violation)",
+          "url": "https://github.com/advisories/GHSA-2328-f5f3-gj25",
+          "range": "<=1.3.3"
+        },
+        {
+          "title": "Forge has signature forgery in Ed25519 due to missing S > L check",
+          "url": "https://github.com/advisories/GHSA-q67f-28xg-22rw",
+          "range": "<1.4.0"
+        },
+        {
+          "title": "Forge has Denial of Service via Infinite Loop in BigInteger.modInverse() with Zero Input",
+          "url": "https://github.com/advisories/GHSA-5m6q-g25r-mvwx",
+          "range": "<1.4.0"
+        },
+        {
+          "title": "Forge has signature forgery in RSA-PKCS due to ASN.1 extra field  ",
+          "url": "https://github.com/advisories/GHSA-ppp5-5v6c-4jwp",
+          "range": "<1.4.0"
+        },
+        {
+          "title": "node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
+          "url": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
+          "range": "<=1.4.0"
+        }
+      ]
+    },
+    {
+      "name": "picomatch",
+      "severity": "high",
+      "isDirect": false,
+      "range": "4.0.0 - 4.0.3",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+          "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+          "range": ">=4.0.0 <4.0.4"
+        },
+        {
+          "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+          "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj",
+          "range": ">=4.0.0 <4.0.4"
+        }
+      ]
+    },
+    {
+      "name": "postcss",
+      "severity": "high",
+      "isDirect": false,
+      "range": "<=8.5.22",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+          "url": "https://github.com/advisories/GHSA-qx2v-qp2m-jg93",
+          "range": "<8.5.10"
+        },
+        {
+          "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments",
+          "url": "https://github.com/advisories/GHSA-6g55-p6wh-862q",
+          "range": "<=8.5.11"
+        },
+        {
+          "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+          "url": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp",
+          "range": "<=8.5.22"
+        },
+        {
+          "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+          "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849",
+          "range": "<=8.5.17"
+        }
+      ]
+    },
+    {
+      "name": "protobufjs",
+      "severity": "critical",
+      "isDirect": false,
+      "range": "<=7.6.4",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Arbitrary code execution in protobufjs",
+          "url": "https://github.com/advisories/GHSA-xq3m-2v4x-88gg",
+          "range": "<7.5.5"
+        },
+        {
+          "title": "protobuf.js: Code injection through bytes field defaults in generated toObject code",
+          "url": "https://github.com/advisories/GHSA-66ff-xgx4-vchm",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobuf.js: Denial of service from crafted field names in generated code",
+          "url": "https://github.com/advisories/GHSA-2pr8-phx7-x9h3",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobuf.js: Prototype injection in generated message constructors",
+          "url": "https://github.com/advisories/GHSA-fx83-v9x8-x52w",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobuf.js: Code generation gadget after prototype pollution",
+          "url": "https://github.com/advisories/GHSA-75px-5xx7-5xc7",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobuf.js: Process-wide denial of service through unsafe option paths",
+          "url": "https://github.com/advisories/GHSA-jvwf-75h9-cwgg",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobuf.js: Denial of service through unbounded protobuf recursion",
+          "url": "https://github.com/advisories/GHSA-685m-2w69-288q",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobufjs has overlong UTF-8 decoding",
+          "url": "https://github.com/advisories/GHSA-q6x5-8v7m-xcrf",
+          "range": "<=7.5.5"
+        },
+        {
+          "title": "protobufjs: Denial of Service via unbounded recursive JSON descriptor expansion",
+          "url": "https://github.com/advisories/GHSA-jggg-4jg4-v7c6",
+          "range": "<=7.5.7"
+        },
+        {
+          "title": "protobufjs: Denial of service through unbounded Any expansion during JSON conversion",
+          "url": "https://github.com/advisories/GHSA-wcpc-wj8m-hjx6",
+          "range": "<=7.6.0"
+        },
+        {
+          "title": "protobufjs : Schema-derived names can shadow runtime-significant properties",
+          "url": "https://github.com/advisories/GHSA-f38q-mgvj-vph7",
+          "range": "<=7.6.2"
+        },
+        {
+          "title": "protobufjs: Denial of Service via infinite loop in .proto option parsing",
+          "url": "https://github.com/advisories/GHSA-j3f2-48v5-ccww",
+          "range": ">=7.5.0 <=7.6.4"
+        }
+      ]
+    },
+    {
+      "name": "react-router",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "6.0.0 - 7.17.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "React Router: Open redirect via backslash in <Link> and useNavigate (CVE-2025-68470 bypass)",
+          "url": "https://github.com/advisories/GHSA-wrjc-x8rr-h8h6",
+          "range": ">=6.0.0 <7.18.0"
+        },
+        {
+          "title": "React Router: Arbitrary Constructor Injection via deserializeErrors() in React Router SSR Hydration",
+          "url": "https://github.com/advisories/GHSA-337j-9hxr-rhxg",
+          "range": ">=6.4.0 <7.18.0"
+        },
+        {
+          "title": "React Router's same-origin redirect with path starting // causes open redirect via protocol-relative URL reinterpretation",
+          "url": "https://github.com/advisories/GHSA-2j2x-hqr9-3h42",
+          "range": ">=6.7.0 <6.30.4"
+        }
+      ]
+    },
+    {
+      "name": "react-router-dom",
+      "severity": "moderate",
+      "isDirect": true,
+      "range": "6.0.0-alpha.0 - 7.17.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "React Router: Open redirect leading to XSS",
+          "url": "https://github.com/advisories/GHSA-jjmj-jmhj-qwj2",
+          "range": ">=6.30.2 <=6.30.5"
+        }
+      ]
+    },
+    {
+      "name": "retry-request",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "7.0.0 - 7.0.2",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": []
+    },
+    {
+      "name": "source-map-js",
+      "severity": "high",
+      "isDirect": false,
+      "range": "1.0.0 - 1.2.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
+          "url": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q",
+          "range": ">=1.0.0 <1.2.2"
+        }
+      ]
+    },
+    {
+      "name": "teeny-request",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "3.9.1 - 9.0.0",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": []
+    },
+    {
+      "name": "uuid",
+      "severity": "moderate",
+      "isDirect": false,
+      "range": "<11.1.1",
+      "fixAvailable": {
+        "name": "firebase-admin",
+        "version": "12.1.0",
+        "isSemVerMajor": true
+      },
+      "advisories": [
+        {
+          "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+          "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+          "range": "<11.1.1"
+        }
+      ]
+    },
+    {
+      "name": "vite",
+      "severity": "high",
+      "isDirect": true,
+      "range": "7.0.0 - 7.3.3",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+          "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9",
+          "range": ">=7.0.0 <=7.3.1"
+        },
+        {
+          "title": "Vite: `server.fs.deny` bypassed with queries",
+          "url": "https://github.com/advisories/GHSA-v2wj-q39q-566r",
+          "range": ">=7.1.0 <=7.3.1"
+        },
+        {
+          "title": "Vite Vulnerable to Arbitrary File Read via Vite Dev Server WebSocket",
+          "url": "https://github.com/advisories/GHSA-p9ff-h696-f583",
+          "range": ">=7.0.0 <=7.3.1"
+        },
+        {
+          "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+          "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3",
+          "range": ">=7.0.0 <=7.3.4"
+        },
+        {
+          "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+          "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+          "range": ">=7.0.0 <=7.3.4"
+        }
+      ]
+    },
+    {
+      "name": "websocket-driver",
+      "severity": "critical",
+      "isDirect": false,
+      "range": "<=0.7.4",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "websocket-driver: Resource limit bypass via message compression",
+          "url": "https://github.com/advisories/GHSA-mp7j-qc5w-4988",
+          "range": "<0.7.5"
+        },
+        {
+          "title": "websocket-driver: Message corruption via abuse of protocol length headers",
+          "url": "https://github.com/advisories/GHSA-xv26-6w52-cph6",
+          "range": "<0.7.5"
+        }
+      ]
+    }
+  ]
+}

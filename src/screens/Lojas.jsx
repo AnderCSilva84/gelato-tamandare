@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { FiLayers } from "react-icons/fi";
-import { cadastrarGestoresNaLoja, getAtendentes } from "../services/atendentes";
+import { getAtendentes } from "../services/atendentes";
 import { DEFAULT_LOJA_ID, deleteLoja, saveLoja, slugLoja, subscribeLojas } from "../services/lojas";
 
-const EMPTY = { nome: "", documento: "", endereco: "", telefone: "", logomarca: "", imagemCapaPdv: "", impressaoHabilitada: true, status: "ativa", mensagemManutencao: "Unidade temporariamente indisponivel." };
+const EMPTY = { nome: "", documento: "", endereco: "", telefone: "", logomarca: "", imagemCapaPdv: "", impressaoHabilitada: true, status: "ativa", bloqueioEscopo: "total", mensagemManutencao: "Unidade temporariamente indisponivel." };
+
+const ROTULOS_BLOQUEIO = { total: "Sistema inteiro", adm: "Somente ADM", pdv: "Somente PDV" };
 
 export default function Lojas({ lojaAtivaId, onSelectLoja, redeId, onSimulate, canManageAvailability = false }) {
   const [lojas, setLojas] = useState([]);
@@ -40,16 +42,20 @@ export default function Lojas({ lojaAtivaId, onSelectLoja, redeId, onSimulate, c
   async function salvar(event) {
     event.preventDefault();
     try {
-      const lojaId = await saveLoja(editandoId || slugLoja(form.nome), {
+      await saveLoja(editandoId || slugLoja(form.nome), {
         ...form,
         redeId,
         status: canManageAvailability ? form.status : "ativa",
         ativa: true,
       });
-      await cadastrarGestoresNaLoja(lojaId);
       cancelarEdicao();
       setFeedback("Unidade salva com sucesso.");
-    } catch (error) { setFeedback(error?.message || "Nao foi possivel salvar a unidade."); }
+    } catch (error) {
+      console.error("Erro ao salvar unidade:", error);
+      setFeedback(error?.code === "permission-denied"
+        ? "Seu acesso autenticado nao tem permissao de superadmin para alterar a disponibilidade. Saia e entre novamente; se continuar, confira o cadastro em acessos_painel."
+        : error?.message || "Nao foi possivel salvar a unidade.");
+    }
   }
 
   async function excluir(loja) {
@@ -92,11 +98,12 @@ export default function Lojas({ lojaAtivaId, onSelectLoja, redeId, onSimulate, c
           <span><strong>Habilitar impressão de comprovante</strong><small>Desative nas unidades que não possuem impressora.</small></span>
         </label>
         {canManageAvailability ? <><label className="field-label">Disponibilidade</label><select className="input select" value={form.status || "ativa"} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="ativa">Ativa</option><option value="manutencao">Em manutencao</option><option value="suspensa">Suspensa</option><option value="inativa">Inativa</option></select></> : <p className="helper-text">Somente o superadmin pode alterar a disponibilidade da unidade.</p>}
+        {canManageAvailability && form.status !== "ativa" ? <><label className="field-label">Area bloqueada</label><select className="input select" value={form.bloqueioEscopo || "total"} onChange={(e) => setForm({ ...form, bloqueioEscopo: e.target.value })}><option value="total">Sistema inteiro (ADM e PDV)</option><option value="adm">Somente area ADM</option><option value="pdv">Somente PDV</option></select><p className="helper-text">O superadmin continua com acesso para administrar e retirar a trava.</p></> : null}
         {canManageAvailability && form.status !== "ativa" ? <textarea className="input" rows="3" value={form.mensagemManutencao || ""} onChange={(e) => setForm({ ...form, mensagemManutencao: e.target.value })} placeholder="Mensagem apresentada aos usuarios" /> : null}
         <div className="section-actions"><button className="action-btn action-btn-primary" type="submit">Salvar unidade</button>{editandoId ? <button className="action-btn action-btn-secondary" type="button" onClick={cancelarEdicao}>Cancelar</button> : null}</div>{feedback ? <p className="inline-feedback">{feedback}</p> : null}
       </form>
       <div className="section-card"><div className="section-header"><div className="section-title">Unidades cadastradas</div><span className="section-subtitle">{lojas.length} unidade(s)</span></div><div className="scroll-list">
-        {lojas.map((loja) => <div className="list-row" key={loja.id}><div><strong>{loja.nome}</strong><small>{loja.documento || loja.id} · {loja.status || "ativa"} · Impressão {loja.impressaoHabilitada !== false ? "habilitada" : "desabilitada"}</small></div><div className="list-row-actions"><button className="mini-btn" type="button" disabled={!canManageAvailability && loja.status !== "ativa"} onClick={() => onSelectLoja(loja.id)}>{lojaAtivaId === loja.id ? "Em uso" : "Usar unidade"}</button><button className="mini-btn" type="button" onClick={() => abrirSimulador(loja)}>Simular</button><button className="mini-btn" type="button" onClick={() => editar(loja)}>Editar</button>{canManageAvailability && loja.id !== DEFAULT_LOJA_ID ? <button className="mini-btn danger" type="button" onClick={() => excluir(loja)}>Excluir</button> : null}</div></div>)}
+        {lojas.map((loja) => <div className="list-row" key={loja.id}><div><strong>{loja.nome}</strong><small>{loja.documento || loja.id} · {loja.status || "ativa"}{loja.status !== "ativa" ? ` · ${ROTULOS_BLOQUEIO[loja.bloqueioEscopo] || ROTULOS_BLOQUEIO.total}` : ""} · Impressão {loja.impressaoHabilitada !== false ? "habilitada" : "desabilitada"}</small></div><div className="list-row-actions"><button className="mini-btn" type="button" disabled={!canManageAvailability && loja.status !== "ativa"} onClick={() => onSelectLoja(loja.id)}>{lojaAtivaId === loja.id ? "Em uso" : "Usar unidade"}</button><button className="mini-btn" type="button" onClick={() => abrirSimulador(loja)}>Simular</button><button className="mini-btn" type="button" onClick={() => editar(loja)}>Editar</button>{canManageAvailability && loja.id !== DEFAULT_LOJA_ID ? <button className="mini-btn danger" type="button" onClick={() => excluir(loja)}>Excluir</button> : null}</div></div>)}
       </div></div>
     </div>
     {simuladorLoja ? <div className="section-card"><div className="section-header"><div className="section-title">Simular acesso · {simuladorLoja.nome}</div><button className="mini-btn" type="button" onClick={() => setSimuladorLoja(null)}>Fechar</button></div><div className="section-actions"><select className="input select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}><option value="">Selecione um usuario</option>{usuarios.map((usuario) => <option key={usuario.id} value={usuario.id}>{usuario.nome} · {usuario.role}</option>)}</select><button className="action-btn action-btn-warning" type="button" disabled={!usuarioId} onClick={iniciarSimulacao}>Simular somente leitura</button></div></div> : null}

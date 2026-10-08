@@ -6,6 +6,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '')
 
   return {
+    server: {
+      host: '127.0.0.1',
+      port: 5180,
+      strictPort: true,
+      open: true,
+    },
     resolve: {
       dedupe: ['react', 'react-dom'],
     },
@@ -16,8 +22,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml(html) {
           if (mode !== 'cafe-guajara') return html
           return html
-            .replaceAll('/icon-192.png', '/guajara-192.png')
-            .replace('/manifest.json?v=2', '/manifest-guajara.json?v=1')
+            .replace('/manifest.json?v=4', '/manifest-guajara.json?v=3')
             .replace('content="#111827"', 'content="#4a2c1b"')
         },
       },

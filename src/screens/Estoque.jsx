@@ -3,6 +3,8 @@ import {
   addProduto,
   copiarProdutoParaLojas,
   deleteProduto,
+  registrarMovimentacaoEstoque,
+  subscribeMovimentacoesEstoque,
   subscribeProdutos,
   updateProduto,
 } from "../services/produtos";
@@ -14,6 +16,8 @@ import {
 } from "../services/gruposProdutos";
 import { getPdfLogo } from "../utils/pdfLogo";
 import { FiBox } from "react-icons/fi";
+import { Capacitor } from '@capacitor/core';
+import { uploadNotaFiscal, validarNotaFiscal, excluirNotaNaoVinculada } from '../services/notasFiscais';
 
 function initialForm() {
   return {
@@ -22,6 +26,7 @@ function initialForm() {
     precoCusto: "",
     precoFinal: "",
     estoque: "",
+    observacaoEntrada: "",
     notaFiscal: "",
     unidadeVenda: "un",
     grupoId: "",
@@ -67,8 +72,15 @@ function getProdutoImagem(produto) {
 }
 
 export default function Estoque({ uid, loja = null, lojas = [] }) {
+  const permiteAnexo = !Capacitor.isNativePlatform();
+  const [arquivoNota, setArquivoNota] = useState(null);
+  const [anexoAtual, setAnexoAtual] = useState(null);
+  const arquivoNotaInput = useRef(null);
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [movimentacoes, setMovimentacoes] = useState([]);
+  const [salvando, setSalvando] = useState(false);
+  const [feedbackEstoque, setFeedbackEstoque] = useState("");
   const [form, setForm] = useState(initialForm());
   const [editandoId, setEditandoId] = useState("");
   const [grupos, setGrupos] = useState([]);
@@ -84,6 +96,11 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
   useEffect(() => {
     gruposIniciaisCriados.current = false;
     produtosMigrados.current = new Set();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return subscribeMovimentacoesEstoque(uid, setMovimentacoes);
   }, [uid]);
 
   useEffect(() => () => {
@@ -152,17 +169,24 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
 
   async function salvarProduto(e) {
     e.preventDefault();
+    if (salvando) return;
     if (!form.nome.trim()) return;
 
     const grupoSelecionado = grupos.find((grupo) => grupo.id === form.grupoId);
     if (!grupoSelecionado) return;
+
+    const quantidadeEntrada = Number(form.estoque || 0);
+    if (editandoId && quantidadeEntrada !== 0 && !form.observacaoEntrada.trim()) {
+      setFeedbackEstoque("Informe uma observação para registrar a movimentação.");
+      return;
+    }
 
     const payload = {
       nome: form.nome,
       imagem: form.imagem,
       precoCusto: Number(form.precoCusto || 0),
       precoFinal: Number(form.precoFinal || 0),
-      estoque: Number(form.estoque || 0),
+      estoque: editandoId ? undefined : quantidadeEntrada,
       notaFiscal: form.notaFiscal,
       unidadeVenda: form.unidadeVenda,
       grupoId: grupoSelecionado.id,
@@ -170,17 +194,53 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
       ativo: form.ativo,
     };
 
-    if (editandoId) {
-      await updateProduto(editandoId, payload);
-    } else {
-      await addProduto(uid, payload);
-    }
+    setSalvando(true);
+    setFeedbackEstoque("");
+    let anexoEnviado = null;
+    try {
+      if (permiteAnexo && arquivoNota) {
+        anexoEnviado = await uploadNotaFiscal(uid, arquivoNota);
+        payload.notaFiscalAnexo = anexoEnviado;
+      }
+      if (editandoId) {
+        if (!permiteAnexo) await updateProduto(editandoId, payload);
+        if (quantidadeEntrada !== 0) {
+          const produto = produtos.find((item) => item.id === editandoId);
+          const novoSaldo = await registrarMovimentacaoEstoque(
+            produto,
+            quantidadeEntrada,
+            form.observacaoEntrada,
+            permiteAnexo ? { notaFiscal: form.notaFiscal, anexo: anexoEnviado, produtoDados: payload } : {}
+          );
+          setFeedbackEstoque(`Movimentação registrada. Novo saldo: ${novoSaldo.toLocaleString("pt-BR")}.`);
+        } else {
+          if (permiteAnexo) await updateProduto(editandoId, payload);
+          setFeedbackEstoque("Dados do produto atualizados.");
+        }
+      } else {
+        await addProduto(uid, payload);
+        setFeedbackEstoque("Produto adicionado.");
+      }
 
-    setForm(initialForm());
-    setEditandoId("");
+      setForm(initialForm());
+      setEditandoId("");
+      setArquivoNota(null);
+      setAnexoAtual(null);
+      if (arquivoNotaInput.current) arquivoNotaInput.current.value = '';
+    } catch (error) {
+      if (anexoEnviado) await excluirNotaNaoVinculada(anexoEnviado).catch((cleanupError) => console.error('Erro ao limpar anexo não vinculado:', cleanupError));
+      console.error("Erro ao salvar produto:", error);
+      setFeedbackEstoque(error?.message || "Não foi possível salvar o produto.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   function editar(produto) {
+    if (salvando) return;
+    setArquivoNota(null);
+    setAnexoAtual(produto.notaFiscalAnexo || null);
+    if (arquivoNotaInput.current) arquivoNotaInput.current.value = '';
     const grupoLegado = grupos.find((grupo) => normalizeText(grupo.nome) === normalizeText(inferGrupoInicial(produto)));
     setEditandoId(produto.id);
     setForm({
@@ -188,12 +248,28 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
       imagem: produto.imagem || "",
       precoCusto: String(produto.precoCusto ?? ""),
       precoFinal: String(produto.precoFinal ?? produto.preco ?? ""),
-      estoque: String(produto.estoque ?? ""),
+      estoque: "",
+      observacaoEntrada: "",
       notaFiscal: produto.notaFiscal || "",
       unidadeVenda: produto.unidadeVenda === "kg" ? "kg" : "un",
       grupoId: produto.grupoId || grupoLegado?.id || "",
       ativo: produto.ativo !== false,
     });
+  }
+
+  function cancelarEdicao() {
+    if (salvando) return;
+    setArquivoNota(null);
+    setAnexoAtual(null);
+    if (arquivoNotaInput.current) arquivoNotaInput.current.value = '';
+    setEditandoId("");
+    setForm(initialForm());
+    setFeedbackEstoque("");
+  }
+
+  function formatarDataMovimentacao(valor) {
+    const data = valor?.toDate?.();
+    return data ? data.toLocaleString("pt-BR") : "Agora";
   }
 
   async function alternarAtivo(produto) {
@@ -514,18 +590,54 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
             <input
               className="input"
               type="number"
-              min="0"
+              min={editandoId ? undefined : "0"}
               step={form.unidadeVenda === "kg" ? "0.001" : "1"}
               value={form.estoque}
               onChange={(e) => setForm((prev) => ({ ...prev, estoque: e.target.value }))}
-              placeholder={form.unidadeVenda === "kg" ? "Estoque em KG" : "Estoque"}
+              placeholder={
+                editandoId
+                  ? form.unidadeVenda === "kg" ? "Ajuste em KG (+ entrada / − retirada)" : "Ajuste (+ entrada / − retirada)"
+                  : form.unidadeVenda === "kg" ? "Estoque inicial em KG" : "Estoque inicial"
+              }
             />
+            {editandoId ? (
+              <>
+                <small className="field-hint">
+                  Saldo atual: {Number(produtos.find((item) => item.id === editandoId)?.estoque || 0).toLocaleString("pt-BR")}
+                  {form.estoque !== "" ? ` • Após o ajuste: ${(Number(produtos.find((item) => item.id === editandoId)?.estoque || 0) + Number(form.estoque || 0)).toLocaleString("pt-BR")}` : ""}
+                </small>
+                <textarea
+                  className="input"
+                  value={form.observacaoEntrada}
+                  onChange={(e) => setForm((prev) => ({ ...prev, observacaoEntrada: e.target.value }))}
+                  placeholder="Observação (ex.: transferência, devolução, perda ou avaria)"
+                  rows="3"
+                  required={Number(form.estoque || 0) !== 0}
+                />
+              </>
+            ) : null}
             <input
               className="input"
               value={form.notaFiscal}
               onChange={(e) => setForm((prev) => ({ ...prev, notaFiscal: e.target.value }))}
               placeholder="Número da nota fiscal"
             />
+            {permiteAnexo ? (
+              <div className="stack-form">
+                <label className="field-label" htmlFor="nota-fiscal-arquivo">Anexar nota fiscal (opcional)</label>
+                <input id="nota-fiscal-arquivo" ref={arquivoNotaInput} className="input" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={salvando}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    setArquivoNota(null);
+                    if (!file) return;
+                    try { validarNotaFiscal(file); setArquivoNota(file); setFeedbackEstoque(''); }
+                    catch (error) { setFeedbackEstoque(error.message); e.target.value = ''; }
+                  }} />
+                <small className="field-hint">PDF, JPG, PNG ou WebP, até 10 MB. O arquivo será salvo junto ao lançamento.</small>
+                {arquivoNota ? <><small>{arquivoNota.name}</small><button className="mini-btn" type="button" disabled={salvando} onClick={() => { setArquivoNota(null); arquivoNotaInput.current.value = ''; }}>Remover arquivo selecionado</button></> : null}
+                {anexoAtual?.url ? <a href={anexoAtual.url} target="_blank" rel="noopener noreferrer">Ver nota anexada: {anexoAtual.nome}</a> : null}
+              </div>
+            ) : null}
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -534,9 +646,13 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
               />
               Produto ativo
             </label>
-            <button className="action-btn action-btn-primary" type="submit">
-              {editandoId ? "Atualizar produto" : "Adicionar produto"}
+            {feedbackEstoque ? <p className="inline-feedback">{feedbackEstoque}</p> : null}
+            <button className="action-btn action-btn-primary" type="submit" disabled={salvando}>
+              {salvando ? "Salvando..." : editandoId ? "Atualizar e registrar movimentação" : "Adicionar produto"}
             </button>
+            {editandoId ? (
+              <button className="action-btn" type="button" onClick={cancelarEdicao}>Cancelar edição</button>
+            ) : null}
           </form>
         </div>
 
@@ -575,6 +691,7 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
                     </small>
                     <small>Tipo de venda: {produto.unidadeVenda === "kg" ? "por KG" : "por unidade"}</small>
                     {produto.notaFiscal ? <small>NF: {produto.notaFiscal}</small> : null}
+                    {permiteAnexo && produto.notaFiscalAnexo?.url ? <small><a href={produto.notaFiscalAnexo.url} target="_blank" rel="noopener noreferrer">Ver nota fiscal: {produto.notaFiscalAnexo.nome}</a></small> : null}
                     {estoqueBaixo && (
                       <small className="stock-alert">
                         Restam apenas {estoque} unidade{estoque === 1 ? "" : "s"}.
@@ -598,6 +715,33 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
             })}
             {!produtos.length && !loading && <p className="empty-state">Nenhum produto cadastrado.</p>}
           </div>
+        </div>
+      </div>
+
+      <div className="section-card inventory-movements-card">
+        <div className="section-header">
+          <div>
+            <div className="section-title">Histórico de movimentações</div>
+            <span className="section-subtitle">Entradas, retiradas e suas observações.</span>
+          </div>
+        </div>
+        <div className="scroll-list">
+          {movimentacoes.slice(0, 30).map((item) => (
+            <div className="list-row" key={item.id}>
+              <div>
+                <strong>{item.produto}</strong>
+                <small>
+                  {formatarDataMovimentacao(item.criadoEm)} • {item.tipo === "SAIDA" ? "Retirada" : "Entrada"} de{" "}
+                  {Number(item.quantidade || 0).toLocaleString("pt-BR")}
+                </small>
+                <small>Saldo: {Number(item.estoqueAnterior || 0).toLocaleString("pt-BR")} → {Number(item.estoqueAtual || 0).toLocaleString("pt-BR")}</small>
+                <small>Observação: {item.observacao}</small>
+                {permiteAnexo && item.notaFiscal ? <small>NF: {item.notaFiscal}</small> : null}
+                {permiteAnexo && item.notaFiscalAnexo?.url ? <small><a href={item.notaFiscalAnexo.url} target="_blank" rel="noopener noreferrer">Ver nota fiscal: {item.notaFiscalAnexo.nome}</a></small> : null}
+              </div>
+            </div>
+          ))}
+          {!movimentacoes.length ? <p className="empty-state">Nenhuma movimentação registrada ainda.</p> : null}
         </div>
       </div>
     </div>

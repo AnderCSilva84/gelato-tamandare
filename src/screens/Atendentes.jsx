@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  addAtendente,
-  cadastrarGestoresEmTodasLojas,
   copiarAtendenteParaLojas,
-  deleteAtendente,
   subscribeAtendentes,
-  updateAtendente,
 } from "../services/atendentes";
-import { ensurePanelAuthUser, updatePanelAuthPassword } from "../services/auth";
-import { deletePanelAccess, savePanelAccess, updatePanelAccess } from "../services/panelAccess";
+import { confirmarSenhaAtual } from "../services/auth";
+import { executarOperacao } from "../services/operacoes";
+import { collection, doc } from "firebase/firestore";
+import { db } from "../services/firebase";
 import { buildAtendenteEmail } from "../services/loginsAtendentes";
-import { getRoleLabel, isManagementRole, isSuperAdminRole, normalizeRole } from "../utils/access";
+import { deleteFotoPerfil, uploadFotoPerfil } from "../services/fotosPerfil";
+import { getRoleLabel, isSuperAdminRole, normalizeRole } from "../utils/access";
 import { FiUsers } from "react-icons/fi";
 
 function formatMoney(valor) {
@@ -29,8 +28,10 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
   const [role, setRole] = useState("atendente");
   const [emailAcesso, setEmailAcesso] = useState("");
   const [senhaAcesso, setSenhaAcesso] = useState("");
+  const [senhaConfirmacao, setSenhaConfirmacao] = useState("");
   const [avatarTipo, setAvatarTipo] = useState("masculino");
   const [fotoPerfil, setFotoPerfil] = useState("");
+  const [arquivoFotoPerfil, setArquivoFotoPerfil] = useState(null);
   const [podeGerenciarProdutos, setPodeGerenciarProdutos] = useState(false);
   const [editandoId, setEditandoId] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -40,13 +41,6 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
     () => atendentes.find((item) => item.id === editandoId) || null,
     [atendentes, editandoId]
   );
-
-  useEffect(() => {
-    if (!lojas.length || !isSuperAdminRole(accessUser?.role)) return;
-    cadastrarGestoresEmTodasLojas(lojas.map((item) => item.id)).catch(() => {
-      setFeedback("Nao foi possivel sincronizar todos os gestores entre as unidades.");
-    });
-  }, [accessUser?.role, lojas]);
 
   useEffect(() => {
     if (!uid) return;
@@ -64,8 +58,10 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
     setRole("atendente");
     setEmailAcesso("");
     setSenhaAcesso("");
+    setSenhaConfirmacao("");
     setAvatarTipo("masculino");
     setFotoPerfil("");
+    setArquivoFotoPerfil(null);
     setPodeGerenciarProdutos(false);
     setEditandoId("");
   }
@@ -77,44 +73,10 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
       setFeedback("A foto do perfil deve ter no maximo 300 KB.");
       return;
     }
+    setArquivoFotoPerfil(file);
     const reader = new FileReader();
     reader.onload = () => setFotoPerfil(String(reader.result || ""));
     reader.readAsDataURL(file);
-  }
-
-  async function provisionarAcessoPainel(atendenteId, dados) {
-    const lojaIds = isManagementRole(dados.role) ? lojas.map((loja) => loja.id) : [uid];
-    const isAtendente = normalizeRole(dados.role) === "atendente";
-    const email = isAtendente
-      ? buildAtendenteEmail(uid, dados.nome)
-      : String(emailAcesso || "").trim().toLowerCase();
-    const senhaPainel = isAtendente
-      ? String(senha || "").trim()
-      : String(senhaAcesso || "").trim();
-
-    if (!email || !senhaPainel) {
-      throw new Error(isAtendente ? "Informe uma senha operacional." : "Informe email e senha de acesso ao painel.");
-    }
-
-    const authUser = await ensurePanelAuthUser(email, senhaPainel);
-
-    await savePanelAccess(authUser.uid, {
-      atendenteId,
-      nome: dados.nome,
-      role: dados.role,
-      ativo: true,
-      email,
-      lojaId: uid,
-      lojaIds,
-      avatarTipo,
-      fotoPerfil,
-      podeGerenciarProdutos,
-    });
-
-    await updateAtendente(atendenteId, {
-      authUid: authUser.uid,
-      emailAcesso: email,
-    });
   }
 
   async function salvar(e) {
@@ -126,8 +88,22 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
       return;
     }
 
-    if (normalizeRole(role) === "atendente" && String(senha || "").length < 6) {
+    if (normalizeRole(role) === "atendente" && (!editandoId || senha) && String(senha || "").length < 6) {
       setFeedback("A senha do atendente precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    let fotoPerfilSalva = fotoPerfil;
+    let novaFotoUrl = "";
+
+    try {
+      if (arquivoFotoPerfil) {
+        novaFotoUrl = await uploadFotoPerfil(uid, arquivoFotoPerfil);
+        fotoPerfilSalva = novaFotoUrl;
+      }
+    } catch (error) {
+      console.error(error);
+      setFeedback(error instanceof Error ? error.message : "Nao foi possivel enviar a foto.");
       return;
     }
 
@@ -138,79 +114,27 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
       role,
       emailAcesso,
       avatarTipo,
-      fotoPerfil,
+      fotoPerfil: fotoPerfilSalva,
       podeGerenciarProdutos,
     };
 
     try {
-      if (editandoId) {
-        const atual = atendenteEditando;
-        if (!atual) return;
-
-        if (!canManageSuperadmins && isSuperAdminRole(atual.role)) {
-          setFeedback("Somente o superadmin pode editar outro superadmin.");
-          return;
-        }
-
-        const emailAtendente = buildAtendenteEmail(uid, nome);
-        const migrarParaLoginPorNome = normalizeRole(role) === "atendente"
-          && atual.emailAcesso !== emailAtendente;
-
-        if (
-          atual.authUid
-          && !migrarParaLoginPorNome
-          && normalizeRole(role) === "atendente"
-          && senha
-          && senha !== String(atual.senha || "")
-          && atual.emailAcesso
-          && atual.senha
-        ) {
-          await updatePanelAuthPassword(atual.emailAcesso, String(atual.senha), senha);
-        }
-
-        await updateAtendente(editandoId, payload);
-
-        if (migrarParaLoginPorNome) {
-          await provisionarAcessoPainel(editandoId, { nome, role });
-          if (atual.authUid) await deletePanelAccess(atual.authUid);
-        } else if (atual.authUid) {
-          const dadosAcesso = {
-              nome,
-              role,
-              ativo: atual.ativo !== false,
-              email: atual.emailAcesso || emailAcesso,
-              lojaId: uid,
-              lojaIds: isManagementRole(role) ? lojas.map((loja) => loja.id) : [uid],
-              avatarTipo,
-              fotoPerfil,
-              podeGerenciarProdutos,
-          };
-
-          try {
-            await updatePanelAccess(atual.authUid, dadosAcesso);
-          } catch (error) {
-            if (error?.code !== "not-found" && error?.code !== "firestore/not-found") throw error;
-            await savePanelAccess(atual.authUid, {
-              ...dadosAcesso,
-              atendenteId: atual.id,
-            });
-          }
-        } else {
-          await provisionarAcessoPainel(editandoId, { nome, role });
-        }
-      } else {
-        const ref = await addAtendente(uid, { ...payload, ativo: true });
-
-        await provisionarAcessoPainel(ref.id, { nome, role });
-      }
-
-      if (isManagementRole(role)) {
-        await cadastrarGestoresEmTodasLojas(lojas.map((item) => item.id));
-      }
+      if (editandoId && (normalizeRole(role) === "atendente" ? senha : senhaAcesso)) await confirmarSenhaAtual(senhaConfirmacao);
+      await executarOperacao('salvarAtendente', {
+        ...payload, uid, id: editandoId || doc(collection(db, 'atendentes')).id,
+        emailAcesso: atendenteEditando?.emailAcesso || (normalizeRole(role) === 'atendente' ? buildAtendenteEmail(uid, nome) : emailAcesso),
+        senha: normalizeRole(role) === 'atendente' ? senha : senhaAcesso,
+      });
 
       limparForm();
       setFeedback("");
+
+      const fotoAnterior = atendenteEditando?.fotoPerfil || "";
+      if (fotoAnterior && fotoAnterior !== fotoPerfilSalva) {
+        deleteFotoPerfil(fotoAnterior).catch(console.error);
+      }
     } catch (error) {
+      if (novaFotoUrl) deleteFotoPerfil(novaFotoUrl).catch(console.error);
       console.error(error);
       setFeedback(
         error instanceof Error && error.message
@@ -227,11 +151,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
     }
 
     const ativo = atendente.ativo === false;
-    await updateAtendente(atendente.id, { ativo });
-
-    if (atendente.authUid) {
-      await updatePanelAccess(atendente.authUid, { ativo });
-    }
+    await executarOperacao('estadoAtendente', { id: atendente.id, ativo });
   }
 
   async function excluir(atendente) {
@@ -242,11 +162,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
 
     if (!window.confirm(`Deseja realmente excluir o cadastro de ${atendente.nome}?`)) return;
 
-    if (atendente.authUid) {
-      await deletePanelAccess(atendente.authUid);
-    }
-
-    await deleteAtendente(atendente.id);
+    await executarOperacao('estadoAtendente', { id: atendente.id, ativo: false });
   }
 
   async function copiarAtendente(atendente) {
@@ -295,8 +211,11 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
               type="password"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
-              placeholder="Senha operacional do atendente"
+              placeholder={editandoId ? "Nova senha (opcional)" : "Senha operacional do atendente"}
             />
+            {editandoId && (normalizeRole(role) === 'atendente' ? senha : senhaAcesso) ? (
+              <input className="input" type="password" autoComplete="current-password" placeholder="Sua senha para autorizar a alteracao" value={senhaConfirmacao} onChange={e => setSenhaConfirmacao(e.target.value)} />
+            ) : null}
             <select className="input select" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="atendente">Atendente</option>
               <option value="gerencia">Gerencia</option>
@@ -319,7 +238,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
             </select>
             <label className="field-label">Foto do usuario (opcional, ate 300 KB)</label>
             <input className="input" type="file" accept="image/png,image/jpeg,image/webp" onChange={lerFotoPerfil} />
-            {fotoPerfil ? <div className="profile-photo-preview"><img src={fotoPerfil} alt="Previa do perfil" /><button className="mini-btn danger" type="button" onClick={() => { if (window.confirm("Deseja realmente remover esta foto?")) setFotoPerfil(""); }}>Remover foto</button></div> : null}
+            {fotoPerfil ? <div className="profile-photo-preview"><img src={fotoPerfil} alt="Previa do perfil" /><button className="mini-btn danger" type="button" onClick={() => { if (window.confirm("Deseja realmente remover esta foto?")) { setFotoPerfil(""); setArquivoFotoPerfil(null); } }}>Remover foto</button></div> : null}
 
             {normalizeRole(role) !== "atendente" ? (
               <>
@@ -376,7 +295,7 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
                     {atendente.ativo === false ? "Inativo" : "Ativo"} - {getRoleLabel(atendente.role)} - Meta{" "}
                     <span className="positive">{formatMoney(atendente.meta || 0)}</span>
                   </small>
-                  <small>{atendente.senha ? "Senha operacional cadastrada" : "Sem senha operacional"}</small>
+                  <small>{atendente.authUid ? "Senha operacional cadastrada" : "Sem senha operacional"}</small>
                   {normalizeRole(atendente.role) === "atendente" ? (
                     <small>{atendente.podeGerenciarProdutos ? "Acesso ao Estoque liberado" : "Sem acesso ao Estoque"}</small>
                   ) : null}
@@ -400,12 +319,13 @@ export default function Atendentes({ uid, accessUser, lojas = [] }) {
                       setEditandoId(atendente.id);
                       setNome(atendente.nome || "");
                       setMeta(String(atendente.meta ?? ""));
-                      setSenha(atendente.senha || "");
+                      setSenha("");
                       setRole(normalizeRole(atendente.role));
                       setEmailAcesso(atendente.emailAcesso || "");
                       setSenhaAcesso("");
                       setAvatarTipo(atendente.avatarTipo || "masculino");
                       setFotoPerfil(atendente.fotoPerfil || "");
+                      setArquivoFotoPerfil(null);
                       setPodeGerenciarProdutos(Boolean(atendente.podeGerenciarProdutos));
                       setFeedback("");
                     }}

@@ -8,12 +8,8 @@ service firebase.storage {
     }
 
     function isAdmin() {
-      return isSignedIn()
-        && (
-          request.auth.token.role == 'admin'
-          || request.auth.token.role == 'gerencia'
-          || request.auth.token.admin == true
-        );
+      return isSignedIn() && notaPanelAccess().get('ativo', false) == true
+        && notaPanelAccess().get('role', '') in ['gerencia', 'superadmin'];
     }
 
     function isImage() {
@@ -56,6 +52,44 @@ service firebase.storage {
         && maxSize(5);
 
       allow delete: if isAdmin();
+    }
+
+    // Fotos de perfil ficam no Storage; o Firestore guarda somente a URL.
+    match /fotos_perfil/{userId}/{lojaId}/{fileName} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.auth.uid == userId
+        && isImage()
+        && request.resource.size <= 300 * 1024;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Notas fiscais seguem o acesso à loja e a permissão de gerenciar produtos.
+    function notaPanelAccess() {
+      return firestore.get(/databases/(default)/documents/acessos_painel/$(request.auth.uid)).data;
+    }
+
+    function canReadStoreNotes(lojaId) {
+      let access = notaPanelAccess();
+      return access.get('ativo', false) == true && (access.get('role', '') == 'superadmin'
+        || access.get('lojaId', '') == lojaId
+        || lojaId in access.get('lojaIds', []));
+    }
+
+    function canWriteStoreNotes(lojaId) {
+      let access = notaPanelAccess();
+      return canReadStoreNotes(lojaId) && (
+        access.get('role', '') in ['superadmin', 'gerencia']
+        || access.get('podeGerenciarProdutos', false) == true
+      );
+    }
+
+    match /notas_fiscais/{lojaId}/{fileName} {
+      allow read: if isSignedIn() && canReadStoreNotes(lojaId);
+      allow create: if isSignedIn() && canWriteStoreNotes(lojaId)
+        && request.resource.size > 0 && maxSize(10)
+        && request.resource.contentType in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+      allow delete: if isSignedIn() && canWriteStoreNotes(lojaId);
     }
 
     // Relatórios e PDFs

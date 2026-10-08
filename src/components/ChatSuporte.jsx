@@ -111,7 +111,7 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
     };
   }, []);
 
-  const usuarioUid = authUser?.uid || sessaoPdv?.accessUserId || sessaoPdv?.atendenteId || "";
+  const usuarioUid = authUser?.uid || "";
   const usuarioEmail = String(
     authUser?.email || panelAccess?.email || buildFallbackEmail(sessaoPdv)
   )
@@ -136,7 +136,7 @@ export default function ChatSuporte({ authUser, accessUser, panelAccess, accessR
     [conversaAtivaId, conversasAdmin]
   );
   const conversaClienteResolvida = conversaCliente?.ativo === false;
-  const podeMostrar = superadmin ? Boolean(authUser && panelAccess) : Boolean(authUser || sessaoPdv?.id);
+  const podeMostrar = Boolean(authUser && panelAccess?.ativo === true);
 
   const carregarConversasAdmin = useCallback(async () => {
     if (!superadmin) return;

@@ -13,6 +13,7 @@ export const DEFAULT_LOJA = {
   ativa: true,
   redeId: "gelato",
   status: "ativa",
+  bloqueioEscopo: "total",
   mensagemManutencao: "Unidade temporariamente indisponivel.",
   imagemCapaPdv: "",
   impressaoHabilitada: true,
@@ -22,6 +23,9 @@ function normalizeLoja(id, dados = {}) {
   const statusPermitidos = ["ativa", "manutencao", "suspensa", "inativa"];
   const statusInformado = String(dados.status || (dados.ativa === false ? "inativa" : "ativa"));
   const status = statusPermitidos.includes(statusInformado) ? statusInformado : "ativa";
+  const escoposPermitidos = ["total", "adm", "pdv"];
+  const escopoInformado = String(dados.bloqueioEscopo || "total").toLowerCase();
+  const bloqueioEscopo = escoposPermitidos.includes(escopoInformado) ? escopoInformado : "total";
   const nomeInformado = String(dados.nome || dados.nomeFantasia || "").trim();
   const nomeLegado = nomeInformado.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const nome = id === "emporio-cafe" && (!nomeInformado || nomeLegado === "emporio-cafe" || nomeLegado === "emporio cafe")
@@ -42,6 +46,7 @@ function normalizeLoja(id, dados = {}) {
     logomarca: String(dados.logomarca || "").trim(),
     ativa: status === "ativa",
     status,
+    bloqueioEscopo,
     mensagemManutencao: String(dados.mensagemManutencao || "Unidade temporariamente indisponivel.").trim(),
     imagemCapaPdv: String(dados.imagemCapaPdv || "").trim(),
     impressaoHabilitada: dados.impressaoHabilitada !== false,

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { backupAuth } from '../functions/backup-auth.js';
+let saved;
+const fake = [{ signIn: { hashConfig: { algorithm: 'SCRYPT', signerKey: 'fixture', saltSeparator: 'fixture', rounds: 8, memoryCost: 14 } } }, { users: [{ localId: 'a', passwordHash: 'fixture-hash', salt: 'fixture-salt' }], nextPageToken: 'next' }, { users: [{ localId: 'b' }] }];
+let index = 0;
+const report = await backupAuth({ projectId: 'demo-gelato-audit', accessToken: 'fixture-token', fetchApi: async () => ({ ok: true, json: async () => fake[index++] }), save: async (_, bytes) => { saved = JSON.parse(bytes); } });
+assert.equal(report.users, 2); assert.equal(saved.users.length, 2); assert.equal(saved.hashConfig.algorithm, 'SCRYPT');
+assert(!JSON.stringify(report).includes('fixture-hash'));
+await assert.rejects(backupAuth({ projectId: 'demo-gelato-audit', accessToken: 'fixture-token', fetchApi: async url => ({ ok: true, json: async () => url.includes('config') ? {} : { users: [{ localId: 'a', providerUserInfo: [{ providerId: 'password' }] }] } }), save: async () => assert.fail('Nao pode salvar backup incompleto') }), /incompleto/);
+console.log('Backup Auth: paginacao, parametros de hash, relatorio sem credenciais e rejeicao de backup incompleto verificados.');

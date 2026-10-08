@@ -363,6 +363,7 @@ export default function Caixa({
 }) {
   const podeVerDetalhesFinanceiros = compactMode || isManagementRole(accessRole);
   const usaFechamentoSimplificadoGelato = !compactMode && !podeVerDetalhesFinanceiros;
+  const [terminalPanel, setTerminalPanel] = useState("produtos");
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
   const [gruposProdutos, setGruposProdutos] = useState([]);
@@ -740,6 +741,7 @@ export default function Caixa({
   }, [categoriaAtiva, categoriasDisponiveis]);
 
   function toggleRetiradaPanel() {
+    setTerminalPanel("pedido");
     setMostrandoRetirada((prev) => !prev);
     setFeedbackRetirada("");
   }
@@ -780,6 +782,7 @@ export default function Caixa({
       );
     });
 
+    if (vendaPorPeso) setTerminalPanel("pedido");
     setVendaForm((prev) => ({ ...prev, produtoId: produto.id }));
     setFeedbackVenda("");
     setToastVenda(
@@ -795,6 +798,7 @@ export default function Caixa({
       valorRecebido: "",
       data: isManagementRole(accessRole) ? vendaForm.data || dataHoje : dataHoje,
     });
+    setTerminalPanel("produtos");
     setItensVenda([]);
     setPagamentos([{ forma: "PIX", valor: "" }]);
   }
@@ -1369,7 +1373,7 @@ export default function Caixa({
   }
 
   return (
-    <div className={`dashboard-screen ${compactMode ? "pdv-compact" : ""}`}>
+    <div className={`dashboard-screen pdv-terminal ${caixaAtual ? "pdv-terminal-open" : ""} ${compactMode ? "pdv-compact" : ""}`} data-terminal-panel={terminalPanel}>
       {!compactMode ? (
         <div
           className={`pdv-hero section-card ${loja?.imagemCapaPdv ? "pdv-hero-has-cover" : ""}`}
@@ -1443,6 +1447,12 @@ export default function Caixa({
         </div>
       ) : null}
 
+      {caixaAtual ? (
+        <nav className="pdv-terminal-tabs" aria-label="Etapas da venda">
+          <button type="button" aria-pressed={terminalPanel === "produtos"} onClick={() => setTerminalPanel("produtos")}>Produtos</button>
+          <button type="button" aria-pressed={terminalPanel === "pedido"} onClick={() => setTerminalPanel("pedido")}>Pedido ({itensVendaDetalhados.length})</button>
+        </nav>
+      ) : null}
       <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
         {!caixaAtual ? (
           <div className="section-card pdv-card pdv-card-primary">
@@ -1585,7 +1595,9 @@ export default function Caixa({
                     className="input pdv-search-input"
                     value={buscaProduto}
                     onChange={(e) => setBuscaProduto(e.target.value)}
-                    placeholder="Buscar por nome do produto"
+                    aria-label="Buscar produto por nome"
+                    type="search"
+                    placeholder="Buscar produto"
                   />
                 </div>
 
@@ -1703,7 +1715,7 @@ export default function Caixa({
                 </form>
               ) : null}
 
-              <form className="pdv-order-form" onSubmit={registrarVenda}>
+              <form id="pdv-venda-form" className="pdv-order-form" onSubmit={registrarVenda}>
                 {isManagementRole(accessRole) ? (
                   <input
                     className="input pdv-panel-input"
@@ -1755,7 +1767,7 @@ export default function Caixa({
                         onChange={(e) => atualizarPagamento(index, "forma", e.target.value)}>
                         {FORMAS_PAGAMENTO.map((forma) => <option value={forma} key={forma}>{forma}</option>)}
                       </select>
-                      <input className="input pdv-panel-input" type="number" min="0.01" step="0.01"
+                      <input className="input pdv-panel-input" type="number" inputMode="decimal" aria-label={`Valor em ${pagamento.forma}`} min="0.01" step="0.01"
                         value={pagamento.valor} onChange={(e) => atualizarPagamento(index, "valor", e.target.value)}
                         placeholder="Valor nesta forma" />
                       <button className="mini-btn danger" type="button" onClick={() => removerPagamento(index)}
@@ -1816,6 +1828,8 @@ export default function Caixa({
                             <input
                               className="input pdv-panel-input pdv-cart-metric-input"
                               type="number"
+                              inputMode="decimal"
+                              aria-label={`Valor de ${item.nome}`}
                               min="0.01"
                               step="0.01"
                               value={item.valor || ""}
@@ -1826,7 +1840,13 @@ export default function Caixa({
                             />
                           </div>
                         ) : (
-                          <span>{item.quantidade}</span>
+                          <div className="pdv-quantity-control" aria-label={`Quantidade de ${item.nome}`}>
+                            <button type="button" aria-label={`Diminuir ${item.nome}`} disabled={item.quantidade <= 1}
+                              onClick={() => atualizarItemVenda(item.produtoId, "quantidade", Number(item.quantidade) - 1)}>−</button>
+                            <span>{item.quantidade}</span>
+                            <button type="button" aria-label={`Adicionar ${item.nome}`}
+                              onClick={() => selecionarProduto(produtos.find((produto) => produto.id === item.produtoId))}>+</button>
+                          </div>
                         )}
                         {item.unidadeVenda === "kg" ? (
                           <div className="pdv-cart-metric-field">
@@ -1896,6 +1916,24 @@ export default function Caixa({
           </>
         )}
       </div>
+
+      {caixaAtual ? (
+        <div className="pdv-terminal-checkout" hidden={mostrandoFechamento || mostrandoRetirada}>
+          <button type="button" className="pdv-terminal-total" onClick={() => setTerminalPanel("pedido")}>
+            <span>{itensVendaDetalhados.length} produto(s) · Ver pedido</span>
+            <strong>{formatMoney(totalCarrinho)}</strong>
+          </button>
+          {terminalPanel === "produtos" ? (
+            <button type="button" className="action-btn action-btn-primary"
+              disabled={!itensVendaDetalhados.length} onClick={() => setTerminalPanel("pedido")}>Cobrar</button>
+          ) : (
+            <button type="submit" form="pdv-venda-form" className="action-btn action-btn-primary"
+              disabled={salvandoVenda || imprimindo || !itensVendaDetalhados.length || carrinhoTemPendencias}>
+              {salvandoVenda ? "Salvando..." : imprimindo ? "Imprimindo..." : "Finalizar"}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {caixaAtual ? (
         <section className="section-card pdv-sales-board">

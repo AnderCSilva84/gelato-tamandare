@@ -5,6 +5,7 @@ import "./index.css";
 import App from "./App.jsx";
 import ErroAplicacao from './components/ErroAplicacao';
 import "./styles.css";
+import "./styles/terminal.css";
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

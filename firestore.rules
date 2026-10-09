@@ -108,8 +108,8 @@ service cloud.firestore {
 
     match /produtos/{document=**} {
       allow read: if canReadStoreData();
-      allow create: if canManageProducts() && canCreateStoreData() && request.resource.data.estoque is number && request.resource.data.estoque >= 0;
-      allow update: if canManageProducts() && canReadStoreData() && keepsStore() && request.resource.data.estoque is number && request.resource.data.estoque >= 0;
+      allow create: if canManageProducts() && canCreateStoreData() && request.resource.data.estoque is number && request.resource.data.estoque >= 0 && (!('giroDiario' in request.resource.data) || (request.resource.data.giroDiario is map && request.resource.data.giroDiario.size() == 0)) && (!('giroInicializado' in request.resource.data) || request.resource.data.giroInicializado == true);
+      allow update: if canManageProducts() && canReadStoreData() && keepsStore() && request.resource.data.estoque is number && request.resource.data.estoque >= 0 && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['giroDiario', 'giroInicializado']);
       allow delete: if canManageProducts() && canReadStoreData();
     }
 

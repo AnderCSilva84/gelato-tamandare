@@ -1,0 +1,76 @@
+{
+  "checkedAt": "2026-10-09T02:14:09.988Z",
+  "sites": [
+    {
+      "site": "https://gelatotht.netlify.app",
+      "deployId": "6ac84d80350fde6eeab7de21",
+      "assetsVerified": 6
+    },
+    {
+      "site": "https://cafe-guajara.netlify.app",
+      "deployId": "6ac84d8cc9e9a445b70fdebe",
+      "assetsVerified": 6
+    }
+  ],
+  "historicalPreparation": {
+    "projectId": "gelato-cb6fd",
+    "apply": true,
+    "stores": [
+      {
+        "store": "gelato-local",
+        "reads": 4454,
+        "products": 22,
+        "summaries": 147,
+        "unmatchedSales": 172,
+        "ambiguousSales": 0
+      },
+      {
+        "store": "sorveteria-e-acai",
+        "reads": 1623,
+        "products": 10,
+        "summaries": 68,
+        "unmatchedSales": 0,
+        "ambiguousSales": 0
+      },
+      {
+        "store": "tamandare",
+        "reads": 10952,
+        "products": 48,
+        "summaries": 86,
+        "unmatchedSales": 303,
+        "ambiguousSales": 0
+      }
+    ],
+    "financialDocumentsChanged": 0
+  },
+  "tests": [
+    "lint",
+    "build:gelato",
+    "build:cafe-guajara",
+    "test:seguranca",
+    "test-analytics",
+    "test-picos-vendas",
+    "test-homolog-cloud"
+  ],
+  "viewportChecks": [
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "physicalTabletValidated": false,
+  "homologationFixturesRemoved": true,
+  "productionNetworkChartVerified": true
+}

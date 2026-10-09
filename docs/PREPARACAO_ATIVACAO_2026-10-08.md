@@ -1,5 +1,9 @@
 # Preparação da ativação — 08/10/2026
 
+## Atualização da homologação
+
+O ambiente independente `pdv-acs-homolog-20261008` está publicado com prévia Netlify, backend Node.js 22 e dados financeiros fictícios. As 17 contas do backup foram restauradas e oito logins com senha foram verificados. Os testes de permissões, venda, estoque, caixa e anexo de nota fiscal passaram na nuvem. Permanecem a revisão de uma senha legada divergente, de três contas com o mesmo e-mail, a homologação física da impressão e a ativação coordenada em produção. Consulte `HOMOLOGACAO_RESULTADO_2026-10-08.md` para evidências atuais; os trechos abaixo registram etapas anteriores. A produção não foi migrada nem recebeu regras ou backend nesta homologação.
+
 ## Atualização após fechamento informado pelo usuário
 
 O usuário confirmou expressamente que Wesley usará a conta Master. O plano privado passou a `autorizacaoIdentidadeConfirmada: true`. A simulação foi repetida com resultado: 10 cadastros migráveis, zero pendências técnicas e zero vínculos aguardando confirmação. Perfil permanece `gerencia`, limitado a Gelato e Sabor & Açaí; nenhuma promoção a superadmin, troca de senha ou associação em produção foi aplicada nessa etapa. Os parágrafos abaixo registram as verificações anteriores à confirmação.

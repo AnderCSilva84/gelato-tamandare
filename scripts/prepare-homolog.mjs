@@ -35,6 +35,12 @@ const config = await request(`https://firebase.googleapis.com/v1beta1/${webApp.n
 if (config.projectId !== target) throw new Error('Configuracao aponta para outro projeto.');
 await request(`https://identitytoolkit.googleapis.com/admin/v2/projects/${target}/config?updateMask=signIn.email,client.permissions`, 'PATCH', { signIn: { email: { enabled: true, passwordRequired: true } }, client: { permissions: { disabledUserSignup: true, disabledUserDeletion: true } } });
 await request(`https://firebasestorage.googleapis.com/v1alpha/projects/${target}/defaultBucket`, 'POST', { location: 'southamerica-east1' });
+if (!/^\d+$/.test(String(config.messagingSenderId))) throw new Error('Numero do projeto Firebase invalido.');
+// firebase deploy --non-interactive skips this required cross-service grant.
+// Restrict the grant to the Storage service agent of this homologation project.
+try {
+  execFileSync('cmd.exe', ['/d', '/s', '/c', `gcloud projects add-iam-policy-binding ${target} --member=serviceAccount:service-${config.messagingSenderId}@gcp-sa-firebasestorage.iam.gserviceaccount.com --role=roles/firebaserules.firestoreServiceAgent --condition=None --quiet --format=json`], { stdio: ['ignore', 'pipe', 'pipe'] });
+} catch { throw new Error('Permissao de integracao Storage-Firestore nao confirmada.'); }
 config.storageBucket = `${target}.firebasestorage.app`;
 mkdirSync('.private-backups', { recursive: true });
 writeFileSync('.private-backups/homolog-web-config.json', JSON.stringify(config, null, 2));
@@ -55,7 +61,13 @@ if (!(await db.collection('configuracoes').doc('homologacao').get()).exists) {
   const writes = [];
   for (const row of stores.docs) {
     const s = row.data();
-    writes.push([`lojas/${row.id}`, { nome: s.nome || s.nomeFantasia || row.id, nomeFantasia: s.nomeFantasia || s.nome || row.id, redeId: s.redeId || 'gelato', ativa: true, status: 'ativa', impressaoHabilitada: true, homologacao: true }]);
+    const visual = {};
+    for (const key of ['logomarca', 'imagemCapaPdv']) {
+      const value = String(s[key] || '');
+      if (value && !/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(value)) throw new Error('Imagem externa precisa de copia isolada.');
+      visual[key] = value;
+    }
+    writes.push([`lojas/${row.id}`, { nome: s.nome || s.nomeFantasia || row.id, nomeFantasia: s.nomeFantasia || s.nome || row.id, ...visual, redeId: s.redeId || 'gelato', ativa: true, status: 'ativa', impressaoHabilitada: true, homologacao: true }]);
     writes.push([`produtos/homolog-${row.id}`, { uid: row.id, nome: 'Produto de teste', precoFinal: 10, precoCusto: 4, estoque: 100, unidadeVenda: 'un', ativo: true, homologacao: true }]);
   }
   for (const row of panels.docs) {
@@ -111,6 +123,7 @@ for (const file of readdirSync('functions').filter(file => /\.(js|json)$/.test(f
 const backend = readFileSync('functions/index.js', 'utf8');
 if (!backend.includes('maxInstances: 10')) throw new Error('Limite do backend precisa de revisao.');
 writeFileSync('artifacts/backend-homolog/index.js', backend.replace('maxInstances: 10', 'maxInstances: 1, minInstances: 0, concurrency: 10'));
-writeFileSync('artifacts/firebase.homolog.json', JSON.stringify({ firestore: { rules: '../firestore.rules', indexes: '../firestore.indexes.json' }, storage: { rules: '../storage.rules' }, functions: { source: 'backend-homolog', runtime: 'nodejs22' } }, null, 2));
+for (const file of ['firestore.rules', 'firestore.indexes.json', 'storage.rules']) copyFileSync(file, `artifacts/${file}`);
+writeFileSync('artifacts/firebase.homolog.json', JSON.stringify({ firestore: { rules: 'firestore.rules', indexes: 'firestore.indexes.json' }, storage: { rules: 'storage.rules' }, functions: { source: 'backend-homolog', runtime: 'nodejs22' } }, null, 2));
 await Promise.all([sourceDb.terminate(), db.terminate()]);
 console.log(JSON.stringify({ target, webConfigPrepared: true, backendMaxInstances: 1, backendMinInstances: 0 }));

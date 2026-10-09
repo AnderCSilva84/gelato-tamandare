@@ -1,0 +1,18 @@
+{
+  "projectId": "gelato-cb6fd",
+  "createdAt": "2026-10-09T00:43:09.964Z",
+  "source": "gelato-cb6fd.firebasestorage.app",
+  "destination": "gelato-cb6fd-resgate",
+  "objects": 1,
+  "bytes": 4970,
+  "notasFiscais": 0,
+  "apply": true,
+  "dadosPessoaisNoRelatorio": false,
+  "manifest": "storage/2026-10-09T00-43-09-964Z/manifest.json",
+  "manifestGeneration": "1791506593049113",
+  "manifestSha256": "6c3676b66261e0aeadc5618104018f1714f8f45e5fc920fc428f7d0fc3641e30",
+  "conteudosVerificados": 1,
+  "leituraAnonimaNegada": true,
+  "origemAlterada": false,
+  "snapshotAtomico": false
+}

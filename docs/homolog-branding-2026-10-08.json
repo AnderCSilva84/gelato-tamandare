@@ -1,0 +1,25 @@
+{
+  "target": "pdv-acs-homolog-20261008",
+  "stores": [
+    {
+      "id": "gelato-local",
+      "redeId": "gelato",
+      "logoPreserved": false,
+      "coverPreserved": true
+    },
+    {
+      "id": "sorveteria-e-acai",
+      "redeId": "gelato",
+      "logoPreserved": true,
+      "coverPreserved": true
+    },
+    {
+      "id": "tamandare",
+      "redeId": "emporio",
+      "logoPreserved": true,
+      "coverPreserved": true
+    }
+  ],
+  "visualVerified": true,
+  "productionModified": false
+}

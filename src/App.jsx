@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Capacitor } from '@capacitor/core';
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   apagarLancamento,
@@ -19,6 +20,7 @@ import logoGelato from "./assets/gelatoimg.jpeg";
 import "./styles/glass.css";
 import "./styles.css";
 import "./styles/responsive.css";
+import "./styles/pwa.css";
 
 const TelaAtendentes = lazy(() => import("./screens/Atendentes"));
 const TelaCaixa = lazy(() => import("./screens/Caixa"));
@@ -213,7 +215,8 @@ export default function App() {
 
   useEffect(() => {
     document.body.classList.toggle("theme-cafe-guajara", IS_CAFE_GUAJARA);
-    return () => document.body.classList.remove("theme-cafe-guajara");
+    document.body.classList.toggle('pwa-ui', !Capacitor.isNativePlatform());
+    return () => document.body.classList.remove("theme-cafe-guajara", 'pwa-ui');
   }, []);
 
   useEffect(() => {

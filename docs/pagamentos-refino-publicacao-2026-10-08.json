@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-09T02:21:17.711Z",
+  "sites": [
+    {
+      "site": "https://gelatotht.netlify.app",
+      "deployId": "6ac84f4d9beaad408a7a0d6f",
+      "assetsVerified": 2
+    },
+    {
+      "site": "https://cafe-guajara.netlify.app",
+      "deployId": "6ac84f59ce5d8ed3fee20a31",
+      "assetsVerified": 2
+    }
+  ],
+  "additionalDatabaseReads": 0,
+  "tabletOrientation": "landscape",
+  "viewportChecked": {
+    "width": 1024,
+    "height": 768
+  },
+  "syntheticChangeChecked": {
+    "total": 6,
+    "received": 20,
+    "change": 14
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "projectId": "pdv-acs-homolog-20261008",
+  "createdAt": "2026-10-09T02:00:56.131Z",
+  "authenticatedCallable": true,
+  "anonymousDenied": true,
+  "crossStoreDenied": true,
+  "directFinancialWriteDenied": true,
+  "managerSystemConfigDenied": true,
+  "superadminSystemConfigAllowed": true,
+  "invoiceUploadAndReadVerified": true,
+  "invoiceUnauthorizedUploadAndReadDenied": true,
+  "invoiceInvalidMimeDenied": true,
+  "saleAndRetryVerified": true,
+  "withdrawalVerified": true,
+  "cancellationAndStockVerified": true,
+  "cashClosingVerified": true,
+  "closedCashSaleDenied": true,
+  "productionModified": false
+}

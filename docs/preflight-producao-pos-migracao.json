@@ -1,0 +1,16 @@
+{
+  "projectId": "gelato-cb6fd",
+  "verificadoEm": "2026-10-09T01:07:34.045Z",
+  "somenteLeitura": true,
+  "caixasAbertos": 0,
+  "caixasLegadosAbertos": 0,
+  "caixasAbertosPorData": {},
+  "atendentes": 10,
+  "semAuthUid": 0,
+  "comSenhaLegada": 0,
+  "semRoleValida": 0,
+  "semLoja": 0,
+  "bloqueioPorCaixaLegado": false,
+  "verificacaoCompletaDeMigracao": false,
+  "dadosPessoaisNoRelatorio": false
+}

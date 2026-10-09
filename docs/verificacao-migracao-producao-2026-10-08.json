@@ -1,0 +1,14 @@
+{
+  "projectId": "gelato-cb6fd",
+  "verifiedAt": "2026-10-09T01:08:00.597Z",
+  "staff": 10,
+  "legacyPasswords": 0,
+  "authAccounts": 17,
+  "authPreserved": true,
+  "legacyLeticiaPanelsPreserved": 2,
+  "masterRole": "gerencia",
+  "masterStoreScopeVerified": true,
+  "admLoginUserConfirmed": true,
+  "storesStoppedUserConfirmed": true,
+  "financialGate": true
+}

@@ -1,0 +1,44 @@
+{
+  "publishedAt": "2026-10-09T01:37:36.046Z",
+  "sites": [
+    {
+      "name": "Gelato/Sabor",
+      "url": "https://gelatotht.netlify.app",
+      "deployId": "6ac845063abbea8779695fc2",
+      "verifiedHtml": true,
+      "verifiedAssets": 3
+    },
+    {
+      "name": "Cafe Guajara",
+      "url": "https://cafe-guajara.netlify.app",
+      "deployId": "6ac8451232aee74bf5a22ed8",
+      "verifiedHtml": true,
+      "verifiedAssets": 3
+    }
+  ],
+  "chartLocation": "Relatorios",
+  "metrics": [
+    "faturamento",
+    "pedidos"
+  ],
+  "timezone": "America/Fortaleza",
+  "extraFirestoreQueriesForChart": 0,
+  "nativeApkChanged": false,
+  "unitTestsPassed": true,
+  "lintPassed": true,
+  "productionBuildsPassed": true,
+  "isolatedVisualChecks": {
+    "chartRevenue": 595,
+    "chartOrders": 14,
+    "peakHour": "18h-19h",
+    "desktop": true,
+    "tablet": true,
+    "phoneViewportWidth": 375,
+    "phonePageWidth": 375,
+    "phoneCartClientWidth": 318,
+    "phoneCartScrollWidth": 318
+  },
+  "productionFinancialWritesInVerification": 0,
+  "productionChartLoadedWithRealData": true,
+  "homologTemporaryAccountAndFixturesRemoved": true
+}

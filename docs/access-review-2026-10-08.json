@@ -1,0 +1,29 @@
+{
+  "source": "gelato-cb6fd",
+  "target": "pdv-acs-homolog-20261008",
+  "authAccounts": 17,
+  "verifiedPasswordLogins": 8,
+  "failures": [
+    {
+      "id": "ro8VDcGdkzOsq7exCgEK",
+      "nome": "Adm",
+      "role": "superadmin",
+      "loja": "Gelato Tamandare",
+      "code": "INVALID_LOGIN_CREDENTIALS"
+    }
+  ],
+  "inconsistencies": [],
+  "duplicateGroups": [
+    {
+      "users": 3,
+      "linkedAttendees": 0,
+      "linkedPanels": 2,
+      "passwordUsers": 3,
+      "providers": [
+        "password"
+      ]
+    }
+  ],
+  "productionModified": false,
+  "createdAt": "2026-10-09T00:41:36.062Z"
+}

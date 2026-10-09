@@ -20,6 +20,7 @@ import {
 import { calcularResumoFinanceiro } from "../utils/financeiro";
 import { isManagementRole } from "../utils/access";
 import { descreverPagamentos, resumirPagamentos } from "../utils/pagamentos";
+import PicosVendas from '../components/PicosVendas';
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -269,6 +270,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
   const [dataFimFiltro, setDataFimFiltro] = useState(dataHoje);
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
+  const [erroPeriodo, setErroPeriodo] = useState('');
   const [vendasHoje, setVendasHoje] = useState([]);
   const [despesas, setDespesas] = useState([]);
   const [entradasConsolidadas, setEntradasConsolidadas] = useState([]);
@@ -296,6 +298,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
 
     async function carregarPeriodo() {
       setLoading(true);
+      setErroPeriodo('');
       try {
         const [vendasData, despesasData, retiradasData, entradasConsolidadasData] = await Promise.all([
           getVendas(uid, periodoFiltro.inicio, periodoFiltro.fim),
@@ -354,6 +357,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
         console.error("Erro ao carregar relatorio:", error);
         if (!ativo || periodoRequestRef.current !== requestId) return;
         setVendas([]);
+        setErroPeriodo('Não foi possível carregar as vendas deste período. Tente selecionar o intervalo novamente.');
         setDespesas([]);
         setEntradasConsolidadas([]);
         setRetiradas([]);
@@ -1048,6 +1052,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
           </button>
         </div>
       </div>
+
+      <PicosVendas vendas={vendas} loading={loading} erro={erroPeriodo} />
 
       <div className="section-card">
         <div className="section-header">

@@ -47,6 +47,8 @@ export async function addProduto(uid, produto) {
     precoCusto,
     precoFinal,
     estoque: Number(produto?.estoque || 0),
+    giroDiario: {},
+    giroInicializado: true,
     notaFiscal: String(produto?.notaFiscal || "").trim(),
     ...(produto?.notaFiscalAnexo ? { notaFiscalAnexo: produto.notaFiscalAnexo } : {}),
     grupoId: String(produto?.grupoId || "").trim(),

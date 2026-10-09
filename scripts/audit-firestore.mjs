@@ -9,6 +9,7 @@ function field(value) {
   if (Array.isArray(value)) return { arrayValue: { values: value.map(field) } };
   if (typeof value === 'boolean') return { booleanValue: value };
   if (typeof value === 'number') return { integerValue: String(value) };
+  if (value && typeof value === 'object') return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, field(item)])) } };
   return { stringValue: String(value) };
 }
 function token(uid) {
@@ -59,4 +60,7 @@ await check('F09 usuário autenticado reivindica superadmin legado', 'acessos_pa
 await check('G01 gerencia nao altera configuracao do sistema', 'configuracoes/sistema__loja-a', 'PATCH', { uid: 'loja-a', maintenanceMode: true }, 'gestor', 403);
 await check('G02 gerencia nao altera bloqueio financeiro global', 'configuracoes/operacoes_financeiras', 'PATCH', { bloqueadas: true }, 'gestor', 403);
 await check('G03 superadmin administra configuracao do sistema', 'configuracoes/sistema__loja-a', 'PATCH', { uid: 'loja-a', maintenanceMode: true }, 'admin', 200);
+await check('A01 gestor cria produto com giro vazio', 'produtos/analytics-new', 'PATCH', { uid: 'loja-a', nome: 'Novo', estoque: 0, giroInicializado: true, giroDiario: {} }, 'gestor', 200);
+await check('A02 gestor nao forja vendas do produto', 'produtos/analytics-new?updateMask.fieldPaths=giroDiario', 'PATCH', { giroDiario: { '2026-10-08': { quantidade: 99, valorCentavos: 10000 } } }, 'gestor', 403);
+await check('A03 gestor nao remove sinal de historico', 'produtos/analytics-new?updateMask.fieldPaths=giroInicializado', 'PATCH', { giroInicializado: false }, 'gestor', 403);
 console.log('Auditoria das regras concluída em projeto demo: 2 bloqueios básicos e regressoes de seguranca verificadas; gravacoes diretas e escalacao de privilegios bloqueadas.');

@@ -17,6 +17,7 @@ import {
 import { getPdfLogo } from "../utils/pdfLogo";
 import { FiBox } from "react-icons/fi";
 import { Capacitor } from '@capacitor/core';
+import GiroEstoque from '../components/GiroEstoque';
 import { uploadNotaFiscal, validarNotaFiscal, excluirNotaNaoVinculada } from '../services/notasFiscais';
 
 function initialForm() {
@@ -473,6 +474,7 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
         </div>
       </div>
 
+      {!Capacitor.isNativePlatform() && <GiroEstoque produtos={produtos} loading={loading} />}
       <div className="section-actions inventory-actions">
         <button className="action-btn action-btn-info" type="button" onClick={exportarInventarioPDF}>
           PDF Inventario

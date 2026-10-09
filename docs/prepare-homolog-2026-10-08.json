@@ -1,0 +1,13 @@
+{
+  "projectId": "pdv-acs-homolog-20261008",
+  "stores": 3,
+  "attendees": 10,
+  "verifiedRestoredPasswordLogins": 8,
+  "legacyPasswordFailures": {
+    "INVALID_LOGIN_CREDENTIALS": 1
+  },
+  "confirmedManagerScopes": 1,
+  "financialDataCopied": false,
+  "productionModified": false,
+  "createdAt": "2026-10-08T23:36:58.455Z"
+}

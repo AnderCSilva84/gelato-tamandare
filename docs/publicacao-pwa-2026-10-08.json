@@ -1,0 +1,36 @@
+{
+  "projectId": "gelato-cb6fd",
+  "verifiedAt": "2026-10-09T01:11:03.363Z",
+  "deployments": [
+    {
+      "name": "Gelato/Sabor",
+      "url": "https://gelatotht.netlify.app",
+      "deployId": "6ac83ee7321c0426f1ce58f2",
+      "deployUrl": "https://6ac83ee7321c0426f1ce58f2--gelatotht.netlify.app",
+      "htmlAndEntryAssetVerified": true,
+      "manifestName": "PDV ACS",
+      "themeColor": "#111827"
+    },
+    {
+      "name": "Cafe Guajara",
+      "url": "https://cafe-guajara.netlify.app",
+      "deployId": "6ac83ef31b69b058b6159a38",
+      "deployUrl": "https://6ac83ef31b69b058b6159a38--cafe-guajara.netlify.app",
+      "htmlAndEntryAssetVerified": true,
+      "manifestName": "PDV ACS",
+      "themeColor": "#4a2c1b"
+    }
+  ],
+  "anonymousCallableDenied": true,
+  "financialWritesInVerification": 0,
+  "activationCompletedAt": "2026-10-09T01:13:12.083Z",
+  "readyIndexes": 11,
+  "financialOperationsReleased": true,
+  "firestoreRulesDeployed": true,
+  "storageRulesDeployed": true,
+  "artifactCleanupDays": 1,
+  "admSessionObservedOnBothProductionSites": true,
+  "cafeStandaloneAndThemeVerified": true,
+  "gelatoSaborSelectorVerified": true,
+  "androidReleaseDeferred": true
+}

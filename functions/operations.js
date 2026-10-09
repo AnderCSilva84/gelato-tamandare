@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { giroAtualizado, saleHour } from './analytics.js';
 
 // This module is also exercised against the Firestore/Auth emulators.
 export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
@@ -42,7 +43,8 @@ export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
   }
   function summary(tx, sale, sign = 1) {
     const key = `${sale.uid}__${sale.data}`;
-    tx.set(ref('resumo_diario', key), { uid: sale.uid, data: sale.data, totalVendas: F.increment(sign * sale.valor), lucro: F.increment(sign * sale.valor), totalItens: F.increment(sign * sale.quantidade) }, { merge: true });
+    const hour = saleHour(sale);
+    tx.set(ref('resumo_diario', key), { uid: sale.uid, data: sale.data, totalRegistros: F.increment(sign), totalVendas: F.increment(sign * sale.valor), lucro: F.increment(sign * sale.valor), totalItens: F.increment(sign * sale.quantidade), ...(hour === null ? { totalSemHorario: F.increment(sign) } : { vendasPorHora: { [hour]: F.increment(sign * sale.valor) } }) }, { merge: true });
     if (sale.atendenteId) tx.set(ref('ranking_diario', key), { uid: sale.uid, data: sale.data, atendentes: { [sale.atendenteId]: { nome: sale.atendenteNome, total: F.increment(sign * sale.valor) } } }, { merge: true });
   }
   const paymentFields = { Dinheiro: 'totalDinheiro', PIX: 'totalPix', Debito: 'totalDebito', Credito: 'totalCredito' };
@@ -216,7 +218,7 @@ export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
           const saleId = `${operation}_${index}`;
           const sale = { uid: store, produto: item.product.nome, produtoId: item.productId, valor: item.cents / 100, quantidade: item.quantity, unidadeVenda: item.product.unidadeVenda || 'un', valorUnitario: item.price / 100, precoCustoHistorico: Number(item.product.precoCusto || 0), custoTotal: Math.round(Number(item.product.precoCusto || 0) * item.quantity * 100) / 100, atendente: cash.atendenteNome, atendenteNome: cash.atendenteNome, atendenteId: cash.atendenteId, caixaId: cashId, formaPagamento: payments.length === 1 ? payments[0].forma : 'Pagamento dividido', pagamentos: row, vendaGrupoId: operation, valorRecebido: cashPaid / 100, troco: change / 100, data: day, horario: new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Fortaleza', hour: '2-digit', minute: '2-digit' }), registradoEmMs: Date.now(), criadoEm: F.serverTimestamp(), autorUid: request.auth.uid, status: 'ativa' };
           tx.create(ref('vendas', saleId), sale);
-          tx.update(item.productRef, { estoque: Math.max(0, Number(item.product.estoque) - item.quantity) });
+          tx.update(item.productRef, { estoque: Math.max(0, Number(item.product.estoque) - item.quantity), ...giroAtualizado(item.product, sale) });
           tx.create(ref('movimentacoes_estoque', saleId), { uid: store, produtoId: item.productId, produto: item.product.nome, quantidade: item.quantity, variacao: -item.quantity, estoqueAnterior: Number(item.product.estoque), estoqueAtual: Math.max(0, Number(item.product.estoque) - item.quantity), tipo: 'SAIDA', observacao: `Venda ${operation}`, vendaId: saleId, criadoEm: F.serverTimestamp() });
           summary(tx, sale);
           tx.update(cashRef, cashDelta(sale));
@@ -236,6 +238,9 @@ export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
         if (action === 'criarEntrada' && old) return { id: d.id };
         if (!old && action !== 'criarEntrada') fail('not-found', 'Entrada nao encontrada.');
         const dinheiro = money(d.dinheiro ?? old?.dinheiro ?? 0), pix = money(d.pix ?? old?.pix ?? 0), cartao = money(d.cartao ?? old?.cartao ?? 0);
+        const entryDay = date(d.data ?? old?.data);
+        if (old && old.status !== 'cancelada') tx.set(ref('resumo_diario', `${store}__${old.data}`), { uid: store, data: old.data, totalEntradasConsolidadas: F.increment(-Number(old.total || 0)) }, { merge: true });
+        if (action !== 'cancelarEntrada') tx.set(ref('resumo_diario', `${store}__${entryDay}`), { uid: store, data: entryDay, totalEntradasConsolidadas: F.increment((dinheiro + pix + cartao) / 100) }, { merge: true });
         tx.set(target, { uid: store, data: date(d.data ?? old?.data), dinheiro: dinheiro / 100, pix: pix / 100, cartao: cartao / 100, total: (dinheiro + pix + cartao) / 100, status: action === 'cancelarEntrada' ? 'cancelada' : 'ativa', atualizadoEm: F.serverTimestamp(), ...(!old ? { criadoEm: F.serverTimestamp() } : {}) }, { merge: true });
         tx.create(db.collection('auditoria_financeira').doc(), { uid: store, action, documento: d.id, autorUid: request.auth.uid, criadoEm: F.serverTimestamp() });
         return { id: d.id };
@@ -288,6 +293,11 @@ export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
         const delta = nextCents - money(old.valor);
         const balance = money(cash.fundoCaixa || 0) + money(cash.totalDinheiro || 0) - money(cash.totalRetiradas || 0);
         if (delta > balance) fail('failed-precondition', 'Saldo insuficiente.');
+        tx.set(ref('resumo_diario', `${old.uid}__${old.data}`), { uid: old.uid, data: old.data, totalRetiradas: F.increment(-old.valor) }, { merge: true });
+        if (action !== 'cancelarRetirada') {
+          const nextDay = date(d.data ?? old.data);
+          tx.set(ref('resumo_diario', `${old.uid}__${nextDay}`), { uid: old.uid, data: nextDay, totalRetiradas: F.increment(nextCents / 100) }, { merge: true });
+        }
         tx.update(cashRef, { totalRetiradas: F.increment(delta / 100) });
         tx.update(target, { ...(action === 'cancelarRetirada' ? { status: 'cancelada' } : { valor: nextCents / 100, motivo: text(d.motivo ?? old.motivo, 1000), data: date(d.data ?? old.data) }), atualizadoEm: F.serverTimestamp(), autorAlteracao: request.auth.uid });
         tx.create(db.collection('auditoria_financeira').doc(), { uid: old.uid, action, documento: d.id, autorUid: request.auth.uid, valorAnterior: old.valor, valorNovo: nextCents / 100, criadoEm: F.serverTimestamp() });
@@ -330,10 +340,11 @@ export function createOperations({ db, auth, FieldValue: F, HttpsError }) {
           if (cents > available || !text(d.motivo, 1000)) fail('failed-precondition', 'Saldo insuficiente ou motivo ausente.');
           tx.create(target, { uid: cash.uid, caixaId: cashId, atendenteId: cash.atendenteId, atendenteNome: cash.atendenteNome, valor: cents / 100, motivo: text(d.motivo, 1000), data: today(), criadoEm: F.serverTimestamp(), autorUid: request.auth.uid });
           tx.update(cashRef, { totalRetiradas: F.increment(cents / 100) });
+          tx.set(ref('resumo_diario', `${cash.uid}__${today()}`), { uid: cash.uid, data: today(), totalRetiradas: F.increment(cents / 100) }, { merge: true });
           return { id: operation };
         }
         tx.update(ref('vendas', d.id), { status: 'cancelada', motivoCancelamento: text(d.motivo, 1000), canceladaEm: F.serverTimestamp(), canceladaPor: request.auth.uid });
-        tx.update(productRef, { estoque: Number(product.estoque) + Number(sale.quantidade) });
+        tx.update(productRef, { estoque: Number(product.estoque) + Number(sale.quantidade), ...giroAtualizado(product, sale, -1) });
         summary(tx, sale, -1);
         tx.update(cashRef, cashDelta(sale, -1));
         tx.create(ref('lancamentos', `estorno_${d.id}`), { uid: cash.uid, tipo: 'cancelamento_venda_caixa', data: sale.data, mes: sale.data.slice(0, 7), valor: sale.valor, vendaId: d.id, caixaId: cashId, motivo: text(d.motivo, 1000), autorizadoPor: p.nome || request.auth.uid, criadoEm: F.serverTimestamp() });

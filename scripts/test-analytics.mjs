@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { giroAtualizado, saleHour } from '../functions/analytics.js';
+import { giroProdutos, picosDosResumos } from '../src/utils/analytics.js';
+const sale = { data: '2026-10-05', quantidade: 0.125, valor: 3.33 };
+const giro = giroAtualizado({}, sale);
+assert.deepEqual(giroAtualizado(giro, sale, -1).giroDiario[sale.data], { quantidade: 0, valorCentavos: 0 });
+assert.equal(saleHour({ horario: '25:30' }), null);
+assert.equal(saleHour({ horario: '18:30' }), 18);
+assert.equal(saleHour({ registradoEmMs: Date.parse('2026-10-06T02:30:00Z') }), 23);
+const products = giroProdutos([{ id: 'a', giroInicializado: true, giroDiario: { '2026-09-01': { quantidade: 2, valorCentavos: 100 }, '2026-10-05': { quantidade: 0, valorCentavos: 0 } } }, { id: 'b', giroInicializado: false, ...giro }, { id: 'c', giroInicializado: true }], '2026-10', '2026-10-08');
+assert.equal(products[0].dias, 37); assert.equal(products[0].quantidadeVendida, 0);
+assert.equal(products[1].dias, null); assert.equal(products[2].dias, null);
+const result = picosDosResumos([{ data: '2026-10-05', totalVendas: 0.1, vendasPorHora: { 18: 0.1 } }, { data: '2026-10-05', totalVendas: 0.2, vendasPorHora: { 18: 0.2 }, totalSemHorario: 1 }]);
+assert.equal(result.total.faturamento, 0.3); assert.equal(result.dias[1].faturamento, 0.3); assert.equal(result.horas[18].faturamento, 0.3); assert.equal(result.semHorario, 1);
+console.log('Analytics: centavos, quilos, estorno, fuso, ausência de datas e agregação entre unidades verificados.');

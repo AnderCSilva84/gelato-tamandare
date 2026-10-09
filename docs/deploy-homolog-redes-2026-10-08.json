@@ -1,0 +1,15 @@
+{
+  "projectId": "pdv-acs-homolog-20261008",
+  "previews": [
+    {
+      "mode": "gelato",
+      "url": "https://6ac836a75525baedd91897b2--gelatotht.netlify.app"
+    },
+    {
+      "mode": "cafe-guajara",
+      "url": "https://6ac836b5d7bd0df207fd7268--cafe-guajara.netlify.app"
+    }
+  ],
+  "productionPublished": false,
+  "createdAt": "2026-10-09T00:35:17.355Z"
+}

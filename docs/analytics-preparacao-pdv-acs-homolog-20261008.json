@@ -1,0 +1,31 @@
+{
+  "projectId": "pdv-acs-homolog-20261008",
+  "apply": true,
+  "stores": [
+    {
+      "store": "gelato-local",
+      "reads": 8,
+      "products": 1,
+      "summaries": 7,
+      "unmatchedSales": 0,
+      "ambiguousSales": 0
+    },
+    {
+      "store": "sorveteria-e-acai",
+      "reads": 1,
+      "products": 1,
+      "summaries": 0,
+      "unmatchedSales": 0,
+      "ambiguousSales": 0
+    },
+    {
+      "store": "tamandare",
+      "reads": 1,
+      "products": 1,
+      "summaries": 0,
+      "unmatchedSales": 0,
+      "ambiguousSales": 0
+    }
+  ],
+  "financialDocumentsChanged": 0
+}

@@ -1,0 +1,17 @@
+{
+  "projectId": "gelato-cb6fd",
+  "createdAt": "2026-10-09T00:43:06.936Z",
+  "object": "auth/2026-10-09T00-43-06-936Z.json",
+  "users": 17,
+  "passwordUsers": 17,
+  "bytes": 10724,
+  "sha256": "b24f83e4f8fec13008eca91d5df139fcd3b2ec74e18c4ccdca914aceb3ea649b",
+  "bucket": "gelato-cb6fd-resgate",
+  "verification": {
+    "generation": "1791506588361486",
+    "tamanhoEHashConferidos": true,
+    "leituraAnonimaNegada": true,
+    "statusAnonimo": 401
+  },
+  "dadosPessoaisNoRelatorio": false
+}

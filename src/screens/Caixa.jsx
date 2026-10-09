@@ -1,6 +1,9 @@
 import { confirmarSenhaAtendente } from "../services/auth";
 import { operacaoPersistente, temOperacaoPendente, recuperarOperacaoPendente } from "../services/operacoes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Capacitor } from '@capacitor/core';
+import { FiCreditCard, FiDollarSign } from 'react-icons/fi';
+import { SiPix } from 'react-icons/si';
 import { getPdfLogo } from "../utils/pdfLogo";
 import {
   abrirCaixa,
@@ -1652,8 +1655,8 @@ export default function Caixa({
 
             <aside className="section-card pdv-card pdv-order-panel">
               <div className="section-header">
-                <div className="section-title">Venda atual</div>
-                <span className="section-subtitle">{caixaAtual.atendenteNome}</span>
+                <div className="section-title">Pedido atual</div>
+                <span className="section-subtitle">{Capacitor.isNativePlatform() ? caixaAtual.atendenteNome : `${itensVendaDetalhados.length} item(ns)`}</span>
               </div>
 
               {mostrandoRetirada ? (
@@ -1748,16 +1751,27 @@ export default function Caixa({
                   </button>
                 </div>
 
-                <div className="pdv-split-payments">
+                <div className={`pdv-split-payments ${pagamentos.length === 1 ? 'is-single-payment' : ''}`}>
+                  {!Capacitor.isNativePlatform() && pagamentos.length === 1 ? <div className="pdv-payment-shortcuts" role="group" aria-label="Forma de pagamento">
+                    {FORMAS_PAGAMENTO.map(forma => <button key={forma} data-payment={forma} type="button" aria-pressed={pagamentos[0].forma === forma}
+                      disabled={salvandoVenda || imprimindo}
+                      onClick={() => setPagamentos([{ forma, valor: totalCarrinho.toFixed(2) }])}>
+                      {forma === 'PIX' ? <SiPix aria-hidden="true" /> : forma === 'Dinheiro' ? <FiDollarSign aria-hidden="true" /> : <FiCreditCard aria-hidden="true" />}
+                      <span>{forma === 'PIX' ? 'Pix' : forma === 'Debito' ? 'Cartão de débito' : forma === 'Credito' ? 'Cartão de crédito' : forma}</span>
+                    </button>)}
+                  </div> : null}
                   {pagamentos.map((pagamento, index) => (
                     <div className="pdv-payment-grid" key={`${index}-${pagamento.forma}`}>
                       <select className="input select pdv-panel-input" value={pagamento.forma}
                         onChange={(e) => atualizarPagamento(index, "forma", e.target.value)}>
                         {FORMAS_PAGAMENTO.map((forma) => <option value={forma} key={forma}>{forma}</option>)}
                       </select>
+                      <label className="pdv-payment-value-card">
+                        {!Capacitor.isNativePlatform() && <span>Valor nesta forma de pagamento</span>}
                       <input className="input pdv-panel-input" type="number" min="0.01" step="0.01"
                         value={pagamento.valor} onChange={(e) => atualizarPagamento(index, "valor", e.target.value)}
                         placeholder="Valor nesta forma" />
+                      </label>
                       <button className="mini-btn danger" type="button" onClick={() => removerPagamento(index)}
                         disabled={pagamentos.length === 1}>Remover</button>
                     </div>
@@ -1779,7 +1793,7 @@ export default function Caixa({
                     <div className="pdv-cash-summary">
                       <div className="pdv-cash-row">
                         <span>Troco</span>
-                        <strong className="positive">{formatMoney(trocoAtual)}</strong>
+                        <strong className={Capacitor.isNativePlatform() ? 'positive' : undefined}>{formatMoney(trocoAtual)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1801,7 +1815,9 @@ export default function Caixa({
                         key={item.produtoId}
                       >
                         <div className="pdv-cart-table-product">
+                          {!Capacitor.isNativePlatform() && getProdutoImagem(item.produto) ? <img className="pdv-cart-thumbnail" src={getProdutoImagem(item.produto)} alt="" /> : null}
                           <strong>{item.nome}</strong>
+                          {!Capacitor.isNativePlatform() && item.unidadeVenda !== 'kg' && <small className="pdv-cart-unit-mobile">{formatMoney(item.precoUnitario)} cada</small>}
                           <button
                             className="mini-btn danger"
                             type="button"
@@ -1826,7 +1842,13 @@ export default function Caixa({
                             />
                           </div>
                         ) : (
-                          <span>{item.quantidade}</span>
+                          !Capacitor.isNativePlatform() ? <div className="pdv-quantity-control">
+                            <button type="button" aria-label={`Diminuir quantidade de ${item.nome}`} disabled={item.quantidade <= 1 || salvandoVenda || imprimindo}
+                              onClick={() => atualizarItemVenda(item.produtoId, 'quantidade', Number(item.quantidade) - 1)}>−</button>
+                            <span>{item.quantidade}</span>
+                            <button type="button" aria-label={`Aumentar quantidade de ${item.nome}`} disabled={Number(item.quantidade) >= Number(item.produto.estoque) || salvandoVenda || imprimindo}
+                              onClick={() => atualizarItemVenda(item.produtoId, 'quantidade', Number(item.quantidade) + 1)}>+</button>
+                          </div> : <span>{item.quantidade}</span>
                         )}
                         {item.unidadeVenda === "kg" ? (
                           <div className="pdv-cart-metric-field">
@@ -1851,7 +1873,7 @@ export default function Caixa({
                 </div>
 
                 <div className="pdv-cart-total pdv-cart-total-emphasis">
-                  <span>{itensVendaDetalhados.length} produto(s)</span>
+                  <span>{Capacitor.isNativePlatform() ? `${itensVendaDetalhados.length} produto(s)` : 'Total'}</span>
                   <strong className="positive">{formatMoney(totalCarrinho)}</strong>
                 </div>
 
@@ -1869,7 +1891,7 @@ export default function Caixa({
                     type="submit"
                     disabled={salvandoVenda || imprimindo || !itensVendaDetalhados.length || carrinhoTemPendencias}
                   >
-                    {salvandoVenda ? "Salvando..." : "Receber e Finalizar"}
+                    {salvandoVenda ? "Salvando..." : Capacitor.isNativePlatform() ? "Receber e Finalizar" : `Finalizar ${formatMoney(totalCarrinho)}`}
                   </button>
                 </div>
 

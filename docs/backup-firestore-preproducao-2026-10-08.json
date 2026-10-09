@@ -1,0 +1,9 @@
+{
+  "projectId": "gelato-cb6fd",
+  "outputUriPrefix": "gs://gelato-cb6fd-resgate/firestore/preproducao-20261008",
+  "state": "SUCCESSFUL",
+  "documents": 18027,
+  "bytes": 12166964,
+  "completedAt": "2026-10-09T01:05:03.089664Z",
+  "userAuthorizedFullPayload": true
+}

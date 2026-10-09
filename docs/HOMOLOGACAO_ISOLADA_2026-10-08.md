@@ -1,5 +1,11 @@
 # Homologacao isolada — 08/10/2026
 
+## Atualização: ambiente publicado e testes aprovados
+
+Após autorização do usuário, o projeto foi vinculado ao faturamento da produção. As 17 contas foram restauradas, oito logins com senha foram confirmados e a prévia, o backend, as regras, os índices e o Storage foram publicados exclusivamente na homologação. Os testes de venda, estoque, caixa, permissões e anexo fictício passaram na nuvem. A produção permanece intacta.
+
+O resultado atual e as pendências estão em [HOMOLOGACAO_RESULTADO_2026-10-08.md](HOMOLOGACAO_RESULTADO_2026-10-08.md). As seções abaixo registram o estado anterior à autorização e não representam pendências atuais de faturamento ou publicação.
+
 ## Concluido
 
 - Projeto Cloud separado `pdv-acs-homolog-20261008` criado e associado ao Firebase.
